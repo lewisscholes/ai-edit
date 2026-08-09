@@ -2539,9 +2539,11 @@ function renderArgs(){
     '[0:v]trim=start='+c.start.toFixed(3)+':end='+c.end.toFixed(3)+',setpts=PTS-STARTPTS[v'+i+'];'+
     '[0:a]atrim=start='+c.start.toFixed(3)+':end='+c.end.toFixed(3)+',asetpts=PTS-STARTPTS,afade=t=in:d='+fade.toFixed(3)+',afade=t=out:st='+Math.max(0,c.end-c.start-fade).toFixed(3)+':d='+fade.toFixed(3)+'[a'+i+'];').join('');
   const chain=kept.map((_,i)=>'[v'+i+'][a'+i+']').join('');
-  const fc=parts+chain+'concat=n='+kept.length+':v=1:a=1[v][a]';
+  /* upscale to at least 1080 wide (TikTok minimum) when the source is smaller —
+     e.g. iOS compresses library videos during the web hand-off */
+  const fc=parts+chain+'concat=n='+kept.length+":v=1:a=1[vc][a];[vc]scale='if(lt(iw,1080),1080,iw)':-2:flags=lanczos[v]";
   return ['-i','input.mp4','-filter_complex',fc,'-map','[v]','-map','[a]',
-          '-c:v','libx264','-preset','ultrafast','-crf','20','-c:a','aac','-b:a','160k',
+          '-c:v','libx264','-preset','superfast','-crf','18','-c:a','aac','-b:a','192k',
           '-movflags','+faststart','output.mp4'];
 }
 let _rendering=false;
