@@ -2543,7 +2543,6 @@ function renderArgs(upscale){
   /* upscale to at least 1080 wide (TikTok minimum) when the source is smaller —
      e.g. iOS compresses library videos during the web hand-off. Plain scale only:
      expression filters hang the wasm build. */
-  const upscale=!!arguments[0];
   const fc=parts+chain+'concat=n='+kept.length+':v=1:a=1'+(upscale?'[vc][a];[vc]scale=1080:-2:flags=lanczos[v]':'[v][a]');
   return ['-i','input.mp4','-filter_complex',fc,'-map','[v]','-map','[a]',
           '-c:v','libx264','-preset','ultrafast','-crf','17','-c:a','aac','-b:a','192k',
