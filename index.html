@@ -1022,7 +1022,22 @@ async function api(body){
 }
 /* Extract 16kHz mono WAV from the video in-browser — the backend only needs
    audio for analysis, so we upload ~1MB instead of the full video file. */
+/* audio extraction: Web Audio fast path (Chrome), then ffmpeg.wasm fallback
+   (iOS Safari can't decodeAudioData a video container), then full video */
 async function extractAudio(file){
+  try{ const b=await extractViaWebAudio(file); return {blob:b,ext:'.wav'}; }
+  catch(e){ const b=await extractViaFFmpeg(file); return {blob:b,ext:'.m4a'}; }
+}
+async function extractViaFFmpeg(file){
+  const ff=await getFFmpeg();
+  await ff.writeFile('ain.mp4',new Uint8Array(await file.arrayBuffer()));
+  await ff.exec(['-i','ain.mp4','-vn','-ac','1','-ar','16000','-c:a','aac','-b:a','48k','aout.m4a']);
+  const out=await ff.readFile('aout.m4a');
+  await ff.deleteFile('ain.mp4').catch(()=>{}); await ff.deleteFile('aout.m4a').catch(()=>{});
+  if(!out||!out.length) throw new Error('no audio track found');
+  return new Blob([out.buffer],{type:'audio/mp4'});
+}
+async function extractViaWebAudio(file){
   const buf=await file.arrayBuffer();
   const AC=window.AudioContext||window.webkitAudioContext;
   const probe=new AC();
@@ -1051,8 +1066,8 @@ async function extractAudio(file){
 const PIPELINE = {
   async upload(file){
     let blob=file, name=file.name;
-    try{ blob=await extractAudio(file); name=name.replace(/\.[^.]+$/,'')+'.wav'; }
-    catch(e){ /* fall back to uploading the full video */ }
+    try{ const a=await extractAudio(file); blob=a.blob; name=name.replace(/\.[^.]+$/,'')+a.ext; }
+    catch(e){ /* last resort: upload the full video */ }
     const p=await api({action:'presign',filename:name});
     const put=await fetch(p.uploadUrl,{method:'PUT',body:blob});
     if(!put.ok) throw new Error('Upload failed ('+put.status+')');
