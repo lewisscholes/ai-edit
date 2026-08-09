@@ -109,7 +109,8 @@ html.dark body{background:#0e1014}
 .backedit:hover{background:var(--blue-dk)}
 .exportall{display:inline-flex;align-items:center;gap:8px;background:var(--green);color:#fff;font-weight:800;font-size:13.5px;padding:11px 18px;border-radius:12px}
 .exportall:disabled{opacity:.45;cursor:default}
-.kcols{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.kcols{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+@media(max-width:1080px){.kcols{grid-template-columns:1fr 1fr}}
 @media(max-width:860px){.kcols{grid-template-columns:1fr}}
 .kcol{background:var(--soft2);border-radius:16px;padding:14px;min-height:120px}
 .kcol h3{margin:0 0 12px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);display:flex;align-items:center;gap:8px}
@@ -536,21 +537,23 @@ input[type=range].vol{width:64px;flex:none}
   .rail>div{position:absolute;top:10px;right:10px;z-index:35;margin:0!important;gap:6px}
   .rail>div .iconbtn{width:38px;height:38px;border-radius:50%;background:rgba(10,12,18,.5);color:#fff;border:none;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
   /* toolbar first */
-  .rail{order:2;flex:none;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:none;border-bottom:1px solid var(--line);padding:4px 8px;gap:3px;align-items:center;background:var(--panel)}
-  .rail .rbtn{width:auto;min-width:48px;padding:4px 7px 3px;font-size:9.5px;gap:2px}
-  .rail .rbtn .ric svg.ic{width:16px;height:16px}
-  .railspace{flex:1;min-width:6px}
-  .exportrail{width:auto;padding:7px 12px;flex-direction:row;gap:5px;font-size:11.5px}
+  .rail{order:2;flex:none;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:none;border-bottom:1px solid var(--line);padding:7px 14px;gap:6px;align-items:center;background:var(--panel)}
+  .rail .rbtn{width:auto;min-width:58px;padding:6px 9px 5px;font-size:10.5px;gap:3px}
+  .rail .rbtn .ric svg.ic{width:18px;height:18px}
+  .railspace{flex:1;min-width:8px}
+  .exportrail{width:auto;padding:9px 15px;flex-direction:row;gap:6px;font-size:12.5px;margin-right:2px}
   /* timeline second — scrubbable */
   .stripwrap{order:3;padding:4px 10px 6px;flex:none}
   .ruler{height:13px;margin-bottom:3px;font-size:9px}
-  .strip{height:48px;gap:4px;touch-action:none}
+  .strip{height:48px;gap:4px}
   .clipcard{min-width:40px;border-radius:8px}
   .clipcard .cnum{width:14px;height:14px;font-size:8.5px;top:3px;left:4px}
   .clipcard .ctxt{display:none}
   .flowwrap{display:none}
-  /* player bar third — a solid strip */
-  .transport{order:4;position:static;transform:none;width:100%;max-width:none;border-radius:0;box-shadow:none;background:var(--panel);border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:6px 12px;gap:7px;flex:none}
+  /* player bar third — a solid strip (no volume slider on phones) */
+  .transport{order:4;position:static;transform:none;width:100%;max-width:none;border-radius:0;box-shadow:none;background:var(--panel);border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:8px 14px;gap:9px;flex:none}
+  #vol,#muteBtn{display:none}
+  .stage{box-shadow:0 4px 16px rgba(0,0,0,.22)} /* kill the heavy black glow bleeding onto the toolbar */
   .playbtn{width:32px;height:32px;font-size:12px}
   .modetgl button{padding:4px 10px;font-size:11.5px}
   .tico{font-size:14px;padding:2px}
@@ -804,6 +807,7 @@ input[type=range].vol{width:64px;flex:none}
     <div class="kcol"><h3><span class="kspin" id="procSpin"></span>Processing<span class="cnt" id="cntProc">0</span></h3><div id="colProc"></div></div>
     <div class="kcol"><h3>Ready to review<span class="cnt" id="cntRev">0</span></h3><div id="colRev"></div></div>
     <div class="kcol"><h3>Ready to export<span class="cnt" id="cntExp">0</span></h3><div id="colExp"></div></div>
+    <div class="kcol"><h3>Downloaded<span class="cnt" id="cntDone">0</span></h3><div id="colDone"></div></div>
   </div>
 </div>
 
@@ -1708,6 +1712,31 @@ const STEPS=[
 ];
 /* =============== batch / review queue machinery =================== */
 const batch=[]; /* jobs: {name,file,url,thumb,status,payload,rawSec,editedSec,pending,choices,manuals,settings,err} */
+/* ---- persistence: jobs (incl. the video file itself) survive refreshes ---- */
+let _idb=null;
+function idb(){ return _idb||(_idb=new Promise((res,rej)=>{ try{ const r=indexedDB.open('chop',1); r.onupgradeneeded=()=>r.result.createObjectStore('jobs',{keyPath:'name'}); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }catch(e){rej(e);} })); }
+async function dbPutJob(j){
+  if(!j||!j.payload||j.status==='error') return;
+  try{ const db=await idb(); db.transaction('jobs','readwrite').objectStore('jobs')
+    .put({name:j.name,status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,settings:j.settings||null,thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,blob:j.file||null,ts:Date.now()});
+  }catch(e){}
+}
+async function dbAllJobs(){ try{ const db=await idb(); return await new Promise(res=>{ const rq=db.transaction('jobs').objectStore('jobs').getAll(); rq.onsuccess=()=>res(rq.result||[]); rq.onerror=()=>res([]); }); }catch(e){ return []; } }
+async function restoreJobs(){
+  const rows=await dbAllJobs();
+  rows.sort((a,b)=>(a.ts||0)-(b.ts||0));
+  let n=0;
+  rows.forEach(r=>{
+    if(!r.payload||jobByName(r.name)) return;
+    let file=null,url=null;
+    try{ if(r.blob){ file=new File([r.blob],r.name,{type:r.blob.type||'video/mp4'}); url=URL.createObjectURL(file); } }catch(e){}
+    const st=(r.status==='processing'||r.status==='queued')?'review':r.status;
+    const j={name:r.name,file,url,thumb:r.thumb,status:st,payload:r.payload,choices:r.choices,manuals:r.manuals,settings:r.settings,pending:0};
+    jobStats(j); batch.push(j); n++;
+    if(!state.edits.find(e=>e.name===j.name)) state.edits.push({name:j.name,grad:GRADS[state.edits.length%GRADS.length]});
+  });
+  if(n){ renderEditsGrid(); renderKanban(); updateQueueBadge(); }
+}
 let currentJobName=null, batchRunning=false;
 const jobByName=n=>batch.find(j=>j.name===n);
 function batchMode(){ return batch.length>1; }
@@ -1762,7 +1791,7 @@ async function processJobBg(j){
     const key=await PIPELINE.upload(j.file);
     const jobId=await PIPELINE.transcribe(key);
     j.payload=await PIPELINE.analyze(jobId);
-    j.status='review'; jobStats(j); registerJob(j);
+    j.status='review'; jobStats(j); registerJob(j); dbPutJob(j);
   }catch(e){ j.status='error'; j.err=(e&&e.message)||'failed'; toast(j.name+': '+j.err); }
   renderKanban(); updateQueueBadge();
 }
@@ -1796,7 +1825,7 @@ async function startEdit(isDemo){
   first.status='processing'; renderKanban();
   try{
     first.payload=await runPipelineOnce('Editing '+first.name+(batch.filter(b=>b.status==='queued').length?' (more processing in background)…':'…'),false,first.file);
-    first.status='review'; jobStats(first); registerJob(first);
+    first.status='review'; jobStats(first); registerJob(first); dbPutJob(first);
   }catch(e){ first.status='error'; first.err=(e&&e.message)||'failed'; toast(first.name+': '+first.err); showView('home'); runBatch(); return; }
   openJob(first);
   runBatch();
@@ -1811,9 +1840,11 @@ function saveCurrentJob(){
   /* once a reviewed video has every retake decided, it's ready to export */
   if(j.status==='review'&&j.pending===0) j.status='approved';
   else if(j.status==='approved'&&j.pending>0) j.status='review';
+  dbPutJob(j);
 }
 function openJob(j){
   if(!j.payload){ toast(j.name+' is still processing'); return; }
+  if(!j.file) toast(j.name+': video preview unavailable on this device — cuts and retakes still editable');
   saveCurrentJob();
   currentJobName=j.name;
   state.file=j.file; state.fileUrl=j.url; resetThumbs();
@@ -1863,6 +1894,8 @@ function loadEditor(isDemo,payload,opts){
   renderAll();
   paintTime(0);
   if(pendingPairs()) toast('Auto edit ready — '+pendingPairs()+' retakes need your review');
+  else if(state.realAnalysis&&rawDur()>5&&editedDur()<rawDur()*0.2)
+    toast('Heads up — we only found '+Math.round(editedDur())+'s of speech in this '+Math.round(rawDur())+'s video, so the edit is short. Raise “Remove silences” to keep more.');
 }
 
 /* ---------------- lifetime stats (localStorage) -------------------- */
@@ -1995,16 +2028,22 @@ function kanbanCard(j){
     b.onclick=()=>exportJob(j,b);
     act.appendChild(b);
   }
+  if(j.status==='exported'){
+    const b=document.createElement('button'); b.className='ed'; b.style.background='var(--soft2)'; b.style.color='var(--ink)'; b.textContent='Again';
+    b.onclick=()=>exportJob(j,b);
+    act.appendChild(b);
+  }
   d.appendChild(act);
   return d;
 }
 function renderKanban(){
   if(!$('colProc')) return;
-  const cols={proc:[],rev:[],exp:[]};
+  const cols={proc:[],rev:[],exp:[],done:[]};
   batch.forEach(j=>{
     if(j.status==='queued'||j.status==='processing') cols.proc.push(j);
     else if(j.status==='review'||j.status==='error') cols.rev.push(j);
-    else cols.exp.push(j);
+    else if(j.status==='approved') cols.exp.push(j);
+    else cols.done.push(j);
   });
   const fill=(el,list,empty)=>{
     el.innerHTML='';
@@ -2013,12 +2052,14 @@ function renderKanban(){
   };
   fill($('colProc'),cols.proc,'Nothing processing — drop more videos on the dashboard');
   fill($('colRev'),cols.rev,'Nothing waiting for review');
-  fill($('colExp'),cols.exp,'Approve videos in the editor to queue them here');
+  fill($('colExp'),cols.exp,'Decide all retakes on a video to queue it here');
+  fill($('colDone'),cols.done,'Exported videos land here so you never download twice');
   $('cntProc').textContent=cols.proc.length;
   $('cntRev').textContent=cols.rev.filter(j=>j.status==='review').length;
-  $('cntExp').textContent=cols.exp.filter(j=>j.status==='approved').length;
+  $('cntExp').textContent=cols.exp.length;
+  $('cntDone').textContent=cols.done.length;
   $('procSpin').style.display=cols.proc.length?'':'none';
-  const readyN=cols.exp.filter(j=>j.status==='approved').length;
+  const readyN=cols.exp.length;
   $('exportAllLbl').textContent='Export all ready ('+readyN+')';
   $('exportAllBtn').disabled=readyN===0;
   const cur=currentJobName&&jobByName(currentJobName);
@@ -2034,6 +2075,7 @@ function applyJobToState(j){
   if(j.settings) state.settings={...j.settings};
 }
 async function exportJob(j,btn){
+  if(!j.file){ toast(j.name+': the video file isn’t stored on this device — re-upload it, then export'); return; }
   if(_rendering){ toast('Another export is already running — one at a time'); return; }
   const wasCurrent=currentJobName; saveCurrentJob();
   applyJobToState(j); currentJobName=j.name;
@@ -2052,7 +2094,7 @@ async function exportJob(j,btn){
     a.href=URL.createObjectURL(new Blob([out.buffer],{type:'video/mp4'}));
     a.download=j.name.replace(/\.[^.]+$/,'')+'-chopped.mp4'; a.click();
     setTimeout(()=>URL.revokeObjectURL(a.href),30000);
-    j.status='exported';
+    j.status='exported'; dbPutJob(j);
     toast(j.name+' exported');
   }catch(e){ toast(j.name+': export failed — '+((e&&e.message)||'try again')); if(btn){ btn.disabled=false; btn.textContent='Export'; } }
   _rendering=false;
@@ -2606,21 +2648,7 @@ $('renderBtn').onclick=async()=>{
   }
   placeTransport();
   window.addEventListener('resize',placeTransport);
-  /* timeline scrubbing: drag anywhere on the strip to seek */
-  (function(){
-    const stripEl=$('strip');
-    let scrubOn=false;
-    function seekFromEvent(e){
-      const r=stripEl.getBoundingClientRect();
-      const x=(e.touches&&e.touches[0]?e.touches[0].clientX:e.clientX);
-      const frac=Math.max(0,Math.min(1,(x-r.left)/r.width));
-      const t=state.mode==='edited'?editedToRaw(frac*editedDur()):frac*rawDur();
-      state.snippet=null; player.time=t; paintTime(t);
-    }
-    stripEl.addEventListener('pointerdown',e=>{ scrubOn=true; seekFromEvent(e); });
-    window.addEventListener('pointermove',e=>{ if(scrubOn) seekFromEvent(e); },{passive:true});
-    window.addEventListener('pointerup',()=>{ scrubOn=false; });
-  })();
+  restoreJobs();
   /* mobile: scrolling the panel shrinks the video; scrolling back to top expands it */
   const spEl=document.querySelector('.spanel');
   spEl.addEventListener('scroll',()=>{
