@@ -24,7 +24,30 @@ html.dark{
   --violet:#b79bff; --violet-soft:#271e3d;
   --green:#3ad39c; --green-soft:#12291f;
   --panel:#161922; --hovbg:#20242f; --soft2:#20242f; --range:#2a3140; --bord2:#39404f; --tglbg:#39404f; --hdr:rgba(14,16,20,.85);
+  background:#0e1014; color-scheme:dark;
 }
+html.dark body{background:#0e1014}
+/* ================= billing ================= */
+.bal{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 24px;margin-bottom:28px}
+.bal .zap{width:44px;height:44px;border-radius:12px;background:var(--blue-soft);display:grid;place-items:center;font-size:20px}
+.bal b{font-size:22px;display:block}
+.bal small{color:var(--mut)}
+.backlink{display:inline-flex;align-items:center;gap:6px;color:var(--blue);font-weight:700;font-size:13.5px;cursor:pointer;margin-bottom:18px}
+.packs{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px}
+.pack{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:24px 22px;text-align:center;position:relative;transition:.15s}
+.pack:hover{transform:translateY(-3px);box-shadow:0 12px 26px rgba(16,19,25,.09)}
+.pack.pop{border-color:var(--blue);box-shadow:0 10px 26px rgba(26,109,255,.15)}
+.pack .tag{position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:var(--blue);color:#fff;font-size:11px;font-weight:800;padding:3px 12px;border-radius:12px;white-space:nowrap}
+.pack .creds{font-size:34px;font-weight:800;color:var(--blue)}
+.pack .creds small{font-size:15px}
+.pack .name{font-weight:700;margin-top:2px}
+.pack .price{font-size:22px;font-weight:800;margin-top:12px}
+.pack .per{color:var(--mut);font-size:12.5px;margin-top:2px}
+.pack .save{display:inline-block;margin-top:8px;background:var(--green-soft);color:var(--green);font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:12px;visibility:hidden}
+.pack .save.show{visibility:visible}
+.pack .buy{margin-top:16px;width:100%;padding:11px;border-radius:11px;background:var(--blue);color:#fff;font-weight:800;font-size:14px}
+.pack .buy:hover{background:var(--blue-dk)}
+.bfoot{color:var(--mut);font-size:12.5px;text-align:center;margin-top:22px}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%}
 body{background:var(--bg);color:var(--ink);font:14.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
@@ -308,7 +331,7 @@ input[type=range].vol{width:64px;flex:none}
   <div class="hwrap">
     <div class="logo"><svg class="mark" viewBox="0 0 64 64" style="background:none;border-radius:8px"><defs><linearGradient id="lgm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1a6dff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#lgm)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="#fff"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="#fff" opacity=".55"/></svg>Chop</div>
     <div class="hspace"></div>
-    <span class="chip">⚡ 200 credits</span>
+    <span class="chip" id="creditsChip">⚡ 200 credits</span>
     <div class="prof">
       <button class="avatar" id="profBtn" title="Profile">L</button>
       <div class="pmenu hidden" id="pMenu">
@@ -370,6 +393,55 @@ input[type=range].vol{width:64px;flex:none}
   <div class="edits-h"><h2>Your edits</h2><span class="n" id="editCount">0</span></div>
   <div class="egrid hidden" id="egrid"></div>
   <div class="empty" id="editsEmpty">Videos you edit will show up here.</div>
+</div>
+
+<!-- ============ BILLING ============ -->
+<div class="wrap hidden" id="viewBilling">
+  <span class="backlink" id="billBack">← Back to dashboard</span>
+  <div class="hero">
+    <h1>Billing</h1>
+    <p>Buy credits to chop your videos. One credit edits one video, any length up to 10 minutes.</p>
+  </div>
+  <div class="bal">
+    <div class="zap">⚡</div>
+    <div><b id="balNum">0 credits</b><small>Your current balance</small></div>
+  </div>
+  <div class="packs">
+    <div class="pack">
+      <div class="creds">5<small> credits</small></div>
+      <div class="name">Starter</div>
+      <div class="price">£5</div>
+      <div class="per">£1.00 per video</div>
+      <span class="save">&nbsp;</span>
+      <button class="buy" data-pack="starter">Buy Starter</button>
+    </div>
+    <div class="pack">
+      <div class="creds">20<small> credits</small></div>
+      <div class="name">Creator</div>
+      <div class="price">£17</div>
+      <div class="per">£0.85 per video</div>
+      <span class="save show">Save 15%</span>
+      <button class="buy" data-pack="creator">Buy Creator</button>
+    </div>
+    <div class="pack pop">
+      <div class="tag">MOST POPULAR</div>
+      <div class="creds">50<small> credits</small></div>
+      <div class="name">Pro</div>
+      <div class="price">£37.50</div>
+      <div class="per">£0.75 per video</div>
+      <span class="save show">Save 25%</span>
+      <button class="buy" data-pack="pro">Buy Pro</button>
+    </div>
+    <div class="pack">
+      <div class="creds">150<small> credits</small></div>
+      <div class="name">Studio</div>
+      <div class="price">£97.50</div>
+      <div class="per">£0.65 per video</div>
+      <span class="save show">Save 35%</span>
+      <button class="buy" data-pack="studio">Buy Studio</button>
+    </div>
+  </div>
+  <div class="bfoot">Payments powered by Stripe · Credits never expire · VAT included</div>
 </div>
 
 <!-- ============ PROCESSING ============ -->
@@ -1169,6 +1241,7 @@ function loadEditor(isDemo,payload){
     state.edits.unshift({name,grad:GRADS[state.edits.length%GRADS.length]});
     renderEditsGrid();
     statsRecord(rawDur()-editedDur());
+    if(!isDemo) creditsSet(Math.max(0,creditsGet()-1));
   }
   showView('editor');
   openPanel('retakes');
@@ -1243,10 +1316,15 @@ function showView(v){
   $('viewHome').classList.toggle('hidden',v!=='home');
   $('viewProc').classList.toggle('hidden',v!=='proc');
   $('viewEditor').classList.toggle('hidden',v!=='editor');
+  $('viewBilling').classList.toggle('hidden',v!=='billing');
   $('hdr').classList.toggle('full',v==='editor');
   document.body.style.overflow=v==='editor'?'hidden':'';
   window.scrollTo(0,0);
 }
+/* ---------------- credits ------------------------------------------ */
+function creditsGet(){ try{ const v=localStorage.getItem('chopCredits'); return v===null?200:Math.max(0,parseInt(v,10)||0); }catch(e){ return 200; } }
+function creditsSet(n){ try{localStorage.setItem('chopCredits',String(n));}catch(e){} renderCredits(); }
+function renderCredits(){ const n=creditsGet(); $('creditsChip').textContent='⚡ '+n+' credits'; if($('balNum')) $('balNum').textContent=n+' credits'; }
 
 /* ---------------- export ------------------------------------------- */
 function buildEdl(){
@@ -1314,8 +1392,13 @@ $('cpFfmpeg').onclick=()=>{ navigator.clipboard.writeText(ffmpegCmd()).then(()=>
   $('pmTheme').onclick=()=>setTheme(!document.documentElement.classList.contains('dark'));
   $('profBtn').onclick=e=>{ e.stopPropagation(); $('pMenu').classList.toggle('hidden'); };
   document.addEventListener('click',e=>{ if(!e.target.closest('.prof')) $('pMenu').classList.add('hidden'); });
-  $('pmBilling').onclick=()=>{ $('pMenu').classList.add('hidden'); toast('💳 Billing page is in design review — coming next'); };
+  $('pmBilling').onclick=()=>{ $('pMenu').classList.add('hidden'); renderCredits(); showView('billing'); };
   $('pmSettings').onclick=()=>{ $('pMenu').classList.add('hidden'); toast('⚙️ Settings coming soon'); };
+  $('billBack').onclick=()=>showView('home');
+  document.querySelectorAll('.pack .buy').forEach(b=>{
+    b.onclick=()=>toast('💳 Stripe checkout coming soon — payments aren’t live yet');
+  });
+  renderCredits();
 })();
 </script>
 </body>
