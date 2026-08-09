@@ -83,6 +83,41 @@ html.dark body{background:#0e1014}
 .gbtn:hover{color:var(--ink)}
 .gbtn.on{background:var(--glasson);color:var(--ink);box-shadow:0 2px 10px rgba(16,19,25,.12)}
 .gbtn.on svg{color:var(--blue)}
+.gbtn .gbdg{background:var(--blue);color:#fff;font-size:10px;font-weight:800;min-width:17px;height:17px;border-radius:9px;line-height:17px;text-align:center;padding:0 4px}
+/* ================= review queue (kanban) ================= */
+.rbtn.rqueue{background:linear-gradient(135deg,#1a6dff,#7c3aed);color:#fff;box-shadow:0 4px 14px rgba(26,109,255,.4)}
+.rbtn.rqueue:hover{filter:brightness(1.08)}
+.rbtn.rqueue .bdg{background:#fff;color:var(--blue-dk)}
+.exportrail.approve{background:var(--green);box-shadow:0 4px 14px rgba(14,159,110,.35)}
+.qhead{display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap}
+.qhead h1{font-size:24px;margin:0;flex:1}
+.backedit{display:inline-flex;align-items:center;gap:8px;background:var(--blue);color:#fff;font-weight:800;font-size:13.5px;padding:11px 18px;border-radius:12px;box-shadow:0 4px 14px rgba(26,109,255,.3)}
+.backedit:hover{background:var(--blue-dk)}
+.exportall{display:inline-flex;align-items:center;gap:8px;background:var(--green);color:#fff;font-weight:800;font-size:13.5px;padding:11px 18px;border-radius:12px}
+.exportall:disabled{opacity:.45;cursor:default}
+.kcols{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+@media(max-width:860px){.kcols{grid-template-columns:1fr}}
+.kcol{background:var(--soft2);border-radius:16px;padding:14px;min-height:120px}
+.kcol h3{margin:0 0 12px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);display:flex;align-items:center;gap:8px}
+.kcol h3 .cnt{background:var(--card);border-radius:10px;padding:1px 9px;font-size:11px;color:var(--ink)}
+.kempty{color:var(--mut);font-size:12.5px;text-align:center;padding:18px 6px}
+.vcard{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:10px;margin-bottom:10px;display:flex;gap:11px;align-items:center}
+.vthumb{width:44px;aspect-ratio:9/16;border-radius:8px;flex:none;background:linear-gradient(160deg,#3c4454,#20242c);background-size:cover;background-position:center}
+.vmeta{flex:1;min-width:0}
+.vmeta b{font-size:12.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vmeta small{color:var(--mut);font-size:11px;display:block}
+.kchip{display:inline-block;font-size:9.5px;font-weight:800;padding:2px 8px;border-radius:9px;margin-top:3px}
+.kchip.proc{background:var(--card);color:var(--mut)}
+.kchip.rev{background:var(--amber-soft);color:var(--amber)}
+.kchip.exp{background:var(--green-soft);color:var(--green)}
+.kchip.now{background:var(--blue-soft);color:var(--blue-dk)}
+.kchip.err{background:var(--rose-soft);color:var(--rose)}
+.vact{display:flex;flex-direction:column;gap:6px}
+.vact button{font-weight:800;font-size:11.5px;padding:7px 13px;border-radius:9px;color:#fff}
+.vact .ed{background:var(--blue)}
+.vact .ex{background:var(--green)}
+.vact .ex:disabled{opacity:.5;cursor:default}
+.kspin{width:13px;height:13px;border:2.5px solid var(--blue-soft);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;flex:none}
 *{box-sizing:border-box}
 svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
 .ric svg.ic{width:19px;height:19px}
@@ -521,9 +556,24 @@ input[type=range].vol{width:64px;flex:none}
   </div>
 </div>
 
+<!-- ============ REVIEW QUEUE (KANBAN) ============ -->
+<div class="wrap hidden" id="viewQueue">
+  <div class="qhead">
+    <h1>Review queue</h1>
+    <button class="backedit hidden" id="backEditBtn"><svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M14 5l-7 7 7 7"/></svg><span id="backEditLbl">Back to my edit</span></button>
+    <button class="exportall" id="exportAllBtn"><svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M12 4v10.5m0 0l-4-4m4 4l4-4M5 19.5h14"/></svg><span id="exportAllLbl">Export all ready</span></button>
+  </div>
+  <div class="kcols">
+    <div class="kcol"><h3><span class="kspin" id="procSpin"></span>Processing<span class="cnt" id="cntProc">0</span></h3><div id="colProc"></div></div>
+    <div class="kcol"><h3>Ready to review<span class="cnt" id="cntRev">0</span></h3><div id="colRev"></div></div>
+    <div class="kcol"><h3>Ready to export<span class="cnt" id="cntExp">0</span></h3><div id="colExp"></div></div>
+  </div>
+</div>
+
 <!-- ============ GLASS NAV ============ -->
 <nav class="glassnav" id="glassNav">
   <button class="gbtn on" id="navDash"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg>Dashboard</button>
+  <button class="gbtn" id="navQueue"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><rect x="3.5" y="4" width="5" height="16" rx="1.2"/><rect x="10" y="4" width="5" height="10" rx="1.2"/><rect x="16.5" y="4" width="5" height="13" rx="1.2"/></svg>Queue<span class="gbdg hidden" id="navQueueBdg">0</span></button>
   <button class="gbtn" id="navLab"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><circle cx="6" cy="6.5" r="2.4"/><circle cx="6" cy="17.5" r="2.4"/><path d="M8 8.1L19.5 19M8 15.9L19.5 5"/></svg>Cut Lab</button>
 </nav>
 
@@ -553,6 +603,7 @@ input[type=range].vol{width:64px;flex:none}
     <button class="rbtn" data-panel="text"><span class="ric"><svg class="ic" viewBox="0 0 24 24"><path d="M5.5 7V4.5h13V7M12 4.5V19.5M9 19.5h6"/></svg></span>Text</button>
     <button class="rbtn" data-panel="image"><span class="ric"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4.5 17l4.5-4.5 3.5 3.5 3-3 4 4"/></svg></span>Image</button>
     <button class="rbtn" data-panel="subtitles"><span class="ric"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M7 12.2h4M13.5 12.2h3.5M7 15.2h2.2M11.5 15.2h5.5"/></svg></span>Subtitles</button>
+    <button class="rbtn rqueue" id="railQueueBtn"><span class="bdg zero" id="queueBdg"></span><span class="ric"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="4" width="5" height="16" rx="1.2"/><rect x="10" y="4" width="5" height="10" rx="1.2"/><rect x="16.5" y="4" width="5" height="13" rx="1.2"/></svg></span>Queue</button>
     <div class="railspace"></div>
     <button class="exportrail" id="exportBtn"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M12 4v10.5m0 0l-4-4m4 4l4-4M5 19.5h14"/></svg>Export</button>
   </div>
@@ -744,30 +795,28 @@ async function extractAudio(file){
   return new Blob([pcm.buffer],{type:'audio/wav'});
 }
 const PIPELINE = {
-  key:null, jobId:null,
-  async upload(){
-    let blob=state.file, name=state.file.name;
-    try{ blob=await extractAudio(state.file); name=name.replace(/\.[^.]+$/,'')+'.wav'; }
+  async upload(file){
+    let blob=file, name=file.name;
+    try{ blob=await extractAudio(file); name=name.replace(/\.[^.]+$/,'')+'.wav'; }
     catch(e){ /* fall back to uploading the full video */ }
     const p=await api({action:'presign',filename:name});
     const put=await fetch(p.uploadUrl,{method:'PUT',body:blob});
     if(!put.ok) throw new Error('Upload failed ('+put.status+')');
-    this.key=p.key;
+    return p.key;
   },
-  async transcribe(){
-    const p=await api({action:'process',key:this.key});
-    this.jobId=p.jobId;
+  async transcribe(key){
+    const p=await api({action:'process',key});
+    return p.jobId;
   },
-  async analyze(){
+  async analyze(jobId){
     for(let i=0;i<240;i++){
-      const s=await api({action:'status',jobId:this.jobId});
+      const s=await api({action:'status',jobId});
       if(s.status==='done') return s;
       if(s.status==='error') throw new Error(s.error||'Processing failed');
       await wait(2000);
     }
     throw new Error('Timed out waiting for analysis');
-  },
-  async render(){ }
+  }
 };
 function wait(ms){ return new Promise(r=>setTimeout(r,ms)); }
 
@@ -1295,7 +1344,7 @@ $('vol').oninput=function(){ if(state.useRealVideo) $('vid').volume=+this.value;
     :'<svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.8a7.6 7.6 0 0 1 0 10.4"/></svg>'; };
 $('muteBtn').onclick=function(){ const v=$('vol'); v.value=+v.value===0?1:0; v.oninput.call(v); };
 $('fsBtn').onclick=()=>{ const s=$('stage'); if(s.requestFullscreen) s.requestFullscreen().catch(()=>{}); };
-$('backBtn').onclick=()=>{ player.pause(); showView('home'); };
+$('backBtn').onclick=()=>{ player.pause(); saveCurrentJob(); updateQueueBadge(); showView('home'); };
 
 /* ---------------- home / upload queue ------------------------------ */
 const drop=$('drop'), fi=$('fileInput');
@@ -1358,8 +1407,12 @@ const STEPS=[
   ['Matching retakes','Fuzzy transcript match · keep-last suggested'],
   ['Building your edit','Assembling the cut list']
 ];
-const library={}; /* name → {file,url,payload} */
-async function runPipelineOnce(title,isDemo){
+/* =============== batch / review queue machinery =================== */
+const batch=[]; /* jobs: {name,file,url,thumb,status,payload,rawSec,editedSec,pending,choices,manuals,settings,err} */
+let currentJobName=null, batchRunning=false;
+const jobByName=n=>batch.find(j=>j.name===n);
+function batchMode(){ return batch.length>1; }
+async function runPipelineOnce(title,isDemo,file){
   $('procTitle').textContent=title;
   const holder=$('procSteps'); holder.innerHTML='';
   const rows=STEPS.map(([b,s],i)=>{
@@ -1368,13 +1421,13 @@ async function runPipelineOnce(title,isDemo){
     holder.appendChild(d); return d;
   });
   const fill=$('pbarFill'); fill.style.width='0%';
-  let payload=null;
+  let payload=null,key=null,jobId=null;
   for(let i=0;i<rows.length;i++){
     rows[i].className='pstep run';
     rows[i].querySelector('.st').innerHTML='<div class="spinner"></div>';
-    if(i===0&&!isDemo) await PIPELINE.upload();
-    else if(i===1&&!isDemo) await PIPELINE.transcribe();
-    else if(i===5&&!isDemo) payload=await PIPELINE.analyze();
+    if(i===0&&!isDemo) key=await PIPELINE.upload(file);
+    else if(i===1&&!isDemo) jobId=await PIPELINE.transcribe(key);
+    else if(i===5&&!isDemo) payload=await PIPELINE.analyze(jobId);
     else await wait(520+(i===4?420:0));
     rows[i].className='pstep done';
     rows[i].querySelector('.st').textContent='✓';
@@ -1382,35 +1435,96 @@ async function runPipelineOnce(title,isDemo){
   }
   return payload;
 }
+function jobStats(j){
+  const p=j.payload; if(!p) return;
+  const segs=p.segments||[];
+  j.rawSec=segs.length?segs[segs.length-1].end:(p.duration||0);
+  const st=j.settings||cutDefaults();
+  let cut=0;
+  segs.forEach(s=>{
+    if(s.kind==='silence'&&(s.end-s.start)>=st.minSil) cut+=s.end-s.start;
+    else if(s.kind==='filler'&&st.fillers&&(!s.soft||st.soft)) cut+=s.end-s.start;
+  });
+  j.editedSec=Math.max(0,j.rawSec-cut);
+  const total=(p.pairs||[]).length;
+  const decided=(j.choices||[]).filter(c=>c!==null&&c!==undefined).length;
+  j.pending=Math.max(0,total-decided);
+}
+function registerJob(j){
+  if(state.edits.find(e=>e.name===j.name)) return;
+  state.edits.unshift({name:j.name,grad:GRADS[state.edits.length%GRADS.length]});
+  renderEditsGrid();
+  statsRecord(Math.max(0,(j.rawSec||0)-(j.editedSec||0)));
+  creditsSet(Math.max(0,creditsGet()-1));
+}
+async function processJobBg(j){
+  j.status='processing'; renderKanban(); updateQueueBadge();
+  try{
+    const key=await PIPELINE.upload(j.file);
+    const jobId=await PIPELINE.transcribe(key);
+    j.payload=await PIPELINE.analyze(jobId);
+    j.status='review'; jobStats(j); registerJob(j);
+  }catch(e){ j.status='error'; j.err=(e&&e.message)||'failed'; toast(j.name+': '+j.err); }
+  renderKanban(); updateQueueBadge();
+}
+async function runBatch(){
+  if(batchRunning) return; batchRunning=true;
+  while(true){
+    const j=batch.find(x=>x.status==='queued');
+    if(!j) break;
+    await processJobBg(j);
+  }
+  batchRunning=false;
+  renderKanban();
+}
 async function startEdit(isDemo){
-  showView('proc');
   if(isDemo){
-    try{ await runPipelineOnce('Editing demo-footage.mp4…',true); }catch(e){}
+    showView('proc');
+    try{ await runPipelineOnce('Editing demo-footage.mp4…',true,null); }catch(e){}
     loadEditor(true,demoSegments());
     return;
   }
-  const jobs=queue.splice(0,queue.length); renderQueue();
-  let firstDone=null, failed=0;
-  for(let k=0;k<jobs.length;k++){
-    const j=jobs[k];
-    const title='Editing '+j.file.name+(jobs.length>1?' ('+(k+1)+' of '+jobs.length+')…':'…');
-    state.file=j.file; state.fileUrl=j.url; resetThumbs();
-    try{
-      const payload=await runPipelineOnce(title,false);
-      library[j.file.name]={file:j.file,url:j.url,payload};
-      loadEditor(false,payload,{silent:true});
-      if(!firstDone) firstDone=j.file.name;
-    }catch(err){ failed++; toast(j.file.name+': '+err.message); }
-  }
-  if(!firstDone){ showView('home'); return; }
-  openFromLibrary(firstDone);
-  if(jobs.length>1) toast((jobs.length-failed)+' videos chopped — the rest are in Your edits');
+  const picked=queue.splice(0,queue.length); renderQueue();
+  picked.forEach(q=>{
+    if(jobByName(q.file.name)) return;
+    batch.push({name:q.file.name,file:q.file,url:q.url,thumb:q.thumb,status:'queued',payload:null,choices:null,manuals:null,settings:null,pending:0});
+  });
+  updateQueueBadge();
+  const first=batch.find(x=>x.status==='queued');
+  if(!first){ showView('home'); return; }
+  /* first video runs on the animated processing screen; the rest continue in background */
+  showView('proc');
+  first.status='processing'; renderKanban();
+  try{
+    first.payload=await runPipelineOnce('Editing '+first.name+(batch.filter(b=>b.status==='queued').length?' (more processing in background)…':'…'),false,first.file);
+    first.status='review'; jobStats(first); registerJob(first);
+  }catch(e){ first.status='error'; first.err=(e&&e.message)||'failed'; toast(first.name+': '+first.err); showView('home'); runBatch(); return; }
+  openJob(first);
+  runBatch();
+}
+function saveCurrentJob(){
+  const j=currentJobName&&jobByName(currentJobName);
+  if(!j||!j.payload||!state.realAnalysis) return;
+  j.choices=state.pairs.map(p=>p.choice);
+  j.manuals=state.segments.map(s=>s.manual);
+  j.settings={...state.settings};
+  j.rawSec=rawDur(); j.editedSec=editedDur(); j.pending=pendingPairs();
+}
+function openJob(j){
+  if(!j.payload){ toast(j.name+' is still processing'); return; }
+  saveCurrentJob();
+  currentJobName=j.name;
+  state.file=j.file; state.fileUrl=j.url; resetThumbs();
+  loadEditor(false,j.payload);
+  if(j.choices) j.choices.forEach((c,i)=>{ if(state.pairs[i]!==undefined) state.pairs[i].choice=c; });
+  if(j.manuals) state.segments.forEach((s,i)=>{ s.manual=(j.manuals[i]===undefined?null:j.manuals[i]); });
+  if(j.settings) state.settings={...j.settings};
+  syncSettingUI(); renderAll(); paintTime(0); syncExportBtn();
 }
 function openFromLibrary(name){
-  const lib=library[name];
-  if(!lib){ toast('That edit isn’t available in this session — run it again'); return; }
-  state.file=lib.file; state.fileUrl=lib.url; resetThumbs();
-  loadEditor(false,lib.payload);
+  const j=jobByName(name);
+  if(!j){ toast('That edit isn’t available in this session — run it again'); return; }
+  openJob(j);
 }
 
 function loadEditor(isDemo,payload,opts){
@@ -1517,12 +1631,130 @@ function showView(v){
   $('viewEditor').classList.toggle('hidden',v!=='editor');
   $('viewBilling').classList.toggle('hidden',v!=='billing');
   $('viewLab').classList.toggle('hidden',v!=='lab');
+  $('viewQueue').classList.toggle('hidden',v!=='queue');
   $('glassNav').classList.toggle('hidden',v==='editor'||v==='proc');
   $('navDash').classList.toggle('on',v==='home'||v==='billing');
   $('navLab').classList.toggle('on',v==='lab');
+  $('navQueue').classList.toggle('on',v==='queue');
   $('hdr').classList.toggle('full',v==='editor');
   document.body.style.overflow=v==='editor'?'hidden':'';
   window.scrollTo(0,0);
+}
+/* ---------------- kanban rendering + export ------------------------ */
+function updateQueueBadge(){
+  const n=batch.filter(j=>j.status!=='exported'&&j.status!=='error').length;
+  const b=$('queueBdg'); b.textContent=n; b.classList.toggle('zero',n===0);
+  const g=$('navQueueBdg'); g.textContent=n; g.classList.toggle('hidden',n===0);
+  syncExportBtn();
+}
+function syncExportBtn(){
+  const btn=$('exportBtn');
+  const approveMode=batchMode()&&state.realAnalysis;
+  btn.classList.toggle('approve',approveMode);
+  btn.innerHTML=approveMode
+    ?'<svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M4.5 12.5l5 5L19.5 7"/></svg>Approve'
+    :'<svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M12 4v10.5m0 0l-4-4m4 4l4-4M5 19.5h14"/></svg>Export';
+}
+function kanbanCard(j){
+  const d=document.createElement('div'); d.className='vcard';
+  const th=document.createElement('div'); th.className='vthumb';
+  if(j.thumb&&j.thumb!=='err') th.style.backgroundImage='url('+j.thumb+')';
+  d.appendChild(th);
+  const m=document.createElement('div'); m.className='vmeta';
+  let sub='', chip='';
+  if(j.status==='processing') { sub='processing…'; chip='<span class="kchip proc">PROCESSING</span>'; }
+  else if(j.status==='queued'){ sub='waiting'; chip='<span class="kchip proc">QUEUED</span>'; }
+  else if(j.status==='error'){ sub=j.err||'failed'; chip='<span class="kchip err">FAILED</span>'; }
+  else{
+    sub=fmt(j.rawSec||0)+' → '+fmt(j.editedSec||0)+(j.pending?' · '+j.pending+' retake'+(j.pending>1?'s':'')+' to decide':' · no retakes pending');
+    if(j.name===currentJobName&&j.status==='review') chip='<span class="kchip now">EDITING NOW</span>';
+    else if(j.status==='review') chip='<span class="kchip rev">NEEDS REVIEW</span>';
+    else if(j.status==='approved') chip='<span class="kchip exp">APPROVED</span>';
+    else if(j.status==='exported') chip='<span class="kchip exp">EXPORTED</span>';
+  }
+  m.innerHTML='<b>'+escapeHtml(j.name)+'</b><small>'+escapeHtml(sub)+'</small>'+chip;
+  d.appendChild(m);
+  const act=document.createElement('div'); act.className='vact';
+  if(j.status==='review'){
+    const b=document.createElement('button'); b.className='ed';
+    b.textContent=j.name===currentJobName?'Resume':'Edit';
+    b.onclick=()=>openJob(j);
+    act.appendChild(b);
+  }
+  if(j.status==='approved'){
+    const b=document.createElement('button'); b.className='ex'; b.textContent='Export';
+    b.onclick=()=>exportJob(j,b);
+    act.appendChild(b);
+  }
+  d.appendChild(act);
+  return d;
+}
+function renderKanban(){
+  if(!$('colProc')) return;
+  const cols={proc:[],rev:[],exp:[]};
+  batch.forEach(j=>{
+    if(j.status==='queued'||j.status==='processing') cols.proc.push(j);
+    else if(j.status==='review'||j.status==='error') cols.rev.push(j);
+    else cols.exp.push(j);
+  });
+  const fill=(el,list,empty)=>{
+    el.innerHTML='';
+    if(!list.length){ el.innerHTML='<div class="kempty">'+empty+'</div>'; return; }
+    list.forEach(j=>el.appendChild(kanbanCard(j)));
+  };
+  fill($('colProc'),cols.proc,'Nothing processing — drop more videos on the dashboard');
+  fill($('colRev'),cols.rev,'Nothing waiting for review');
+  fill($('colExp'),cols.exp,'Approve videos in the editor to queue them here');
+  $('cntProc').textContent=cols.proc.length;
+  $('cntRev').textContent=cols.rev.filter(j=>j.status==='review').length;
+  $('cntExp').textContent=cols.exp.filter(j=>j.status==='approved').length;
+  $('procSpin').style.display=cols.proc.length?'':'none';
+  const readyN=cols.exp.filter(j=>j.status==='approved').length;
+  $('exportAllLbl').textContent='Export all ready ('+readyN+')';
+  $('exportAllBtn').disabled=readyN===0;
+  const cur=currentJobName&&jobByName(currentJobName);
+  $('backEditBtn').classList.toggle('hidden',!cur||!cur.payload);
+  if(cur) $('backEditLbl').textContent='Back to my edit — '+cur.name;
+}
+function openKanban(){ saveCurrentJob(); renderKanban(); showView('queue'); }
+function applyJobToState(j){
+  state.file=j.file; state.fileUrl=j.url;
+  loadEditor(false,j.payload,{silent:true});
+  if(j.choices) j.choices.forEach((c,i)=>{ if(state.pairs[i]!==undefined) state.pairs[i].choice=c; });
+  if(j.manuals) state.segments.forEach((s,i)=>{ s.manual=(j.manuals[i]===undefined?null:j.manuals[i]); });
+  if(j.settings) state.settings={...j.settings};
+}
+async function exportJob(j,btn){
+  if(_rendering){ toast('Another export is already running — one at a time'); return; }
+  const wasCurrent=currentJobName; saveCurrentJob();
+  applyJobToState(j); currentJobName=j.name;
+  const args=renderArgs(), file=j.file;
+  if(btn){ btn.disabled=true; btn.textContent='0%'; }
+  _rendering=true;
+  try{
+    const ff=await getFFmpeg();
+    ff.on('progress',({progress})=>{ if(btn) btn.textContent=Math.round(Math.max(0,Math.min(1,progress))*100)+'%'; });
+    await ff.writeFile('input.mp4',new Uint8Array(await file.arrayBuffer()));
+    await ff.exec(args);
+    const out=await ff.readFile('output.mp4');
+    await ff.deleteFile('input.mp4').catch(()=>{}); await ff.deleteFile('output.mp4').catch(()=>{});
+    if(!out||!out.length) throw new Error('no output');
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(new Blob([out.buffer],{type:'video/mp4'}));
+    a.download=j.name.replace(/\.[^.]+$/,'')+'-chopped.mp4'; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+    j.status='exported';
+    toast(j.name+' exported');
+  }catch(e){ toast(j.name+': export failed — '+((e&&e.message)||'try again')); if(btn){ btn.disabled=false; btn.textContent='Export'; } }
+  _rendering=false;
+  /* restore whichever video the user was editing */
+  const back=wasCurrent&&jobByName(wasCurrent);
+  if(back&&back.payload){ applyJobToState(back); currentJobName=back.name; }
+  renderKanban(); updateQueueBadge();
+}
+async function exportAllReady(){
+  const ready=batch.filter(j=>j.status==='approved');
+  for(const j of ready){ await exportJob(j,null); renderKanban(); }
 }
 /* ---------------- cut lab (default settings) ----------------------- */
 const PRESETS={
@@ -1621,12 +1853,26 @@ function ffmpegCmd(){
 }
 $('exportBtn').onclick=()=>{
   const pend=pendingPairs();
-  if(pend>0){ openPanel('retakes'); toast(pend+' retake'+(pend>1?'s':'')+' still need a decision before export'); highlightPair(state.pairs.findIndex(p=>p.choice===null)); return; }
+  if(pend>0){ openPanel('retakes'); toast(pend+' retake'+(pend>1?'s':'')+' still need a decision first'); highlightPair(state.pairs.findIndex(p=>p.choice===null)); return; }
+  if(batchMode()&&state.realAnalysis){
+    /* bulk mode: approve → queue for export, move to the next video */
+    saveCurrentJob();
+    const j=currentJobName&&jobByName(currentJobName);
+    if(j){ j.status='approved'; }
+    updateQueueBadge();
+    const next=batch.find(x=>x.status==='review'&&x.name!==currentJobName);
+    if(next){ openJob(next); toast('Approved — next up: '+next.name); }
+    else{ openKanban(); toast('Approved — all reviewed videos are ready to export'); }
+    return;
+  }
   const trimmed=Math.round(rawDur()-editedDur());
   $('exportSummary').textContent=fmt(rawDur())+' → '+fmt(editedDur())+' — we trimmed '+trimmed+' second'+(trimmed===1?'':'s')+' of dead air and retakes';
   $('edlBox').textContent=JSON.stringify(buildEdl(),null,2);
   $('exportModal').classList.remove('hidden');
 };
+$('railQueueBtn').onclick=openKanban;
+$('backEditBtn').onclick=()=>{ const j=currentJobName&&jobByName(currentJobName); if(j&&j.payload) openJob(j); };
+$('exportAllBtn').onclick=exportAllReady;
 $('mClose').onclick=()=>$('exportModal').classList.add('hidden');
 $('exportModal').addEventListener('click',e=>{ if(e.target===$('exportModal')) $('exportModal').classList.add('hidden'); });
 $('dlEdl').onclick=()=>{
@@ -1733,7 +1979,9 @@ $('renderBtn').onclick=async()=>{
   $('billBack').onclick=()=>showView('home');
   /* glass nav + cut lab */
   $('navDash').onclick=()=>showView('home');
+  $('navQueue').onclick=()=>{ renderKanban(); showView('queue'); };
   $('navLab').onclick=()=>{ labSet(cutDefaults()); renderPresets(); showView('lab'); };
+  updateQueueBadge();
   ['lbSil','lbOv','lbSt','lbEn'].forEach(id=>$(id).oninput=labLabels);
   $('lbFill').onclick=function(){ this.classList.toggle('on'); };
   $('lbSoft').onclick=function(){ this.classList.toggle('on'); };
