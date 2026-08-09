@@ -1965,14 +1965,14 @@ function evalLabFocus(){
   const lab=document.querySelector('#viewLab .labcard'), prev=document.querySelector('#viewLab .prevcard');
   if(!lab||!prev) return;
   const vh=window.innerHeight;
-  const full=el=>{ const r=el.getBoundingClientRect(); return r.top>=0&&r.bottom<=vh; };
-  document.body.classList.toggle('labfocus', full(lab)&&full(prev));
+  const vis=el=>{ const r=el.getBoundingClientRect(); const h=r.height||1; return (Math.min(r.bottom,vh)-Math.max(r.top,0))/h; };
+  document.body.classList.toggle('labfocus', vis(lab)>0.9&&vis(prev)>0.9);
 }
 window.addEventListener('scroll',()=>{
   if($('viewLab').classList.contains('hidden')) return;
   document.body.classList.remove('labfocus');
   clearTimeout(_labFocusTimer);
-  _labFocusTimer=setTimeout(evalLabFocus,700);
+  _labFocusTimer=setTimeout(evalLabFocus,400);
 },{passive:true});
 window.addEventListener('resize',()=>{ clearTimeout(_labFocusTimer); _labFocusTimer=setTimeout(evalLabFocus,300); });
 let _lpPlaying=false;
