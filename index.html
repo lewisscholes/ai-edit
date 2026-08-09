@@ -458,10 +458,35 @@ input[type=range].vol{width:64px;flex:none}
    PIPELINE = the seam for the real backend (R2 upload, Deepgram,
    VAD+retake analysis, FFmpeg render). UI consumes only the EDL.
 ===================================================================== */
+const API='https://vcrforlyuhapvkewsogq.supabase.co/functions/v1/ai-edit';
+const API_AUTH='Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZjcmZvcmx5dWhhcHZrZXdzb2dxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzODk4NzAsImV4cCI6MjA5NTk2NTg3MH0.lcFC5aJFUGYrj4iw8oJ8R1bci4y_-aYKyQg8v9zrMqQ';
+async function api(body){
+  const r=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json','Authorization':API_AUTH},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok||j.error) throw new Error(j.error||('Server error '+r.status));
+  return j;
+}
 const PIPELINE = {
-  async upload(){ await wait(700); },
-  async transcribe(){ await wait(900); },
-  async analyze(){ await wait(900); return demoSegments(); },
+  key:null, jobId:null,
+  async upload(){
+    const p=await api({action:'presign',filename:state.file.name});
+    const put=await fetch(p.uploadUrl,{method:'PUT',body:state.file});
+    if(!put.ok) throw new Error('Upload failed ('+put.status+')');
+    this.key=p.key;
+  },
+  async transcribe(){
+    const p=await api({action:'process',key:this.key});
+    this.jobId=p.jobId;
+  },
+  async analyze(){
+    for(let i=0;i<240;i++){
+      const s=await api({action:'status',jobId:this.jobId});
+      if(s.status==='done') return s;
+      if(s.status==='error') throw new Error(s.error||'Processing failed');
+      await wait(2000);
+    }
+    throw new Error('Timed out waiting for analysis');
+  },
   async render(){ }
 };
 function wait(ms){ return new Promise(r=>setTimeout(r,ms)); }
@@ -975,23 +1000,28 @@ async function startEdit(isDemo){
     holder.appendChild(d); return d;
   });
   const fill=$('pbarFill'); fill.style.width='0%';
-  for(let i=0;i<rows.length;i++){
-    rows[i].className='pstep run';
-    rows[i].querySelector('.st').innerHTML='<div class="spinner"></div>';
-    if(i===0&&!isDemo) await PIPELINE.upload();
-    else if(i===1) await PIPELINE.transcribe();
-    else await wait(520+(i===4?420:0));
-    rows[i].className='pstep done';
-    rows[i].querySelector('.st').textContent='✓';
-    fill.style.width=Math.round((i+1)/rows.length*100)+'%';
-  }
-  const segs=await PIPELINE.analyze();
-  loadEditor(isDemo,segs);
+  let payload=null;
+  try{
+    for(let i=0;i<rows.length;i++){
+      rows[i].className='pstep run';
+      rows[i].querySelector('.st').innerHTML='<div class="spinner"></div>';
+      if(i===0&&!isDemo) await PIPELINE.upload();
+      else if(i===1&&!isDemo) await PIPELINE.transcribe();
+      else if(i===5&&!isDemo) payload=await PIPELINE.analyze();
+      else await wait(520+(i===4?420:0));
+      rows[i].className='pstep done';
+      rows[i].querySelector('.st').textContent='✓';
+      fill.style.width=Math.round((i+1)/rows.length*100)+'%';
+    }
+  }catch(err){ toast('⚠ '+err.message); showView('home'); return; }
+  loadEditor(isDemo, isDemo?demoSegments():payload);
 }
 
-function loadEditor(isDemo,segs){
-  state.segments=segs;
-  state.pairs=[{choice:null,sim:.91},{choice:null,sim:.87},{choice:null,sim:.89}];
+function loadEditor(isDemo,payload){
+  const isReal=!isDemo&&payload&&payload.segments;
+  state.realAnalysis=!!isReal;
+  state.segments=isReal?payload.segments:payload;
+  state.pairs=isReal?(payload.pairs||[]).map(p=>({choice:null,sim:p.sim||0})):[{choice:null,sim:.91},{choice:null,sim:.87},{choice:null,sim:.89}];
   state.mode='edited'; state.snippet=null; state.vt=0; state.playing=false;
   state.past=[]; state.future=[]; updUndoUI();
   state.useRealVideo=!isDemo&&!!state.fileUrl;
@@ -999,7 +1029,7 @@ function loadEditor(isDemo,segs){
   if(state.useRealVideo){
     vid.src=state.fileUrl; vid.classList.remove('hidden'); $('vstage').classList.add('hidden');
     state.scale=1;
-    vid.onloadedmetadata=()=>{ state.scale=vid.duration/DEMO_DUR||1; };
+    vid.onloadedmetadata=()=>{ state.scale=state.realAnalysis?1:(vid.duration/DEMO_DUR||1); };
   } else {
     vid.removeAttribute('src'); vid.classList.add('hidden'); $('vstage').classList.remove('hidden');
     state.scale=1;
