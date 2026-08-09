@@ -2093,7 +2093,7 @@ async function routeAuth(session){
   authUser=session?session.user:null;
   if(!authUser){ userProfile=null; syncHeaderProfile(); showView('auth'); return; }
   try{
-    const {data}=await sb.from('profiles').select('*').eq('id',authUser.id).maybeSingle();
+    const {data}=await sb.from('chop_profiles').select('*').eq('id',authUser.id).maybeSingle();
     userProfile=data||null;
   }catch(e){ userProfile=null; }
   syncHeaderProfile();
@@ -2192,7 +2192,7 @@ async function saveProfile(){
       avatar=sb.storage.from('avatars').getPublicUrl(path).data.publicUrl+'?v='+Date.now();
     }
     const isNew=!userProfile;
-    const {error}=await sb.from('profiles').upsert({id:authUser.id,name,avatar,tiktok});
+    const {error}=await sb.from('chop_profiles').upsert({id:authUser.id,name,avatar,tiktok});
     if(error) throw error;
     userProfile={id:authUser.id,name,avatar,tiktok};
     if(isNew&&localStorage.getItem('chopCredits')===null) creditsSet(3); /* 3 free videos for new creators */
