@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chop — auto-edit your talking-head videos</title>
+<meta name="description" content="Drop in raw footage. Chop removes dead air, filler words and retakes automatically — you approve every cut, then export a ready-to-post MP4.">
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="%231a6dff"/><stop offset="1" stop-color="%237c3aed"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(%23g)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="white"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="white" opacity=".55"/></svg>'>
+<style>
+:root{--bg:#f6f8fb;--card:#fff;--ink:#101319;--mut:#66707f;--line:#e4e8ef;--blue:#1a6dff;--blue-dk:#0d4fc4;--blue-soft:#eaf1ff;--violet:#7c3aed;--green:#0e9f6e;--green-soft:#e2f7ee;--soft2:#eef1f6}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+a{text-decoration:none;color:inherit}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+svg.ic{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* nav */
+nav{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.85);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
+.nwrap{max-width:1120px;margin:0 auto;padding:13px 24px;display:flex;align-items:center;gap:12px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px}
+.logo svg{width:30px;height:30px}
+.nspace{flex:1}
+.btn{display:inline-flex;align-items:center;gap:8px;font-weight:800;border-radius:12px;padding:11px 22px;transition:.15s;cursor:pointer;border:none;font-size:14.5px}
+.btn.prim{background:var(--blue);color:#fff;box-shadow:0 6px 18px rgba(26,109,255,.28)}
+.btn.prim:hover{background:var(--blue-dk)}
+.btn.ghost{border:1.5px solid var(--line);background:var(--card)}
+.btn.ghost:hover{border-color:var(--blue);color:var(--blue-dk)}
+.btn.big{padding:15px 30px;font-size:16px;border-radius:14px}
+
+/* hero */
+.hero{padding:76px 0 30px;text-align:center;position:relative;overflow:hidden}
+.hero::before{content:"";position:absolute;top:-300px;left:50%;transform:translateX(-50%);width:900px;height:600px;background:radial-gradient(closest-side,rgba(26,109,255,.14),transparent);pointer-events:none}
+.pill{display:inline-flex;align-items:center;gap:8px;background:var(--blue-soft);color:var(--blue-dk);font-weight:800;font-size:12.5px;padding:6px 16px;border-radius:20px;margin-bottom:22px}
+.pill .dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:blink 1.6s infinite}
+@keyframes blink{50%{opacity:.35}}
+h1{font-size:clamp(34px,5.4vw,58px);line-height:1.08;margin:0 auto 18px;max-width:760px;letter-spacing:-.02em}
+h1 .grad{background:linear-gradient(90deg,var(--blue),var(--violet));-webkit-background-clip:text;background-clip:text;color:transparent}
+.sub{color:var(--mut);font-size:18px;max-width:620px;margin:0 auto 30px}
+.cta-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:10px}
+.cta-note{color:var(--mut);font-size:13px;font-weight:600}
+
+/* hero app frame */
+.appframe{max-width:880px;margin:46px auto 0;background:var(--card);border:1px solid var(--line);border-radius:20px 20px 0 0;box-shadow:0 30px 80px rgba(16,19,25,.14);overflow:hidden;text-align:left}
+.af-bar{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line)}
+.af-bar .dots i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+.af-logo{display:flex;align-items:center;gap:8px;font-weight:800;font-size:13.5px;margin-left:6px}
+.af-logo svg{width:20px;height:20px}
+.af-sp{flex:1}
+.af-chip{background:var(--blue-soft);color:var(--blue-dk);font-weight:700;font-size:11px;padding:4px 10px;border-radius:14px}
+.af-body{padding:26px 30px 34px}
+.af-h{font-size:20px;font-weight:800;margin:0 0 2px}
+.af-sub{color:var(--mut);font-size:12.5px;margin:0 0 18px}
+.af-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.af-card{border:1px solid var(--line);border-radius:13px;padding:14px 16px}
+.af-card .n{font-size:24px;font-weight:800;color:var(--blue)}
+.af-card .l{font-size:11.5px;font-weight:700;margin-top:4px}
+.af-card.heroic{background:linear-gradient(135deg,#1a6dff,#4e8dff);border:none;color:#fff}
+.af-card.heroic .n{color:#fff}
+.af-drop{border:2px dashed #c9d3e2;border-radius:14px;text-align:center;padding:26px}
+.af-drop b{font-size:14.5px}
+.af-drop p{color:var(--mut);font-size:11.5px;margin:4px 0 0}
+@media(max-width:680px){.af-cards{grid-template-columns:repeat(2,1fr)}}
+
+/* steps */
+.sect{padding:84px 0}
+.sect.alt{background:var(--card);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.eyebrow{text-align:center;color:var(--blue);font-weight:800;font-size:12.5px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px}
+h2{text-align:center;font-size:clamp(26px,3.6vw,38px);margin:0 auto 12px;letter-spacing:-.01em;max-width:640px}
+.sect-sub{text-align:center;color:var(--mut);max-width:560px;margin:0 auto 48px;font-size:16px}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+@media(max-width:900px){.steps{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:560px){.steps{grid-template-columns:1fr}}
+.step{background:var(--bg);border:1px solid var(--line);border-radius:18px;padding:26px 24px;position:relative}
+.sect:not(.alt) .step{background:var(--card)}
+.step .num{position:absolute;top:22px;right:22px;font-size:13px;font-weight:800;color:#c3ccda}
+.step .sic{width:46px;height:46px;border-radius:13px;background:var(--blue-soft);color:var(--blue);display:grid;place-items:center;margin-bottom:16px}
+.step b{font-size:16.5px;display:block;margin-bottom:6px}
+.step p{color:var(--mut);font-size:13.5px;margin:0}
+
+/* retakes highlight */
+.moat{display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:center;margin-top:70px}
+@media(max-width:860px){.moat{grid-template-columns:1fr}}
+.moat h3{font-size:26px;margin:0 0 12px;letter-spacing:-.01em}
+.moat p{color:var(--mut);font-size:15.5px;margin:0 0 16px}
+.moat ul{margin:0;padding:0;list-style:none}
+.moat li{display:flex;gap:10px;align-items:flex-start;margin-bottom:11px;font-size:14.5px}
+.moat li svg{color:var(--green);margin-top:3px}
+.takespanel{background:#14161c;border-radius:20px;padding:26px;color:#e9edf5;box-shadow:0 24px 60px rgba(16,19,25,.25)}
+.tp-h{font-size:13px;font-weight:800;letter-spacing:.06em;color:#8a93a5;margin-bottom:14px}
+.tcard{background:#1d212b;border:1px solid #2a303c;border-radius:14px;padding:14px 16px;margin-bottom:12px}
+.tcard .tt{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin-bottom:10px}
+.tcard .sim{margin-left:auto;background:rgba(26,109,255,.2);color:#a5c0ff;font-size:10.5px;font-weight:800;padding:2px 9px;border-radius:10px}
+.take{display:flex;align-items:center;justify-content:space-between;border:1.5px solid #3d7ffb;border-radius:10px;padding:9px 13px;font-size:12.5px;font-weight:700;margin-bottom:8px;color:#cdd6e4}
+.take.sel{background:var(--blue);border-color:var(--blue);color:#fff}
+.take .len{font-size:11px;color:inherit;opacity:.75}
+.tp-note{font-size:11.5px;color:#8a93a5;text-align:center;margin-top:4px}
+
+/* pricing */
+.trial{max-width:680px;margin:0 auto 40px;background:linear-gradient(135deg,#1a6dff,#7c3aed);border-radius:22px;padding:36px;color:#fff;text-align:center;box-shadow:0 20px 50px rgba(26,109,255,.3)}
+.trial h3{font-size:26px;margin:0 0 8px}
+.trial p{opacity:.9;margin:0 0 22px;font-size:15.5px}
+.trial .btn{background:#fff;color:var(--blue-dk)}
+.trial .btn:hover{transform:translateY(-1px)}
+.packs{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;max-width:980px;margin:0 auto}
+.pack{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:26px 22px;text-align:center;position:relative;transition:.15s}
+.pack:hover{transform:translateY(-3px);box-shadow:0 12px 26px rgba(16,19,25,.09)}
+.pack.pop{border-color:var(--blue);box-shadow:0 10px 26px rgba(26,109,255,.15)}
+.pack .tag{position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:var(--blue);color:#fff;font-size:11px;font-weight:800;padding:3px 12px;border-radius:12px;white-space:nowrap}
+.pack .creds{font-size:32px;font-weight:800;color:var(--blue)}
+.pack .creds small{font-size:14px}
+.pack .name{font-weight:700;margin-top:2px}
+.pack .price{font-size:22px;font-weight:800;margin-top:10px}
+.pack .per{color:var(--mut);font-size:12.5px;margin-top:2px}
+.pack .save{display:inline-block;margin-top:8px;background:var(--green-soft);color:var(--green);font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:12px;visibility:hidden}
+.pack .save.show{visibility:visible}
+.pricing-note{text-align:center;color:var(--mut);font-size:12.5px;margin-top:22px}
+
+/* footer */
+footer{border-top:1px solid var(--line);padding:34px 0;text-align:center;color:var(--mut);font-size:13px}
+footer .logo{justify-content:center;margin-bottom:8px}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nwrap">
+    <a class="logo" href="#"><svg viewBox="0 0 64 64"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1a6dff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#lg)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="#fff"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="#fff" opacity=".55"/></svg>Chop</a>
+    <div class="nspace"></div>
+    <a class="btn ghost" href="#pricing">Pricing</a>
+    <a class="btn prim" href="https://lewisscholes.github.io/ai-edit/">Open the app</a>
+  </div>
+</nav>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="wrap">
+    <div class="pill"><span class="dot"></span>Creators are chopping right now</div>
+    <h1>Raw video in.<br><span class="grad">Ready-to-post</span> video out.</h1>
+    <p class="sub">Chop cuts the dead air, filler words and retakes out of your talking-head videos automatically. You approve every cut — then export and post.</p>
+    <div class="cta-row">
+      <a class="btn prim big" href="https://lewisscholes.github.io/ai-edit/">Start chopping free</a>
+      <a class="btn ghost big" href="#how">See how it works</a>
+    </div>
+    <div class="cta-note">3 free videos · no card needed · nothing to install</div>
+
+    <div class="appframe">
+      <div class="af-bar">
+        <span class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></span>
+        <span class="af-logo"><svg viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="url(#lg)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="#fff"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="#fff" opacity=".55"/></svg>Chop</span>
+        <span class="af-sp"></span>
+        <span class="af-chip">⌁ 184 credits</span>
+      </div>
+      <div class="af-body">
+        <div class="af-h">Dashboard</div>
+        <p class="af-sub">An overview of how your chopping is going.</p>
+        <div class="af-cards">
+          <div class="af-card heroic"><div class="n">37m</div><div class="l">Time saved editing</div></div>
+          <div class="af-card"><div class="n">6</div><div class="l">Videos edited</div></div>
+          <div class="af-card"><div class="n">$19</div><div class="l">Saved vs. manual</div></div>
+          <div class="af-card"><div class="n">3</div><div class="l">Day streak</div></div>
+        </div>
+        <div class="af-drop"><b>Drop your videos here to edit</b><p>MP4 or MOV · bulk uploads welcome · up to 1 GB each</p></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ============ HOW IT WORKS ============ -->
+<section class="sect alt" id="how">
+  <div class="wrap">
+    <div class="eyebrow">How it works</div>
+    <h2>From camera roll to posted in four steps</h2>
+    <p class="sect-sub">No timeline scrubbing. No cutting clips by hand. Chop does the tedious part and leaves you the decisions.</p>
+    <div class="steps">
+      <div class="step"><span class="num">01</span>
+        <div class="sic"><svg class="ic"><path d="M7 18.5a4.5 4.5 0 1 1 .9-8.9A5.5 5.5 0 0 1 18.6 11 3.8 3.8 0 0 1 18 18.5H7z"/><path d="M12 15.8v-5m0 0L9.4 13.4M12 10.8l2.6 2.6"/></svg></div>
+        <b>Upload your videos</b>
+        <p>Drop one video or fifty. Your footage stays on your device — only a tiny audio track is analysed, so even big files start in seconds.</p>
+      </div>
+      <div class="step"><span class="num">02</span>
+        <div class="sic"><svg class="ic"><circle cx="6" cy="6.5" r="2.4"/><circle cx="6" cy="17.5" r="2.4"/><path d="M8 8.1L19.5 19M8 15.9L19.5 5"/></svg></div>
+        <b>Auto-edit in seconds</b>
+        <p>Dead air, awkward pauses and every "um" are found and cut automatically. Tune how tight you want it with live sliders — or save your style once in the Cut Lab.</p>
+      </div>
+      <div class="step"><span class="num">03</span>
+        <div class="sic"><svg class="ic"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M3 9.5h18M7.2 4.5l2 5M12 4.5l2 5M16.8 4.5l2 5"/></svg></div>
+        <b>Pick your best takes</b>
+        <p>Said the same line three times? Chop pairs the takes side by side. Preview both, tap the keeper, done. Nothing is ever deleted without you.</p>
+      </div>
+      <div class="step"><span class="num">04</span>
+        <div class="sic"><svg class="ic"><path d="M12 4v10.5m0 0l-4-4m4 4l4-4M5 19.5h14"/></svg></div>
+        <b>Export &amp; post</b>
+        <p>One click renders a clean MP4 with smooth audio joins — right on your device. Download and post straight to TikTok, Reels or Shorts.</p>
+      </div>
+    </div>
+
+    <!-- retakes deep dive -->
+    <div class="moat">
+      <div>
+        <div class="eyebrow" style="text-align:left">The bit nobody else gets right</div>
+        <h3>Retakes are never cut behind your back</h3>
+        <p>Other auto-editors silently keep your last take — and get it wrong embarrassingly often. Chop shows you every matched take, side by side, and export stays locked until you've chosen.</p>
+        <ul>
+          <li><svg class="ic" style="width:16px;height:16px"><path d="M4.5 12.5l5 5L19.5 7"/></svg>Takes matched by what you actually said, not guesswork</li>
+          <li><svg class="ic" style="width:16px;height:16px"><path d="M4.5 12.5l5 5L19.5 7"/></svg>Preview each take with one tap</li>
+          <li><svg class="ic" style="width:16px;height:16px"><path d="M4.5 12.5l5 5L19.5 7"/></svg>Keep either — or both — it's your call</li>
+        </ul>
+      </div>
+      <div class="takespanel">
+        <div class="tp-h">RETAKES · 2 TO REVIEW</div>
+        <div class="tcard">
+          <div class="tt">"The first thing you notice is the build quality…"<span class="sim">92% match</span></div>
+          <div class="take"><span>Take 1 — stumbled</span><span class="len">3.8s</span></div>
+          <div class="take sel"><span>✓ Take 2 — clean</span><span class="len">4.7s</span></div>
+        </div>
+        <div class="tcard">
+          <div class="tt">"If you want one, the link is in my bio…"<span class="sim">89% match</span></div>
+          <div class="take"><span>Take 1 — wait, is the link up?</span><span class="len">4.7s</span></div>
+          <div class="take sel"><span>✓ Take 2 — clean</span><span class="len">4.8s</span></div>
+        </div>
+        <div class="tp-note">Export unlocks when every retake has your decision</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PRICING ============ -->
+<section class="sect" id="pricing">
+  <div class="wrap">
+    <div class="eyebrow">Pricing</div>
+    <h2>Try it free. Pay per video after.</h2>
+    <p class="sect-sub">One credit chops one video, any length up to 10 minutes. Credits never expire.</p>
+
+    <div class="trial">
+      <h3>Your first 3 videos are free</h3>
+      <p>Sign up and get 3 credits on us — no card, no subscription, no catch. See what Chop does to your own footage.</p>
+      <a class="btn big" href="https://lewisscholes.github.io/ai-edit/">Claim your free credits</a>
+    </div>
+
+    <div class="packs">
+      <div class="pack">
+        <div class="creds">5<small> credits</small></div>
+        <div class="name">Starter</div>
+        <div class="price">£5</div>
+        <div class="per">£1.00 per video</div>
+        <span class="save">&nbsp;</span>
+      </div>
+      <div class="pack">
+        <div class="creds">20<small> credits</small></div>
+        <div class="name">Creator</div>
+        <div class="price">£17</div>
+        <div class="per">£0.85 per video</div>
+        <span class="save show">Save 15%</span>
+      </div>
+      <div class="pack pop">
+        <div class="tag">MOST POPULAR</div>
+        <div class="creds">50<small> credits</small></div>
+        <div class="name">Pro</div>
+        <div class="price">£37.50</div>
+        <div class="per">£0.75 per video</div>
+        <span class="save show">Save 25%</span>
+      </div>
+      <div class="pack">
+        <div class="creds">150<small> credits</small></div>
+        <div class="name">Studio</div>
+        <div class="price">£97.50</div>
+        <div class="per">£0.65 per video</div>
+        <span class="save show">Save 35%</span>
+      </div>
+    </div>
+    <p class="pricing-note">VAT included · Payments powered by Stripe · Credits never expire</p>
+  </div>
+</section>
+
+<footer>
+  <div class="logo"><svg viewBox="0 0 64 64" style="width:26px;height:26px"><rect width="64" height="64" rx="16" fill="url(#lg)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="#fff"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="#fff" opacity=".55"/></svg>Chop</div>
+  Auto-cut talking-head videos · © 2026 Chop
+</footer>
+
+</body>
+</html>
