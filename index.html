@@ -355,7 +355,7 @@ input[type=range].vol{width:64px;flex:none}
       <div class="ctl" style="margin-top:18px">
         <div class="ctl-top"><b>Audio overlap</b><span class="val" id="vOverlap">250ms</span></div>
         <input type="range" id="sOverlap" min="0" max="500" step="10" value="250">
-        <small>Smooths the joins between kept clips.</small>
+        <small>Smooths the joins between kept clips. Applied at export (crossfade) — not audible in preview.</small>
       </div>
       <div class="ctl">
         <div class="ctl-top"><b>Clip start</b><span class="val" id="vStart">+40ms</span></div>
@@ -562,7 +562,7 @@ const GRADS = ['linear-gradient(135deg,#3a6df0,#7c3aed)','linear-gradient(135deg
 const state = {
   file:null, fileUrl:null, useRealVideo:false, scale:1,
   segments:[], pairs:[],
-  settings:{ overlapMs:250, startPadMs:40, endPadMs:-40, minSil:0.5, fillers:true, soft:false },
+  settings:{ overlapMs:250, startPadMs:40, endPadMs:-40, minSil:0.4, fillers:true, soft:false },
   subtitles:false, capPos:'bottom', capSize:15,
   showText:false, textStr:'POV: this gadget actually works', showLogo:false,
   mode:'edited', playing:false, vt:0, snippet:null,
@@ -596,36 +596,49 @@ function segReason(seg){
 }
 function pendingPairs(){ return state.pairs.filter(p=>p.choice===null).length; }
 function rawDur(){ return state.segments.length? state.segments[state.segments.length-1].end : 0; }
-function editedDur(){ return state.segments.reduce((a,s)=>a+(isCut(s)?0:s.end-s.start),0); }
 function segAt(t){ return state.segments.find(s=>t>=s.start&&t<s.end); }
 function nextKeptAfter(t){ return state.segments.find(s=>s.start>=t&&!isCut(s)); }
-function rawToEdited(t){
-  let acc=0;
+/* effective cut ranges = cut segments merged, then clip start/end padding applied.
+   startPad>0 keeps more before each kept clip; endPad>0 keeps more after. */
+function cutIntervals(){
+  const sp=state.settings.startPadMs/1000, ep=state.settings.endPadMs/1000, rd=rawDur();
+  const ivs=[];
   for(const s of state.segments){
-    if(isCut(s)) continue;
-    if(t>=s.end) acc+=s.end-s.start;
-    else if(t>s.start){ acc+=t-s.start; break; }
+    if(!isCut(s)) continue;
+    const l=ivs[ivs.length-1];
+    if(l && s.start<=l.e+0.001) l.e=Math.max(l.e,s.end); else ivs.push({s:s.start,e:s.end});
+  }
+  return ivs.map(iv=>{
+    let s=iv.s, e=iv.e;
+    if(iv.s>0.001) s=iv.s+ep;   // boundary with the clip before: endPad
+    if(iv.e<rd-0.001) e=iv.e-sp; // boundary with the clip after: startPad
+    return {s:Math.max(0,s), e:Math.min(rd,e)};
+  }).filter(iv=>iv.e-iv.s>0.005);
+}
+function cutAt(t){ return cutIntervals().find(i=>t>=i.s&&t<i.e); }
+function editedDur(){ return Math.max(0,rawDur()-cutIntervals().reduce((a,i)=>a+(i.e-i.s),0)); }
+function rawToEdited(t){
+  let cut=0;
+  for(const i of cutIntervals()){
+    if(t>=i.e) cut+=i.e-i.s;
+    else if(t>i.s){ cut+=t-i.s; break; }
     else break;
   }
-  return acc;
+  return t-cut;
 }
 function editedToRaw(te){
-  let acc=0;
-  for(const s of state.segments){
-    if(isCut(s)) continue;
-    const d=s.end-s.start;
-    if(te<=acc+d) return s.start+(te-acc);
-    acc+=d;
-  }
-  return rawDur();
+  let t=te;
+  for(const i of cutIntervals()){ if(t+0.0001>=i.s) t+=i.e-i.s; else break; }
+  return Math.min(t,rawDur());
 }
-/* kept clips = contiguous runs of kept segments */
+/* kept clips = gaps between cut intervals (padding already applied) */
 function keptClips(){
-  const clips=[]; let cur=null;
-  for(const s of state.segments){
-    if(isCut(s)){ cur=null; continue; }
-    if(cur && Math.abs(cur.end-s.start)<0.001){ cur.end=s.end; if(s.kind==='speech'&&!cur.text) cur.text=s.text; }
-    else { cur={start:s.start,end:s.end,text:s.kind==='speech'?s.text:''}; clips.push(cur); }
+  const clips=[]; let pos=0; const rd=rawDur();
+  for(const iv of cutIntervals()){ if(iv.s-pos>0.01) clips.push({start:pos,end:iv.s,text:''}); pos=iv.e; }
+  if(rd-pos>0.01) clips.push({start:pos,end:rd,text:''});
+  for(const c of clips){
+    const sp=state.segments.find(s=>s.kind==='speech'&&!isCut(s)&&s.end>c.start&&s.start<c.end);
+    if(sp) c.text=sp.text;
   }
   return clips;
 }
@@ -670,10 +683,10 @@ function loop(ts){
   let t=player.time;
   if(state.snippet){ if(t>=state.snippet.end){ player.pause(); state.snippet=null; } }
   else if(state.playing&&state.mode==='edited'){
-    const seg=segAt(t);
-    if(seg&&isCut(seg)){
-      const nxt=nextKeptAfter(seg.end-0.001);
-      if(nxt){ player.time=nxt.start+0.005; t=nxt.start+0.005; flashCut(); }
+    const iv=cutAt(t);
+    if(iv){
+      const nt=iv.e+0.005;
+      if(nt<rawDur()-0.02){ player.time=nt; t=nt; flashCut(); }
       else { player.pause(); }
     }
   }
@@ -937,8 +950,8 @@ function syncSettingUI(){
 let histArmed=false;
 function armHist(){ if(!histArmed){ pushHist(); histArmed=true; setTimeout(()=>histArmed=false,600); } }
 $('sOverlap').oninput=function(){ armHist(); state.settings.overlapMs=+this.value; $('vOverlap').textContent=this.value+'ms'; };
-$('sStart').oninput=function(){ armHist(); state.settings.startPadMs=+this.value; $('vStart').textContent=(+this.value>=0?'+':'−')+Math.abs(+this.value)+'ms'; };
-$('sEnd').oninput=function(){ armHist(); state.settings.endPadMs=+this.value; $('vEnd').textContent=(+this.value>=0?'+':'−')+Math.abs(+this.value)+'ms'; };
+$('sStart').oninput=function(){ armHist(); state.settings.startPadMs=+this.value; $('vStart').textContent=(+this.value>=0?'+':'−')+Math.abs(+this.value)+'ms'; renderAll(); };
+$('sEnd').oninput=function(){ armHist(); state.settings.endPadMs=+this.value; $('vEnd').textContent=(+this.value>=0?'+':'−')+Math.abs(+this.value)+'ms'; renderAll(); };
 $('sSil').oninput=function(){ armHist(); state.settings.minSil=+this.value; $('vSil').textContent=(+this.value).toFixed(2)+'s'; renderAll(); };
 $('tglFill').onclick=function(){ pushHist(); state.settings.fillers=!state.settings.fillers; this.classList.toggle('on',state.settings.fillers); renderAll(); };
 $('tglSoft').onclick=function(){ pushHist(); state.settings.soft=!state.settings.soft; this.classList.toggle('on',state.settings.soft); renderAll(); };
@@ -959,7 +972,7 @@ $('playBtn').onclick=()=>{
   if(state.playing) player.pause();
   else {
     if(player.time>=rawDur()-0.05) player.time=0;
-    if(state.mode==='edited'){ const s=segAt(player.time); if(s&&isCut(s)){ const n=nextKeptAfter(s.end-0.001); if(n) player.time=n.start+0.005; } }
+    if(state.mode==='edited'){ const iv=cutAt(player.time); if(iv) player.time=iv.e+0.005; }
     player.play();
   }
 };
@@ -1115,7 +1128,7 @@ function buildEdl(){
 function ffmpegCmd(){
   const st=state.settings;
   const pad=(t,p)=>Math.max(0,t+p/1000);
-  const kept=keptClips().map(c=>({s:pad(c.start,-st.startPadMs),e:pad(c.end,st.endPadMs)}));
+  const kept=keptClips().map(c=>({s:c.start,e:c.end})); /* padding already applied in keptClips */
   const fade=Math.min(0.2,st.overlapMs/1000/2)||0.03;
   const parts=kept.map((c,i)=>
     '[0:v]trim=start='+c.s.toFixed(3)+':end='+c.e.toFixed(3)+',setpts=PTS-STARTPTS[v'+i+'];'+
