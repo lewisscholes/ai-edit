@@ -119,10 +119,20 @@ html.dark body{background:#0e1014}
 .vact .ex{background:var(--green)}
 .vact .ex:disabled{opacity:.5;cursor:default}
 .kspin{width:13px;height:13px;border:2.5px solid var(--blue-soft);border-top-color:var(--blue);border-radius:50%;animation:spin .7s linear infinite;flex:none}
+/* coming-soon panels */
+.soonwrap{position:relative}
+.soonwrap>*:not(.soonmask){filter:blur(3px);pointer-events:none;user-select:none}
+.soonmask{position:absolute;inset:0;z-index:6;display:grid;place-items:center;filter:none!important;pointer-events:auto}
+.sooncard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 22px;text-align:center;box-shadow:0 10px 30px rgba(16,19,25,.15);max-width:230px}
+.sooncard b{font-size:15px;display:block}
+.sooncard small{color:var(--mut);font-size:12px;display:block;margin-top:5px;line-height:1.45}
+.rbtn.soon{opacity:.5}
+.rbtn.soon .sbdg{position:absolute;top:2px;right:4px;background:var(--violet-soft);color:var(--violet);font-size:8px;font-weight:800;padding:1px 6px;border-radius:8px;letter-spacing:.03em}
 *{box-sizing:border-box}
 svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
 .ric svg.ic{width:19px;height:19px}
 html,body{margin:0;height:100%}
+html{background:var(--bg)}
 body{background:var(--bg);color:var(--ink);font:14.5px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
 button{font:inherit;cursor:pointer;border:none;background:none;color:inherit;padding:0}
 .hidden{display:none!important}
@@ -601,10 +611,9 @@ input[type=range].vol{width:64px;flex:none}
     <button class="rbtn on" data-panel="retakes"><span class="ric"><svg class="ic" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M3 9.5h18M7.2 4.5l2 5M12 4.5l2 5M16.8 4.5l2 5"/></svg></span>Retakes<span class="bdg" id="rkBdg">3</span></button>
     <button class="rbtn" data-panel="cuts"><span class="ric"><svg class="ic" viewBox="0 0 24 24"><circle cx="6" cy="6.5" r="2.4"/><circle cx="6" cy="17.5" r="2.4"/><path d="M8 8.1L19.5 19M8 15.9L19.5 5"/></svg></span>Cuts<span class="bdg zero"></span></button>
     <button class="rbtn" data-panel="transcript"><span class="ric"><svg class="ic" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v17H6z" transform="scale(1 .85)"/><path d="M14 3.5v3.5h4M9.5 11h5M9.5 14.2h5M9.5 7.8h1.8"/></svg></span>Script</button>
-    <button class="rbtn" data-panel="text"><span class="ric"><svg class="ic" viewBox="0 0 24 24"><path d="M5.5 7V4.5h13V7M12 4.5V19.5M9 19.5h6"/></svg></span>Text</button>
-    <button class="rbtn" data-panel="image"><span class="ric"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4.5 17l4.5-4.5 3.5 3.5 3-3 4 4"/></svg></span>Image</button>
-    <button class="rbtn" data-panel="subtitles"><span class="ric"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M7 12.2h4M13.5 12.2h3.5M7 15.2h2.2M11.5 15.2h5.5"/></svg></span>Subtitles</button>
-    <button class="rbtn rqueue" id="railQueueBtn"><span class="bdg zero" id="queueBdg"></span><span class="ric"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="4" width="5" height="16" rx="1.2"/><rect x="10" y="4" width="5" height="10" rx="1.2"/><rect x="16.5" y="4" width="5" height="13" rx="1.2"/></svg></span>Queue</button>
+    <button class="rbtn soon" data-panel="text"><span class="sbdg">SOON</span><span class="ric"><svg class="ic" viewBox="0 0 24 24"><path d="M5.5 7V4.5h13V7M12 4.5V19.5M9 19.5h6"/></svg></span>Text</button>
+    <button class="rbtn soon" data-panel="image"><span class="sbdg">SOON</span><span class="ric"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4.5 17l4.5-4.5 3.5 3.5 3-3 4 4"/></svg></span>Image</button>
+    <button class="rbtn soon" data-panel="subtitles"><span class="sbdg">SOON</span><span class="ric"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M7 12.2h4M13.5 12.2h3.5M7 15.2h2.2M11.5 15.2h5.5"/></svg></span>Subtitles</button>
     <div class="railspace"></div>
     <button class="exportrail" id="exportBtn"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M12 4v10.5m0 0l-4-4m4 4l4-4M5 19.5h14"/></svg>Export</button>
   </div>
@@ -612,7 +621,7 @@ input[type=range].vol{width:64px;flex:none}
   <!-- settings panel -->
   <div class="spanel">
     <!-- SUBTITLES -->
-    <div id="pn-subtitles" class="hidden">
+    <div id="pn-subtitles" class="hidden soonwrap"><div class="soonmask"><div class="sooncard"><b>Coming soon</b><small>We’re building this — it’ll land in a future update.</small></div></div>
       <div class="sp-head"><h2>Subtitles</h2></div>
       <p class="sp-sub">Word-timed captions, burned into the export.</p>
       <div class="swrow"><div class="grow"><b>Show subtitles</b><small>Preview live on the player</small></div><div class="tgl" id="tglSubs"></div></div>
@@ -671,7 +680,7 @@ input[type=range].vol{width:64px;flex:none}
     </div>
 
     <!-- TEXT -->
-    <div id="pn-text" class="hidden">
+    <div id="pn-text" class="hidden soonwrap"><div class="soonmask"><div class="sooncard"><b>Coming soon</b><small>We’re building this — it’ll land in a future update.</small></div></div>
       <div class="sp-head"><h2>Text</h2></div>
       <p class="sp-sub">Overlay a headline on the video.</p>
       <div class="swrow"><div class="grow"><b>Show headline</b><small>Displays across the whole video</small></div><div class="tgl" id="tglText"></div></div>
@@ -682,7 +691,7 @@ input[type=range].vol{width:64px;flex:none}
     </div>
 
     <!-- IMAGE -->
-    <div id="pn-image" class="hidden">
+    <div id="pn-image" class="hidden soonwrap"><div class="soonmask"><div class="sooncard"><b>Coming soon</b><small>We’re building this — it’ll land in a future update.</small></div></div>
       <div class="sp-head"><h2>Image</h2></div>
       <p class="sp-sub">Stamp a logo or product image on the video.</p>
       <div class="swrow"><div class="grow"><b>Show logo</b><small>Top-right corner</small></div><div class="tgl" id="tglLogo"></div></div>
@@ -1510,6 +1519,9 @@ function saveCurrentJob(){
   j.manuals=state.segments.map(s=>s.manual);
   j.settings={...state.settings};
   j.rawSec=rawDur(); j.editedSec=editedDur(); j.pending=pendingPairs();
+  /* once a reviewed video has every retake decided, it's ready to export */
+  if(j.status==='review'&&j.pending===0) j.status='approved';
+  else if(j.status==='approved'&&j.pending>0) j.status='review';
 }
 function openJob(j){
   if(!j.payload){ toast(j.name+' is still processing'); return; }
@@ -1634,7 +1646,7 @@ function showView(v){
   $('viewLab').classList.toggle('hidden',v!=='lab');
   $('viewQueue').classList.toggle('hidden',v!=='queue');
   $('glassNav').classList.toggle('hidden',v==='editor'||v==='proc');
-  $('navDash').classList.toggle('on',v==='home'||v==='billing');
+  $('navDash').classList.toggle('on',v==='home');
   $('navLab').classList.toggle('on',v==='lab');
   $('navQueue').classList.toggle('on',v==='queue');
   $('hdr').classList.toggle('full',v==='editor');
@@ -1644,16 +1656,15 @@ function showView(v){
 /* ---------------- kanban rendering + export ------------------------ */
 function updateQueueBadge(){
   const n=batch.filter(j=>j.status!=='exported'&&j.status!=='error').length;
-  const b=$('queueBdg'); b.textContent=n; b.classList.toggle('zero',n===0);
   const g=$('navQueueBdg'); g.textContent=n; g.classList.toggle('hidden',n===0);
   syncExportBtn();
 }
 function syncExportBtn(){
   const btn=$('exportBtn');
-  const approveMode=batchMode()&&state.realAnalysis;
-  btn.classList.toggle('approve',approveMode);
-  btn.innerHTML=approveMode
-    ?'<svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M4.5 12.5l5 5L19.5 7"/></svg>Approve'
+  const queueMode=batchMode()&&state.realAnalysis;
+  btn.classList.remove('approve');
+  btn.innerHTML=queueMode
+    ?'<svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><rect x="3.5" y="4" width="5" height="16" rx="1.2"/><rect x="10" y="4" width="5" height="10" rx="1.2"/><rect x="16.5" y="4" width="5" height="13" rx="1.2"/></svg>Queue'
     :'<svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M12 4v10.5m0 0l-4-4m4 4l4-4M5 19.5h14"/></svg>Export';
 }
 function kanbanCard(j){
@@ -1853,25 +1864,21 @@ function ffmpegCmd(){
   return 'ffmpeg -i input.mp4 -filter_complex "'+parts+chain+'concat=n='+kept.length+':v=1:a=1[v][a]" -map "[v]" -map "[a]" -c:v libx264 -preset medium -crf 18 -c:a aac -b:a 192k output.mp4';
 }
 $('exportBtn').onclick=()=>{
-  const pend=pendingPairs();
-  if(pend>0){ openPanel('retakes'); toast(pend+' retake'+(pend>1?'s':'')+' still need a decision first'); highlightPair(state.pairs.findIndex(p=>p.choice===null)); return; }
   if(batchMode()&&state.realAnalysis){
-    /* bulk mode: approve → queue for export, move to the next video */
-    saveCurrentJob();
-    const j=currentJobName&&jobByName(currentJobName);
-    if(j){ j.status='approved'; }
-    updateQueueBadge();
-    const next=batch.find(x=>x.status==='review'&&x.name!==currentJobName);
-    if(next){ openJob(next); toast('Approved — next up: '+next.name); }
-    else{ openKanban(); toast('Approved — all reviewed videos are ready to export'); }
+    /* bulk mode: bottom-left button opens the review queue.
+       A video moves to Ready to Export once its retakes are all decided. */
+    const pend=pendingPairs();
+    openKanban();
+    if(pend>0) toast(pend+' retake'+(pend>1?'s':'')+' on this video still need a decision');
     return;
   }
+  const pend=pendingPairs();
+  if(pend>0){ openPanel('retakes'); toast(pend+' retake'+(pend>1?'s':'')+' still need a decision first'); highlightPair(state.pairs.findIndex(p=>p.choice===null)); return; }
   const trimmed=Math.round(rawDur()-editedDur());
   $('exportSummary').textContent=fmt(rawDur())+' → '+fmt(editedDur())+' — we trimmed '+trimmed+' second'+(trimmed===1?'':'s')+' of dead air and retakes';
   $('edlBox').textContent=JSON.stringify(buildEdl(),null,2);
   $('exportModal').classList.remove('hidden');
 };
-$('railQueueBtn').onclick=openKanban;
 $('backEditBtn').onclick=()=>{ const j=currentJobName&&jobByName(currentJobName); if(j&&j.payload) openJob(j); };
 $('exportAllBtn').onclick=exportAllReady;
 $('mClose').onclick=()=>$('exportModal').classList.add('hidden');
