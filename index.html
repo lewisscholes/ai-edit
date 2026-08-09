@@ -210,28 +210,6 @@ body.labfocus header,body.labfocus .glassnav{opacity:0;pointer-events:none}
 .avopt:hover{transform:scale(1.06)}
 .avopt.sel{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-soft)}
 .avopt.up{background:var(--soft2);color:var(--mut);font-size:20px}
-/* ================= mobile ================= */
-@media(max-width:760px){
-  /* editor: stack — icon bar on top, video hero, settings below */
-  #viewEditor{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1.25fr) minmax(0,1fr)}
-  .rail{flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:none;border-bottom:1px solid var(--line);padding:6px 10px;gap:4px;align-items:center;order:1}
-  .rail .rbtn{width:auto;min-width:54px;padding:6px 8px 5px;font-size:10px}
-  .rail .rbtn .ric svg.ic{width:17px;height:17px}
-  .railspace{flex:1;min-width:8px}
-  .backrail{width:auto;padding:7px 12px;margin:0}
-  .exportrail{width:auto;padding:8px 14px;flex-direction:row;gap:6px;font-size:12px}
-  .rcol{order:2;min-height:0}
-  .spanel{order:3;border-right:none;border-top:1px solid var(--line);padding:16px 18px}
-  .stagewrap{padding:14px 12px 74px}
-  .transport{bottom:10px;padding:8px 12px;gap:8px}
-  /* glass nav: tighter so labels never wrap */
-  .glassnav{bottom:14px;padding:4px;max-width:calc(100vw - 20px)}
-  .gbtn{padding:9px 13px;font-size:12px;gap:6px;white-space:nowrap}
-  /* general breathing room */
-  .wrap{padding:24px 16px 110px}
-  .hero h1{font-size:24px}
-  .kcols{grid-template-columns:1fr}
-}
 /* split auth layout with benefits panel */
 .authsplit{display:grid;grid-template-columns:1fr 1fr;padding:0;overflow:hidden}
 .authform{padding:32px 30px}
@@ -525,6 +503,29 @@ input[type=range].vol{width:64px;flex:none}
 .mclose{float:right;font-size:19px;color:var(--mut);margin:-4px -4px 0 0;padding:5px}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--ink);color:var(--bg);font-weight:700;font-size:13px;padding:11px 19px;border-radius:12px;z-index:99;transition:.25s;opacity:0}
 .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+/* ================= mobile ================= */
+@media(max-width:760px){
+  /* editor: stack — icon bar on top, video hero, settings below */
+  #viewEditor{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1.25fr) minmax(0,1fr)}
+  .rail{flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:none;border-bottom:1px solid var(--line);padding:6px 10px;gap:4px;align-items:center;order:1}
+  .rail .rbtn{width:auto;min-width:54px;padding:6px 8px 5px;font-size:10px}
+  .rail .rbtn .ric svg.ic{width:17px;height:17px}
+  .railspace{flex:1;min-width:8px}
+  .backrail{width:auto;padding:7px 12px;margin:0}
+  .exportrail{width:auto;padding:8px 14px;flex-direction:row;gap:6px;font-size:12px}
+  .rcol{order:2;min-height:0}
+  .spanel{order:3;border-right:none;border-top:1px solid var(--line);padding:16px 18px}
+  .stagewrap{padding:14px 12px 74px}
+  .transport{bottom:10px;padding:8px 12px;gap:8px}
+  /* glass nav: tighter so labels never wrap */
+  .glassnav{bottom:14px;padding:4px;max-width:calc(100vw - 20px)}
+  .gbtn{padding:9px 13px;font-size:12px;gap:6px;white-space:nowrap}
+  /* general breathing room */
+  .wrap{padding:24px 16px 110px}
+  .hero h1{font-size:24px}
+  .kcols{grid-template-columns:1fr}
+}
+
 </style>
 </head>
 <body>
@@ -604,7 +605,7 @@ input[type=range].vol{width:64px;flex:none}
 <!-- ============ HOME ============ -->
 <div class="wrap" id="viewHome">
   <div class="hero">
-    <h1>Dashboard</h1>
+    <h1 id="dashHi">Dashboard</h1>
     <p>An overview of how your chopping is going.</p>
   </div>
   <div class="impact">
@@ -2163,9 +2164,15 @@ function avatarStyle(el,avatar,name){
 }
 function syncHeaderProfile(){
   const btn=$('profBtn');
-  if(userProfile){ avatarStyle(btn,userProfile.avatar,userProfile.name); $('pmWhoName').textContent=userProfile.name+(userProfile.tiktok?' · '+userProfile.tiktok:''); }
-  else{ btn.style.background='linear-gradient(135deg,#1a6dff,#7c3aed)'; btn.textContent='?'; $('pmWhoName').textContent='Not signed in'; }
-  const dot=btn.querySelector('.dot'); /* none — keep simple */
+  if(userProfile){
+    avatarStyle(btn,userProfile.avatar,userProfile.name);
+    $('pmWhoName').textContent=userProfile.name+(userProfile.tiktok?' · '+userProfile.tiktok:'');
+    $('dashHi').textContent='Hey '+userProfile.name.split(' ')[0]+', let’s chop 👋';
+  }else{
+    btn.style.background='linear-gradient(135deg,#1a6dff,#7c3aed)'; btn.textContent='?';
+    $('pmWhoName').textContent='Not signed in';
+    $('dashHi').textContent='Dashboard';
+  }
 }
 function setAuthMode(m){
   _authMode=m;
