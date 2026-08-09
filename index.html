@@ -138,27 +138,25 @@ html.dark body{background:#0e1014}
 .prevcard{background:linear-gradient(180deg,#14161c,#1b1e27);border-radius:18px;padding:22px;color:#e9edf5;position:sticky;top:76px}
 .prevcard h3{margin:0 0 2px;font-size:16px;color:#fff}
 .prevcard .psub{color:#8a93a5;font-size:12.5px;margin:0 0 16px}
-.lp-players{display:flex;gap:16px;justify-content:center}
-.lp-col{text-align:center}
-.lp-screen{width:140px;aspect-ratio:9/16;border-radius:14px;position:relative;overflow:hidden;background:radial-gradient(120% 90% at 30% 20%,#243b6b 0%,#101426 60%,#0a0c14 100%);display:grid;place-items:center;border:1px solid rgba(255,255,255,.08)}
+.lp-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.lp-screen{width:100%;aspect-ratio:9/14;border-radius:16px;position:relative;overflow:hidden;background:radial-gradient(120% 90% at 30% 20%,#243b6b 0%,#101426 60%,#0a0c14 100%);display:grid;place-items:center;border:1px solid rgba(255,255,255,.08)}
 .lp-screen.edited{background:radial-gradient(120% 90% at 30% 20%,#1d4a3f 0%,#0f1e26 60%,#0a0c14 100%)}
-.lp-screen .cflash{position:absolute;top:8px;right:8px;background:rgba(220,38,55,.95);color:#fff;font-size:8.5px;font-weight:800;letter-spacing:.05em;padding:3px 7px;border-radius:6px;opacity:0;transition:opacity .15s}
-.lp-label{margin-top:10px;font-weight:700;font-size:12.5px;color:#cdd6e4}
-.lp-time{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums;color:#fff}
-.lp-time small{font-size:11px;color:#8a93a5;font-weight:600}
-.lp-saved{margin:14px auto 0;width:fit-content;background:rgba(14,159,110,.18);color:#3ad39c;font-weight:800;font-size:12px;padding:4px 14px;border-radius:14px}
-.lp-mtl{margin-top:18px}
-.lp-mlbl{display:flex;justify-content:space-between;font-size:10.5px;color:#8a93a5;font-weight:700;letter-spacing:.05em;margin-bottom:5px}
-.lp-track{display:flex;height:26px;border-radius:8px;overflow:hidden;gap:1px;position:relative}
+.lp-screen .cflash{position:absolute;top:10px;right:10px;background:rgba(220,38,55,.95);color:#fff;font-size:8.5px;font-weight:800;letter-spacing:.05em;padding:3px 7px;border-radius:6px;opacity:0;transition:opacity .15s}
+.lp-ovl{position:absolute;left:8px;bottom:8px;right:8px;display:flex;align-items:center;justify-content:space-between;background:rgba(10,12,18,.62);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-radius:10px;padding:6px 11px}
+.lp-ovl b{font-size:12px;color:#fff}
+.lp-tm{font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;color:#fff}
+.lp-pct{font-size:10px;color:#3ad39c;font-weight:800}
+.lp-track{display:flex;height:12px;border-radius:6px;overflow:hidden;gap:1px;position:relative;margin-top:14px}
 .lp-track i{display:block;height:100%}
 .lp-track i.sp{background:#3d7ffb}
 .lp-track i.cut{background:#592931}
 .lp-track i.keptsil{background:#2a3140}
 .lp-ph{position:absolute;top:-3px;bottom:-3px;width:2px;background:#fff;border-radius:2px;left:0;opacity:0;box-shadow:0 0 8px rgba(255,255,255,.7)}
-.lp-legend{display:flex;gap:14px;justify-content:center;margin-top:10px;font-size:10.5px;color:#8a93a5;font-weight:600}
-.lp-legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px;vertical-align:-1px}
-.lp-playrow{display:flex;justify-content:center;margin-top:16px}
-.lp-play{display:inline-flex;align-items:center;gap:9px;background:var(--blue);color:#fff;font-weight:800;font-size:13.5px;padding:11px 22px;border-radius:22px}
+.lp-micro{display:flex;align-items:center;gap:12px;margin-top:9px;font-size:10px;color:#8a93a5;font-weight:600;flex-wrap:wrap}
+.lp-micro .lg i{display:inline-block;width:8px;height:8px;border-radius:2.5px;margin-right:4px;vertical-align:-1px}
+.lp-spacer{flex:1}
+.lp-savedchip{background:rgba(14,159,110,.16);color:#3ad39c;font-weight:800;font-size:11px;padding:3px 11px;border-radius:12px}
+.lp-play{display:inline-flex;align-items:center;gap:7px;background:var(--blue);color:#fff;font-weight:800;font-size:12px;padding:8px 16px;border-radius:18px}
 .lp-play:hover{background:var(--blue-dk)}
 /* cut lab focus mode: chrome fades away when the whole lab fits on screen */
 header,.glassnav{transition:opacity .35s ease}
@@ -209,6 +207,20 @@ body.labfocus header,body.labfocus .glassnav{opacity:0;pointer-events:none}
 .avopt:hover{transform:scale(1.06)}
 .avopt.sel{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-soft)}
 .avopt.up{background:var(--soft2);color:var(--mut);font-size:20px}
+/* split auth layout with benefits panel */
+.authwrap.wide{max-width:900px}
+.authsplit{display:grid;grid-template-columns:1fr 1fr;padding:0;overflow:hidden}
+.authform{padding:32px 30px}
+.abenefit{position:relative;background:linear-gradient(135deg,#1a6dff,#7c3aed);color:#fff;padding:40px 34px;display:flex;flex-direction:column;justify-content:center}
+.abenefit::before{content:"";position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.09) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.09) 1px,transparent 1px);background-size:44px 44px;pointer-events:none}
+.abenefit .ab-logo{position:absolute;top:20px;right:22px;display:flex;align-items:center;gap:8px;font-weight:800;font-size:14px}
+.abenefit .ab-logo svg{width:24px;height:24px}
+.abenefit h3{font-size:25px;line-height:1.2;margin:0 0 22px;letter-spacing:-.01em;position:relative}
+.abenefit ul{list-style:none;margin:0;padding:0;position:relative}
+.abenefit li{display:flex;align-items:flex-start;gap:13px;margin-bottom:17px;font-size:14.5px;line-height:1.45}
+.abenefit .bic{width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.16);display:grid;place-items:center;flex:none}
+.abenefit .bic svg{width:16px;height:16px}
+@media(max-width:760px){.authsplit{grid-template-columns:1fr}.abenefit{display:none}.authwrap.wide{max-width:420px}}
 *{box-sizing:border-box}
 svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
 .ric svg.ic{width:19px;height:19px}
@@ -518,21 +530,33 @@ input[type=range].vol{width:64px;flex:none}
 </header>
 
 <!-- ============ AUTH ============ -->
-<div class="authwrap hidden" id="viewAuth">
-  <div class="authcard">
-    <div class="authlogo"><svg viewBox="0 0 64 64"><defs><linearGradient id="alg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1a6dff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#alg)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="#fff"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="#fff" opacity=".55"/></svg></div>
-    <h2 id="authTitle">Welcome to Chop</h2>
-    <p class="authsub" id="authSub">Sign in to keep chopping.</p>
-    <div class="atabs">
-      <button class="on" id="tabIn">Sign in</button>
-      <button id="tabUp">Create account</button>
+<div class="authwrap wide hidden" id="viewAuth">
+  <div class="authcard authsplit">
+    <div class="authform">
+      <div class="authlogo"><svg viewBox="0 0 64 64"><defs><linearGradient id="alg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1a6dff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#alg)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="#fff"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="#fff" opacity=".55"/></svg></div>
+      <h2 id="authTitle">Welcome to Chop</h2>
+      <p class="authsub" id="authSub">Sign in to keep chopping.</p>
+      <div class="atabs">
+        <button class="on" id="tabIn">Sign in</button>
+        <button id="tabUp">Create account</button>
+      </div>
+      <div class="field"><label>Email</label><input type="email" id="authEmail" placeholder="you@example.com" autocomplete="email"></div>
+      <div class="field"><label>Password</label><input type="password" id="authPass" placeholder="••••••••" autocomplete="current-password"></div>
+      <button class="abtn" id="authGo">Sign in</button>
+      <div class="aerr" id="authErr"></div>
+      <div class="anote hidden" id="authNote"></div>
+      <div class="freebadge" id="authFree">✦ New accounts get 3 free videos</div>
     </div>
-    <div class="field"><label>Email</label><input type="email" id="authEmail" placeholder="you@example.com" autocomplete="email"></div>
-    <div class="field"><label>Password</label><input type="password" id="authPass" placeholder="••••••••" autocomplete="current-password"></div>
-    <button class="abtn" id="authGo">Sign in</button>
-    <div class="aerr" id="authErr"></div>
-    <div class="anote hidden" id="authNote"></div>
-    <div class="freebadge" id="authFree">✦ New accounts get 3 free videos</div>
+    <div class="abenefit">
+      <div class="ab-logo"><svg viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="rgba(255,255,255,.2)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="#fff"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="#fff" opacity=".55"/></svg>Chop</div>
+      <h3>Post more.<br>Edit nothing.</h3>
+      <ul>
+        <li><span class="bic"><svg class="ic" viewBox="0 0 24 24" style="color:#fff"><circle cx="6" cy="6.5" r="2.4"/><circle cx="6" cy="17.5" r="2.4"/><path d="M8 8.1L19.5 19M8 15.9L19.5 5"/></svg></span>Dead air, filler words and retakes cut automatically — in seconds</li>
+        <li><span class="bic"><svg class="ic" viewBox="0 0 24 24" style="color:#fff"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M3 9.5h18M7.2 4.5l2 5M12 4.5l2 5M16.8 4.5l2 5"/></svg></span>Retakes shown side by side — nothing is ever deleted without you</li>
+        <li><span class="bic"><svg class="ic" viewBox="0 0 24 24" style="color:#fff"><path d="M12 4v10.5m0 0l-4-4m4 4l4-4M5 19.5h14"/></svg></span>Renders on your device — post straight to TikTok, Reels or Shorts</li>
+        <li><span class="bic"><svg class="ic" viewBox="0 0 24 24" style="color:#fff"><path d="M13 3L5.5 13.5h5L11 21l7.5-10.5h-5L13 3z"/></svg></span>Start with 3 free videos — no card, no subscription</li>
+      </ul>
+    </div>
   </div>
 </div>
 
@@ -697,30 +721,22 @@ input[type=range].vol{width:64px;flex:none}
   <div class="prevcard">
     <h3>See your style in action</h3>
     <p class="psub">Our demo clip, chopped live with your settings. Your own videos will get exactly these cuts.</p>
-    <div class="lp-players">
-      <div class="lp-col">
-        <div class="lp-screen"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".6"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg></div>
-        <div class="lp-label">Original</div>
-        <div class="lp-time" id="lpRaw">0:20.0</div>
+    <div class="lp-grid">
+      <div class="lp-screen"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".55"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg>
+        <div class="lp-ovl"><b>Original</b><span class="lp-tm" id="lpRaw">0:20.0</span></div>
       </div>
-      <div class="lp-col">
-        <div class="lp-screen edited"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".6"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg><span class="cflash" id="lpFlash">CUT SKIPPED</span></div>
-        <div class="lp-label">Chopped</div>
-        <div class="lp-time" id="lpEd">0:14.2 <small>−29%</small></div>
+      <div class="lp-screen edited"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".55"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg><span class="cflash" id="lpFlash">CUT SKIPPED</span>
+        <div class="lp-ovl"><b>Chopped</b><span><span class="lp-tm" id="lpEdT">0:14.3</span> <span class="lp-pct" id="lpPct">−29%</span></span></div>
       </div>
     </div>
-    <div class="lp-saved" id="lpSaved">Saving 5.8s of dead air</div>
-    <div class="lp-mtl">
-      <div class="lp-mlbl"><span>WHAT GETS CUT</span><span id="lpCuts">6 cuts</span></div>
-      <div class="lp-track" id="lpTrack"><div class="lp-ph" id="lpPh"></div></div>
-      <div class="lp-legend">
-        <span><i style="background:#3d7ffb"></i>Speech kept</span>
-        <span><i style="background:#2a3140"></i>Pause kept</span>
-        <span><i style="background:#592931"></i>Cut away</span>
-      </div>
-    </div>
-    <div class="lp-playrow">
-      <button class="lp-play" id="lpPlay"><svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M8 5.5v13l11-6.5z"/></svg>Play preview</button>
+    <div class="lp-track" id="lpTrack"><div class="lp-ph" id="lpPh"></div></div>
+    <div class="lp-micro">
+      <span class="lg"><i style="background:#3d7ffb"></i>Kept</span>
+      <span class="lg"><i style="background:#2a3140"></i>Pause kept</span>
+      <span class="lg"><i style="background:#592931"></i><span id="lpCuts">7 cuts</span></span>
+      <span class="lp-spacer"></span>
+      <span class="lp-savedchip" id="lpSaved">Saving 5.7s of dead air</span>
+      <button class="lp-play" id="lpPlay"><svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M8 5.5v13l11-6.5z"/></svg>Play preview</button>
     </div>
   </div>
   </div>
@@ -2036,7 +2052,8 @@ function renderLabPreview(){
   const cuts=lpCutRanges();
   const cutSec=cuts.reduce((a,c)=>a+(c.e-c.s),0);
   $('lpRaw').textContent=lpFmt(LP_DUR);
-  $('lpEd').innerHTML=lpFmt(LP_DUR-cutSec)+' <small>−'+Math.round(cutSec/LP_DUR*100)+'%</small>';
+  $('lpEdT').textContent=lpFmt(LP_DUR-cutSec);
+  $('lpPct').textContent='−'+Math.round(cutSec/LP_DUR*100)+'%';
   $('lpSaved').textContent='Saving '+cutSec.toFixed(1)+'s of dead air';
   $('lpCuts').textContent=cuts.length+' cut'+(cuts.length===1?'':'s');
   const track=$('lpTrack');
