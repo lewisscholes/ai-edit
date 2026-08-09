@@ -231,7 +231,17 @@ body.labfocus header,body.labfocus .glassnav{opacity:0;pointer-events:none}
 .abenefit li{display:flex;align-items:flex-start;gap:13px;margin-bottom:17px;font-size:14.5px;line-height:1.45}
 .abenefit .bic{width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.16);display:grid;place-items:center;flex:none}
 .abenefit .bic svg{width:16px;height:16px}
-@media(max-width:760px){.authsplit{grid-template-columns:1fr}.abenefit{display:none}.authwrap.wide .authcard{max-width:420px}}
+@media(max-width:760px){
+  .authsplit{grid-template-columns:1fr}
+  .authwrap.wide .authcard{max-width:440px}
+  .authform{padding:26px 24px}
+  /* keep the sell on mobile: benefits stack under the form */
+  .abenefit{padding:26px 24px}
+  .abenefit h3{font-size:21px;margin-bottom:16px}
+  .abenefit li{font-size:13px;margin-bottom:12px}
+  .abenefit .bic{width:30px;height:30px}
+  .abenefit .ab-logo{display:none}
+}
 *{box-sizing:border-box}
 svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
 .ric svg.ic{width:19px;height:19px}
@@ -552,6 +562,13 @@ input[type=range].vol{width:64px;flex:none}
   .wrap{padding:24px 16px 110px}
   .hero h1{font-size:24px}
   .kcols{grid-template-columns:1fr}
+  /* stats: 2×2 grid on mobile */
+  .impact{grid-template-columns:1fr 1fr;gap:10px}
+  .icard{padding:14px 16px}
+  .icard .big{font-size:26px}
+  .icard .big small{font-size:14px}
+  .icard .lbl{font-size:12px;margin-top:6px}
+  .icard .sub{font-size:10.5px}
 }
 </style>
 </head>
@@ -1007,11 +1024,19 @@ async function api(body){
    audio for analysis, so we upload ~1MB instead of the full video file. */
 async function extractAudio(file){
   const buf=await file.arrayBuffer();
-  const probe=new (window.AudioContext||window.webkitAudioContext)();
-  const decoded=await probe.decodeAudioData(buf);
-  probe.close();
-  const rate=16000, len=Math.ceil(decoded.duration*rate);
-  const off=new OfflineAudioContext(1,len,rate);
+  const AC=window.AudioContext||window.webkitAudioContext;
+  const probe=new AC();
+  /* callback form: Safari's promise-based decodeAudioData is unreliable on some builds */
+  const decoded=await new Promise((res,rej)=>{
+    const p=probe.decodeAudioData(buf,res,rej);
+    if(p&&p.then) p.then(res).catch(rej);
+  });
+  try{probe.close();}catch(e){}
+  let rate=16000;
+  let off;
+  try{ off=new OfflineAudioContext(1,Math.ceil(decoded.duration*rate),rate); }
+  catch(e){ rate=Math.min(48000,decoded.sampleRate||44100); off=new OfflineAudioContext(1,Math.ceil(decoded.duration*rate),rate); }
+  const len=Math.ceil(decoded.duration*rate);
   const src=off.createBufferSource(); src.buffer=decoded; src.connect(off.destination); src.start();
   const mono=(await off.startRendering()).getChannelData(0);
   const pcm=new DataView(new ArrayBuffer(44+mono.length*2));
@@ -1582,23 +1607,40 @@ drop.onclick=()=>fi.click();
 ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
 drop.addEventListener('drop',e=>{ addFiles(e.dataTransfer.files); });
 fi.onchange=()=>{ addFiles(fi.files); fi.value=''; };
-const queue=[]; /* [{file,url,thumb}] */
+const queue=[]; /* [{file,url,thumb,ready,err}] */
 function addFiles(list){
+  const added=[];
   for(const f of list){
     if(!/\.(mp4|mov)$/i.test(f.name)&&!/video/.test(f.type)){ toast(f.name+' isn’t an MP4 or MOV — skipped'); continue; }
     if(f.size>1024*1024*1024){ toast(f.name+' is over 1 GB — skipped'); continue; }
     if(queue.find(q=>q.file.name===f.name&&q.file.size===f.size)) continue;
-    queue.push({file:f,url:URL.createObjectURL(f),thumb:null});
+    const q={file:f,url:null,thumb:null,ready:false,err:null};
+    queue.push(q); added.push(q);
   }
   renderQueue();
-  queue.filter(q=>!q.thumb).forEach(q=>firstFrame(q));
+  added.forEach(q=>materialize(q));
+}
+/* iOS hands over lazy file handles from the photo library — force the bytes
+   in NOW so thumbnails, analysis and upload all work on real data */
+async function materialize(q){
+  try{
+    const buf=await q.file.arrayBuffer();
+    if(!buf||!buf.byteLength) throw new Error('empty');
+    const blob=new Blob([buf],{type:q.file.type||'video/mp4'});
+    q.file=new File([blob],q.file.name,{type:blob.type});
+    q.url=URL.createObjectURL(blob);
+    q.ready=true;
+    renderQueue();
+    firstFrame(q);
+  }catch(e){ q.err='import failed'; renderQueue(); toast(q.file.name+': couldn’t import from your library — try again'); }
 }
 async function firstFrame(q){
   try{
     const v=document.createElement('video');
-    v.muted=true; v.preload='auto'; v.src=q.url;
-    await new Promise((res,rej)=>{ v.onloadedmetadata=res; v.onerror=rej; });
-    await new Promise(res=>{ const h=()=>{v.removeEventListener('seeked',h);res();}; v.addEventListener('seeked',h); v.currentTime=Math.min(1,(v.duration||1)*0.1); });
+    v.muted=true; v.playsInline=true; v.setAttribute('playsinline',''); v.preload='auto'; v.src=q.url;
+    await new Promise((res,rej)=>{ v.onloadedmetadata=res; v.onerror=rej; setTimeout(rej,8000); });
+    try{ await v.play(); v.pause(); }catch(e){} /* nudges iOS to decode */
+    await new Promise((res,rej)=>{ const h=()=>{v.removeEventListener('seeked',h);res();}; v.addEventListener('seeked',h); v.currentTime=Math.min(1,(v.duration||1)*0.1); setTimeout(res,6000); });
     const c=document.createElement('canvas');
     const ratio=(v.videoWidth/v.videoHeight)||0.5625;
     c.height=180; c.width=Math.max(64,Math.round(180*ratio));
@@ -1615,16 +1657,18 @@ function renderQueue(){
   queue.forEach((q,i)=>{
     const d=document.createElement('div'); d.className='qcard';
     const bg=(q.thumb&&q.thumb!=='err')?'url('+q.thumb+') center/cover no-repeat #20242c':'linear-gradient(160deg,#3c4454,#20242c)';
+    const st=q.err?'FAILED':(q.ready?'READY':'IMPORTING…');
     d.innerHTML='<div class="qthumb" style="background:'+bg+'"></div>'+
-      '<span class="qst '+(q.thumb?'ok':'')+'">'+(q.thumb?'READY':'LOADING')+'</span>'+
+      '<span class="qst '+(q.ready&&!q.err?'ok':'')+'">'+st+'</span>'+
       '<button class="qx" title="Remove">✕</button>'+
       '<div class="qname">'+escapeHtml(q.file.name)+'</div>';
-    d.querySelector('.qx').onclick=e=>{ e.stopPropagation(); URL.revokeObjectURL(q.url); queue.splice(i,1); renderQueue(); };
+    d.querySelector('.qx').onclick=e=>{ e.stopPropagation(); if(q.url) URL.revokeObjectURL(q.url); queue.splice(i,1); renderQueue(); };
     el.appendChild(d);
   });
-  const n=queue.length;
-  $('runBtn').disabled=n===0;
-  $('runBtn').textContent=n<=1?'Start chopping':'Start chopping '+n+' videos';
+  const usable=queue.filter(q=>q.ready&&!q.err).length;
+  const importing=queue.some(q=>!q.ready&&!q.err);
+  $('runBtn').disabled=usable===0||importing;
+  $('runBtn').textContent=importing?'Importing from your library…':(usable<=1?'Start chopping':'Start chopping '+usable+' videos');
 }
 $('runBtn').onclick=()=>startEdit(false);
 

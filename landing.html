@@ -114,6 +114,18 @@ h2{text-align:center;font-size:clamp(26px,3.6vw,38px);margin:0 auto 12px;letter-
 .pack .per{color:var(--mut);font-size:12.5px;margin-top:2px}
 .pack .save{display:inline-block;margin-top:8px;background:var(--green-soft);color:var(--green);font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:12px;visibility:hidden}
 .pack .save.show{visibility:visible}
+.slidecard{background:var(--card);border:1.5px solid var(--line);border-radius:18px;padding:28px 30px;max-width:560px;margin:0 auto}
+.slidecard h3{margin:0 0 2px;font-size:17px;text-align:left}
+.ssub{color:var(--mut);font-size:13px;margin:0 0 8px}
+.cr-big{font-size:42px;font-weight:800;color:var(--blue);margin:10px 0;text-align:center;font-variant-numeric:tabular-nums}
+.cr-big small{font-size:17px;color:var(--mut);font-weight:700}
+.slidecard input[type=range]{-webkit-appearance:none;width:100%;height:4px;border-radius:4px;background:#dbe2ec;outline:none}
+.slidecard input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#fff;border:2.5px solid var(--blue);cursor:pointer;box-shadow:0 1px 4px rgba(16,19,25,.2)}
+.tiers{display:flex;justify-content:space-between;margin-top:7px;font-size:10.5px;color:var(--mut);font-weight:700}
+.cr-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:20px}
+.cr-stat{background:var(--soft2);border-radius:12px;padding:12px 14px;text-align:center}
+.cr-stat small{display:block;color:var(--mut);font-size:11px;font-weight:700;margin-bottom:3px}
+.cr-stat b{font-size:19px;font-variant-numeric:tabular-nums}
 .pricing-note{text-align:center;color:var(--mut);font-size:12.5px;margin-top:22px}
 
 /* footer */
@@ -238,37 +250,20 @@ footer .logo{justify-content:center;margin-bottom:8px}
       <a class="btn big" href="https://lewisscholes.github.io/ai-edit/">Claim your free credits</a>
     </div>
 
-    <div class="packs">
-      <div class="pack">
-        <div class="creds">5<small> credits</small></div>
-        <div class="name">Starter</div>
-        <div class="price">£5</div>
-        <div class="per">£1.00 per video</div>
-        <span class="save">&nbsp;</span>
+    <div class="slidecard">
+      <h3>How many videos will you chop?</h3>
+      <p class="ssub">One credit chops one video. The more you buy, the less each costs.</p>
+      <div class="cr-big"><span id="crN">50</span><small> credits</small></div>
+      <input type="range" id="crSlider" min="5" max="300" step="5" value="50">
+      <div class="tiers"><span>£1.00</span><span>85p</span><span>75p</span><span>70p</span><span>65p</span><span>60p</span></div>
+      <div class="cr-stats">
+        <div class="cr-stat"><small>Per video</small><b id="crPer">85p</b></div>
+        <div class="cr-stat"><small>Total</small><b id="crTotal">£42.50</b></div>
+        <div class="cr-stat"><small>You save</small><b id="crSave" style="color:var(--green)">£7.50</b></div>
       </div>
-      <div class="pack">
-        <div class="creds">20<small> credits</small></div>
-        <div class="name">Creator</div>
-        <div class="price">£17</div>
-        <div class="per">£0.85 per video</div>
-        <span class="save show">Save 15%</span>
-      </div>
-      <div class="pack pop">
-        <div class="tag">MOST POPULAR</div>
-        <div class="creds">50<small> credits</small></div>
-        <div class="name">Pro</div>
-        <div class="price">£37.50</div>
-        <div class="per">£0.75 per video</div>
-        <span class="save show">Save 25%</span>
-      </div>
-      <div class="pack">
-        <div class="creds">150<small> credits</small></div>
-        <div class="name">Studio</div>
-        <div class="price">£97.50</div>
-        <div class="per">£0.65 per video</div>
-        <span class="save show">Save 35%</span>
-      </div>
+      <a class="btn prim big" id="crBuy" style="display:block;text-align:center;margin-top:18px" href="https://lewisscholes.github.io/ai-edit/">Start with 3 free videos</a>
     </div>
+
     <p class="pricing-note">VAT included · Payments powered by Stripe · Credits never expire</p>
   </div>
 </section>
@@ -278,5 +273,18 @@ footer .logo{justify-content:center;margin-bottom:8px}
   Auto-cut talking-head videos · © 2026 Chop
 </footer>
 
+<script>
+function perCredit(n){ if(n<50) return 1.00; if(n<100) return 0.85; return Math.max(0.60,0.75-0.05*Math.floor((n-100)/50)); }
+const gbp=v=>'£'+(Math.round(v*100)/100).toFixed(2);
+const S=document.getElementById('crSlider');
+function crRender(){
+  const n=+S.value, per=perCredit(n), total=n*per, save=n-total;
+  document.getElementById('crN').textContent=n;
+  document.getElementById('crPer').textContent=per<1?Math.round(per*100)+'p':gbp(per);
+  document.getElementById('crTotal').textContent=gbp(total);
+  document.getElementById('crSave').textContent=save>0?gbp(save):'—';
+}
+S.addEventListener('input',crRender); crRender();
+</script>
 </body>
 </html>
