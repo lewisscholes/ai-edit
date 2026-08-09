@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI Edit — Studio</title>
+<title>Chop</title>
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="%231a6dff"/><stop offset="1" stop-color="%237c3aed"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(%23g)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="white"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="white" opacity=".55"/></svg>'>
 <style>
 :root{
   --bg:#f6f8fb; --card:#fff; --ink:#101319; --mut:#66707f; --line:#e4e8ef;
@@ -287,7 +288,7 @@ input[type=range].vol{width:64px;flex:none}
 
 <header id="hdr">
   <div class="hwrap">
-    <div class="logo"><span class="mark">✂</span>AI Edit <small>STUDIO</small><span class="chip beta">BETA</span></div>
+    <div class="logo"><svg class="mark" viewBox="0 0 64 64" style="background:none;border-radius:8px"><defs><linearGradient id="lgm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1a6dff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#lgm)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="#fff"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="#fff" opacity=".55"/></svg>Chop</div>
     <div class="hspace"></div>
     <span class="chip">⚡ 200 credits</span>
   </div>
@@ -295,6 +296,10 @@ input[type=range].vol{width:64px;flex:none}
 
 <!-- ============ HOME ============ -->
 <div class="wrap" id="viewHome">
+  <div class="hero">
+    <h1>Dashboard</h1>
+    <p>An overview of how your chopping is going.</p>
+  </div>
   <div class="impact">
     <div class="icard hero-card"><div class="big" id="stSaved">0<small>m</small></div><div class="lbl">Time saved editing</div></div>
     <div class="icard"><div class="big" id="stVideos">0</div><div class="lbl">Videos edited</div></div>
