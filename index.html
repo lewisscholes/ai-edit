@@ -16,6 +16,7 @@
   --green:#0e9f6e; --green-soft:#e2f7ee;
   --stage:#17181c;
   --panel:#fff; --hovbg:#f2f5f9; --soft2:#eef1f6; --range:#dbe2ec; --bord2:#c9d3e2; --tglbg:#d6dce6; --hdr:rgba(255,255,255,.9);
+  --glass:rgba(255,255,255,.55); --glassbord:rgba(255,255,255,.65); --glasson:rgba(255,255,255,.88);
 }
 html.dark{
   --bg:#0e1014; --card:#161922; --ink:#e9edf5; --mut:#8a93a5; --line:#262c38;
@@ -25,6 +26,7 @@ html.dark{
   --violet:#b79bff; --violet-soft:#271e3d;
   --green:#3ad39c; --green-soft:#12291f;
   --panel:#161922; --hovbg:#20242f; --soft2:#20242f; --range:#2a3140; --bord2:#39404f; --tglbg:#39404f; --hdr:rgba(14,16,20,.85);
+  --glass:rgba(22,25,34,.55); --glassbord:rgba(255,255,255,.12); --glasson:rgba(48,54,68,.9);
   background:#0e1014; color-scheme:dark;
 }
 html.dark body{background:#0e1014}
@@ -49,6 +51,38 @@ html.dark body{background:#0e1014}
 .pack .buy{margin-top:16px;width:100%;padding:11px;border-radius:11px;background:var(--blue);color:#fff;font-weight:800;font-size:14px}
 .pack .buy:hover{background:var(--blue-dk)}
 .bfoot{color:var(--mut);font-size:12.5px;text-align:center;margin-top:22px}
+/* ================= upload queue ================= */
+.queue{display:flex;gap:12px;margin-top:14px;flex-wrap:wrap}
+.qcard{position:relative;width:96px;border-radius:12px;overflow:hidden;background:var(--card);border:1px solid var(--line)}
+.qcard .qthumb{aspect-ratio:9/16}
+.qcard .qname{padding:5px 7px;font-size:10.5px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qcard .qx{position:absolute;top:5px;right:5px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:10px;display:grid;place-items:center}
+.qcard .qst{position:absolute;top:5px;left:5px;background:rgba(0,0,0,.55);color:#fff;font-size:9px;font-weight:800;padding:2px 7px;border-radius:9px}
+.qcard .qst.ok{background:var(--green)}
+/* ================= cut lab ================= */
+.presets{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-bottom:24px}
+.preset{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:18px 20px;cursor:pointer;position:relative;transition:.15s}
+.preset:hover{transform:translateY(-2px)}
+.preset.on{border-color:var(--blue);box-shadow:0 8px 22px rgba(26,109,255,.13)}
+.preset b{font-size:15px;display:block}
+.preset small{color:var(--mut);font-size:12px;display:block;margin-top:3px;line-height:1.45}
+.preset .def{position:absolute;top:-10px;right:12px;background:var(--blue);color:#fff;font-size:10px;font-weight:800;padding:2px 10px;border-radius:10px;display:none}
+.preset.isdef .def{display:block}
+.labcard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px;max-width:640px}
+.labcard h3{margin:0 0 2px;font-size:16px}
+.labcard .lsub{color:var(--mut);font-size:12.5px;margin:0 0 18px}
+.savebar{display:flex;gap:10px;margin-top:20px}
+.savebtn{flex:1;padding:13px;border-radius:12px;background:var(--blue);color:#fff;font-weight:800;font-size:14px}
+.savebtn:hover{background:var(--blue-dk)}
+.resetbtn{padding:13px 20px;border-radius:12px;background:var(--soft2);font-weight:700;font-size:13px}
+/* ================= liquid glass bottom nav ================= */
+.glassnav{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);display:flex;gap:4px;padding:5px;border-radius:26px;
+  background:var(--glass);backdrop-filter:blur(24px) saturate(1.7);-webkit-backdrop-filter:blur(24px) saturate(1.7);
+  border:1px solid var(--glassbord);box-shadow:0 12px 40px rgba(16,19,25,.18);z-index:80}
+.gbtn{display:flex;align-items:center;gap:8px;padding:11px 22px;border-radius:21px;font-weight:700;font-size:13.5px;color:var(--mut);transition:.18s}
+.gbtn:hover{color:var(--ink)}
+.gbtn.on{background:var(--glasson);color:var(--ink);box-shadow:0 2px 10px rgba(16,19,25,.12)}
+.gbtn.on svg{color:var(--blue)}
 *{box-sizing:border-box}
 svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
 .ric svg.ic{width:19px;height:19px}
@@ -365,7 +399,8 @@ input[type=range].vol{width:64px;flex:none}
     <p>MP4 or MOV · up to 1 GB each</p>
     <div class="filetag" id="filetag"><span id="filetagTxt"></span></div>
   </div>
-  <input type="file" id="fileInput" accept="video/mp4,video/quicktime,video/*" class="hidden">
+  <input type="file" id="fileInput" accept="video/mp4,video/quicktime,video/*" class="hidden" multiple>
+  <div class="queue hidden" id="queue"></div>
   <button class="runbtn" id="runBtn" disabled>Start chopping</button>
   <div class="stats-h"><h2>Consistency</h2></div>
   <div class="consist">
@@ -446,6 +481,51 @@ input[type=range].vol{width:64px;flex:none}
   </div>
   <div class="bfoot">Payments powered by Stripe · Credits never expire · VAT included</div>
 </div>
+
+<!-- ============ CUT LAB ============ -->
+<div class="wrap hidden" id="viewLab">
+  <div class="hero">
+    <h1>Cut Lab</h1>
+    <p>Dial in your cutting style once — every video you drop gets chopped with these settings automatically.</p>
+  </div>
+  <div class="presets" id="presetGrid"></div>
+  <div class="labcard">
+    <h3>Fine-tune</h3>
+    <p class="lsub">These become your defaults for every new video. You can still tweak any single video in the editor.</p>
+    <div class="ctl">
+      <div class="ctl-top"><b>Remove silences over</b><span class="val" id="lbSilV">0.40s</span></div>
+      <input type="range" id="lbSil" min="0.1" max="2" step="0.05" value="0.4">
+      <small>Any pause longer than this is cut automatically.</small>
+    </div>
+    <div class="swrow"><div class="grow"><b>Remove filler words</b><small>um, uh, hmm…</small></div><div class="tgl on" id="lbFill"></div></div>
+    <div class="swrow"><div class="grow"><b>Also soft fillers</b><small>like, you know, I mean — only when isolated</small></div><div class="tgl" id="lbSoft"></div></div>
+    <div class="ctl" style="margin-top:18px">
+      <div class="ctl-top"><b>Audio smoothing</b><span class="val" id="lbOvV">250ms</span></div>
+      <input type="range" id="lbOv" min="0" max="500" step="10" value="250">
+      <small>Smooths the joins between kept clips at export.</small>
+    </div>
+    <div class="ctl">
+      <div class="ctl-top"><b>Clip start</b><span class="val" id="lbStV">+40ms</span></div>
+      <input type="range" id="lbSt" min="-300" max="300" step="10" value="40">
+      <small>Positive keeps a little more before each clip.</small>
+    </div>
+    <div class="ctl">
+      <div class="ctl-top"><b>Clip end</b><span class="val" id="lbEnV">−40ms</span></div>
+      <input type="range" id="lbEn" min="-300" max="300" step="10" value="-40">
+      <small>Negative trims tighter after each clip.</small>
+    </div>
+    <div class="savebar">
+      <button class="savebtn" id="lbSave">Save as my default</button>
+      <button class="resetbtn" id="lbReset">Reset to Balanced</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ GLASS NAV ============ -->
+<nav class="glassnav" id="glassNav">
+  <button class="gbtn on" id="navDash"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/></svg>Dashboard</button>
+  <button class="gbtn" id="navLab"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><circle cx="6" cy="6.5" r="2.4"/><circle cx="6" cy="17.5" r="2.4"/><path d="M8 8.1L19.5 19M8 15.9L19.5 5"/></svg>Cut Lab</button>
+</nav>
 
 <!-- ============ PROCESSING ============ -->
 <div class="wrap hidden" id="viewProc">
@@ -1217,25 +1297,57 @@ $('muteBtn').onclick=function(){ const v=$('vol'); v.value=+v.value===0?1:0; v.o
 $('fsBtn').onclick=()=>{ const s=$('stage'); if(s.requestFullscreen) s.requestFullscreen().catch(()=>{}); };
 $('backBtn').onclick=()=>{ player.pause(); showView('home'); };
 
-/* ---------------- home / processing -------------------------------- */
+/* ---------------- home / upload queue ------------------------------ */
 const drop=$('drop'), fi=$('fileInput');
 drop.onclick=()=>fi.click();
 ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
 ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
-drop.addEventListener('drop',e=>{ const f=e.dataTransfer.files[0]; if(f) pickFile(f); });
-fi.onchange=()=>{ if(fi.files[0]) pickFile(fi.files[0]); };
-function pickFile(f){
-  if(!/\.(mp4|mov)$/i.test(f.name)&&!/video/.test(f.type)){ toast('Please drop an MP4 or MOV file'); return; }
-  if(f.size>1024*1024*1024){ toast('File is over 1 GB'); return; }
-  state.file=f;
-  if(state.fileUrl) URL.revokeObjectURL(state.fileUrl);
-  state.fileUrl=URL.createObjectURL(f);
-  resetThumbs();
-  $('filetag').style.display='flex';
-  $('filetagTxt').textContent=f.name+' · '+(f.size/1048576).toFixed(1)+' MB';
-  $('runBtn').disabled=false;
+drop.addEventListener('drop',e=>{ addFiles(e.dataTransfer.files); });
+fi.onchange=()=>{ addFiles(fi.files); fi.value=''; };
+const queue=[]; /* [{file,url,thumb}] */
+function addFiles(list){
+  for(const f of list){
+    if(!/\.(mp4|mov)$/i.test(f.name)&&!/video/.test(f.type)){ toast(f.name+' isn’t an MP4 or MOV — skipped'); continue; }
+    if(f.size>1024*1024*1024){ toast(f.name+' is over 1 GB — skipped'); continue; }
+    if(queue.find(q=>q.file.name===f.name&&q.file.size===f.size)) continue;
+    queue.push({file:f,url:URL.createObjectURL(f),thumb:null});
+  }
+  renderQueue();
+  queue.filter(q=>!q.thumb).forEach(q=>firstFrame(q));
 }
-/* demo entry removed from UI — demo path still callable via startEdit(true) */
+async function firstFrame(q){
+  try{
+    const v=document.createElement('video');
+    v.muted=true; v.preload='auto'; v.src=q.url;
+    await new Promise((res,rej)=>{ v.onloadedmetadata=res; v.onerror=rej; });
+    await new Promise(res=>{ const h=()=>{v.removeEventListener('seeked',h);res();}; v.addEventListener('seeked',h); v.currentTime=Math.min(1,(v.duration||1)*0.1); });
+    const c=document.createElement('canvas');
+    const ratio=(v.videoWidth/v.videoHeight)||0.5625;
+    c.height=180; c.width=Math.max(64,Math.round(180*ratio));
+    c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+    q.thumb=c.toDataURL('image/jpeg',0.6);
+    v.removeAttribute('src');
+  }catch(e){ q.thumb='err'; }
+  renderQueue();
+}
+function renderQueue(){
+  const el=$('queue');
+  el.classList.toggle('hidden',queue.length===0);
+  el.innerHTML='';
+  queue.forEach((q,i)=>{
+    const d=document.createElement('div'); d.className='qcard';
+    const bg=(q.thumb&&q.thumb!=='err')?'url('+q.thumb+') center/cover no-repeat #20242c':'linear-gradient(160deg,#3c4454,#20242c)';
+    d.innerHTML='<div class="qthumb" style="background:'+bg+'"></div>'+
+      '<span class="qst '+(q.thumb?'ok':'')+'">'+(q.thumb?'READY':'LOADING')+'</span>'+
+      '<button class="qx" title="Remove">✕</button>'+
+      '<div class="qname">'+escapeHtml(q.file.name)+'</div>';
+    d.querySelector('.qx').onclick=e=>{ e.stopPropagation(); URL.revokeObjectURL(q.url); queue.splice(i,1); renderQueue(); };
+    el.appendChild(d);
+  });
+  const n=queue.length;
+  $('runBtn').disabled=n===0;
+  $('runBtn').textContent=n<=1?'Start chopping':'Start chopping '+n+' videos';
+}
 $('runBtn').onclick=()=>startEdit(false);
 
 const STEPS=[
@@ -1246,9 +1358,9 @@ const STEPS=[
   ['Matching retakes','Fuzzy transcript match · keep-last suggested'],
   ['Building your edit','Assembling the cut list']
 ];
-async function startEdit(isDemo){
-  showView('proc');
-  $('procTitle').textContent='Editing '+(isDemo?'demo-footage.mp4':state.file.name)+'…';
+const library={}; /* name → {file,url,payload} */
+async function runPipelineOnce(title,isDemo){
+  $('procTitle').textContent=title;
   const holder=$('procSteps'); holder.innerHTML='';
   const rows=STEPS.map(([b,s],i)=>{
     const d=document.createElement('div'); d.className='pstep pend';
@@ -1257,27 +1369,57 @@ async function startEdit(isDemo){
   });
   const fill=$('pbarFill'); fill.style.width='0%';
   let payload=null;
-  try{
-    for(let i=0;i<rows.length;i++){
-      rows[i].className='pstep run';
-      rows[i].querySelector('.st').innerHTML='<div class="spinner"></div>';
-      if(i===0&&!isDemo) await PIPELINE.upload();
-      else if(i===1&&!isDemo) await PIPELINE.transcribe();
-      else if(i===5&&!isDemo) payload=await PIPELINE.analyze();
-      else await wait(520+(i===4?420:0));
-      rows[i].className='pstep done';
-      rows[i].querySelector('.st').textContent='✓';
-      fill.style.width=Math.round((i+1)/rows.length*100)+'%';
-    }
-  }catch(err){ toast(err.message); showView('home'); return; }
-  loadEditor(isDemo, isDemo?demoSegments():payload);
+  for(let i=0;i<rows.length;i++){
+    rows[i].className='pstep run';
+    rows[i].querySelector('.st').innerHTML='<div class="spinner"></div>';
+    if(i===0&&!isDemo) await PIPELINE.upload();
+    else if(i===1&&!isDemo) await PIPELINE.transcribe();
+    else if(i===5&&!isDemo) payload=await PIPELINE.analyze();
+    else await wait(520+(i===4?420:0));
+    rows[i].className='pstep done';
+    rows[i].querySelector('.st').textContent='✓';
+    fill.style.width=Math.round((i+1)/rows.length*100)+'%';
+  }
+  return payload;
+}
+async function startEdit(isDemo){
+  showView('proc');
+  if(isDemo){
+    try{ await runPipelineOnce('Editing demo-footage.mp4…',true); }catch(e){}
+    loadEditor(true,demoSegments());
+    return;
+  }
+  const jobs=queue.splice(0,queue.length); renderQueue();
+  let firstDone=null, failed=0;
+  for(let k=0;k<jobs.length;k++){
+    const j=jobs[k];
+    const title='Editing '+j.file.name+(jobs.length>1?' ('+(k+1)+' of '+jobs.length+')…':'…');
+    state.file=j.file; state.fileUrl=j.url; resetThumbs();
+    try{
+      const payload=await runPipelineOnce(title,false);
+      library[j.file.name]={file:j.file,url:j.url,payload};
+      loadEditor(false,payload,{silent:true});
+      if(!firstDone) firstDone=j.file.name;
+    }catch(err){ failed++; toast(j.file.name+': '+err.message); }
+  }
+  if(!firstDone){ showView('home'); return; }
+  openFromLibrary(firstDone);
+  if(jobs.length>1) toast((jobs.length-failed)+' videos chopped — the rest are in Your edits');
+}
+function openFromLibrary(name){
+  const lib=library[name];
+  if(!lib){ toast('That edit isn’t available in this session — run it again'); return; }
+  state.file=lib.file; state.fileUrl=lib.url; resetThumbs();
+  loadEditor(false,lib.payload);
 }
 
-function loadEditor(isDemo,payload){
+function loadEditor(isDemo,payload,opts){
+  opts=opts||{};
   const isReal=!isDemo&&payload&&payload.segments;
   state.realAnalysis=!!isReal;
   state.segments=isReal?payload.segments:payload;
   state.pairs=isReal?(payload.pairs||[]).map(p=>({choice:null,sim:p.sim||0})):[{choice:null,sim:.91},{choice:null,sim:.87},{choice:null,sim:.89}];
+  state.settings={...cutDefaults()};
   state.mode='edited'; state.snippet=null; state.vt=0; state.playing=false;
   state.past=[]; state.future=[]; updUndoUI();
   state.useRealVideo=!isDemo&&!!state.fileUrl;
@@ -1299,6 +1441,7 @@ function loadEditor(isDemo,payload){
     statsRecord(rawDur()-editedDur());
     if(!isDemo) creditsSet(Math.max(0,creditsGet()-1));
   }
+  if(opts.silent) return;
   showView('editor');
   openPanel('retakes');
   renderAll();
@@ -1363,7 +1506,7 @@ function renderEditsGrid(){
   state.edits.forEach(e=>{
     const c=document.createElement('div'); c.className='ecard';
     c.innerHTML='<div class="thumb" style="background:'+e.grad+'"><svg class="ic" viewBox="0 0 24 24" style="width:26px;height:26px;color:#fff"><rect x="4" y="4.5" width="16" height="15" rx="2"/><path d="M8 4.5v15M16 4.5v15M4 9h4M4 15h4M16 9h4M16 15h4"/></svg></div><div class="meta"><b>'+escapeHtml(e.name)+'</b><small>Today · open in editor</small></div>';
-    c.onclick=()=>showView('editor');
+    c.onclick=()=>{ if(e.name==='demo-footage.mp4'){ showView('editor'); } else openFromLibrary(e.name); };
     g.appendChild(c);
   });
 }
@@ -1373,9 +1516,71 @@ function showView(v){
   $('viewProc').classList.toggle('hidden',v!=='proc');
   $('viewEditor').classList.toggle('hidden',v!=='editor');
   $('viewBilling').classList.toggle('hidden',v!=='billing');
+  $('viewLab').classList.toggle('hidden',v!=='lab');
+  $('glassNav').classList.toggle('hidden',v==='editor'||v==='proc');
+  $('navDash').classList.toggle('on',v==='home'||v==='billing');
+  $('navLab').classList.toggle('on',v==='lab');
   $('hdr').classList.toggle('full',v==='editor');
   document.body.style.overflow=v==='editor'?'hidden':'';
   window.scrollTo(0,0);
+}
+/* ---------------- cut lab (default settings) ----------------------- */
+const PRESETS={
+  relaxed:{label:'Relaxed',desc:'Keeps natural pauses. Silences over 0.7s, hard fillers only.',v:{minSil:0.7,fillers:true,soft:false,overlapMs:300,startPadMs:60,endPadMs:0}},
+  balanced:{label:'Balanced',desc:'The Chop standard. Silences over 0.4s, fillers removed.',v:{minSil:0.4,fillers:true,soft:false,overlapMs:250,startPadMs:40,endPadMs:-40}},
+  snappy:{label:'Snappy',desc:'TikTok-tight. Silences over 0.2s, all fillers, tight clip ends.',v:{minSil:0.2,fillers:true,soft:true,overlapMs:200,startPadMs:0,endPadMs:-120}},
+  custom:{label:'Custom',desc:'Your own recipe, saved from the sliders below.',v:null}
+};
+function cutDefaults(){
+  try{
+    const s=JSON.parse(localStorage.getItem('chopDefaults')||'null');
+    if(s&&typeof s.minSil==='number') return s;
+  }catch(e){}
+  return {...PRESETS.balanced.v};
+}
+function labValues(){
+  return { minSil:+$('lbSil').value, fillers:$('lbFill').classList.contains('on'), soft:$('lbSoft').classList.contains('on'),
+           overlapMs:+$('lbOv').value, startPadMs:+$('lbSt').value, endPadMs:+$('lbEn').value };
+}
+function labSet(v){
+  $('lbSil').value=v.minSil; $('lbFill').classList.toggle('on',!!v.fillers); $('lbSoft').classList.toggle('on',!!v.soft);
+  $('lbOv').value=v.overlapMs; $('lbSt').value=v.startPadMs; $('lbEn').value=v.endPadMs;
+  labLabels();
+}
+function labLabels(){
+  const sign=n=>(n>=0?'+':'−')+Math.abs(n);
+  $('lbSilV').textContent=(+$('lbSil').value).toFixed(2)+'s';
+  $('lbOvV').textContent=$('lbOv').value+'ms';
+  $('lbStV').textContent=sign(+$('lbSt').value)+'ms';
+  $('lbEnV').textContent=sign(+$('lbEn').value)+'ms';
+}
+function matchPreset(v){
+  for(const k of Object.keys(PRESETS)){
+    const p=PRESETS[k].v; if(!p) continue;
+    if(Object.keys(p).every(key=>p[key]===v[key])) return k;
+  }
+  return 'custom';
+}
+function renderPresets(){
+  const cur=cutDefaults(), curKey=matchPreset(cur);
+  const g=$('presetGrid'); g.innerHTML='';
+  Object.keys(PRESETS).forEach(k=>{
+    const p=PRESETS[k];
+    const d=document.createElement('div');
+    d.className='preset'+(k===curKey?' on isdef':'');
+    d.innerHTML='<span class="def">YOUR DEFAULT</span><b>'+p.label+'</b><small>'+p.desc+'</small>';
+    d.onclick=()=>{
+      document.querySelectorAll('.preset').forEach(x=>x.classList.remove('on'));
+      d.classList.add('on');
+      if(p.v) labSet(p.v);
+    };
+    g.appendChild(d);
+  });
+}
+function saveDefaults(v){
+  try{localStorage.setItem('chopDefaults',JSON.stringify(v));}catch(e){}
+  renderPresets();
+  toast('Saved — every new video will use these settings');
 }
 /* ---------------- credits ------------------------------------------ */
 function creditsGet(){ try{ const v=localStorage.getItem('chopCredits'); return v===null?200:Math.max(0,parseInt(v,10)||0); }catch(e){ return 200; } }
@@ -1526,6 +1731,15 @@ $('renderBtn').onclick=async()=>{
   $('pmBilling').onclick=()=>{ $('pMenu').classList.add('hidden'); renderCredits(); showView('billing'); };
   $('pmSettings').onclick=()=>{ $('pMenu').classList.add('hidden'); toast('Settings coming soon'); };
   $('billBack').onclick=()=>showView('home');
+  /* glass nav + cut lab */
+  $('navDash').onclick=()=>showView('home');
+  $('navLab').onclick=()=>{ labSet(cutDefaults()); renderPresets(); showView('lab'); };
+  ['lbSil','lbOv','lbSt','lbEn'].forEach(id=>$(id).oninput=labLabels);
+  $('lbFill').onclick=function(){ this.classList.toggle('on'); };
+  $('lbSoft').onclick=function(){ this.classList.toggle('on'); };
+  $('lbSave').onclick=()=>saveDefaults(labValues());
+  $('lbReset').onclick=()=>{ labSet(PRESETS.balanced.v); saveDefaults(labValues()); };
+  labSet(cutDefaults()); renderPresets();
   document.querySelectorAll('.pack .buy').forEach(b=>{
     b.onclick=()=>toast('Checkout coming soon — payments aren’t live yet');
   });
