@@ -295,32 +295,21 @@ input[type=range].vol{width:64px;flex:none}
 
 <!-- ============ HOME ============ -->
 <div class="wrap" id="viewHome">
-  <div class="hero">
-    <h1>AI Edit</h1>
-    <p>Drop in a raw talking-head video. We trim the dead air, filler and retakes automatically — you approve every retake in the editor before export.</p>
-  </div>
-  <div class="drop" id="drop">
-    <div class="cloud">☁️</div>
-    <h3>Drop your videos here</h3>
-    <p>or <span class="browse">click to browse</span></p>
-    <p>MP4 or MOV · up to 1 GB each</p>
-    <div class="filetag" id="filetag"><span id="filetagTxt"></span></div>
-  </div>
-  <input type="file" id="fileInput" accept="video/mp4,video/quicktime,video/*" class="hidden">
-  <button class="runbtn" id="runBtn" disabled>Start chopping</button>
-  <a class="demolink" href="#" id="demoLink">No footage handy? Try it with demo footage →</a>
-
-  <div class="stats-h">
-    <div class="eyebrow">Your AI Edit stats</div>
-    <h2>Your editing impact</h2>
-    <p>Lifetime numbers across all your AI edits.</p>
-  </div>
   <div class="impact">
     <div class="icard hero-card"><div class="big" id="stSaved">0<small>m</small></div><div class="lbl">Time saved editing</div></div>
     <div class="icard"><div class="big" id="stVideos">0</div><div class="lbl">Videos edited</div></div>
     <div class="icard"><div class="big" id="stMoney">$0</div><div class="lbl">Saved vs. manual editing</div><div class="sub">at $30/h</div></div>
     <div class="icard"><div class="big" id="stStreak">0</div><div class="lbl">Day streak</div></div>
   </div>
+  <div class="drop" id="drop" style="margin-top:24px">
+    <div class="cloud">☁️</div>
+    <h3>Drop your videos here to edit</h3>
+    <p>or <span class="browse">click to browse</span></p>
+    <p>MP4 or MOV · up to 1 GB each</p>
+    <div class="filetag" id="filetag"><span id="filetagTxt"></span></div>
+  </div>
+  <input type="file" id="fileInput" accept="video/mp4,video/quicktime,video/*" class="hidden">
+  <button class="runbtn" id="runBtn" disabled>Start chopping</button>
   <div class="stats-h"><h2>Consistency</h2></div>
   <div class="consist">
     <div class="ring-card">
@@ -1087,7 +1076,7 @@ function pickFile(f){
   $('filetagTxt').textContent='🎬 '+f.name+' · '+(f.size/1048576).toFixed(1)+' MB';
   $('runBtn').disabled=false;
 }
-$('demoLink').onclick=e=>{ e.preventDefault(); state.file=null; startEdit(true); };
+/* demo entry removed from UI — demo path still callable via startEdit(true) */
 $('runBtn').onclick=()=>startEdit(false);
 
 const STEPS=[
