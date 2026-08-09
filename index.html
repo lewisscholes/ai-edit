@@ -130,6 +130,34 @@ html.dark body{background:#0e1014}
 .sooncard small{color:var(--mut);font-size:12px;display:block;margin-top:5px;line-height:1.45}
 .rbtn.soon{opacity:.5}
 .rbtn.soon .sbdg{position:absolute;top:2px;right:4px;background:var(--violet-soft);color:var(--violet);font-size:8px;font-weight:800;padding:1px 6px;border-radius:8px;letter-spacing:.03em}
+/* cut lab live preview */
+.labcols{display:grid;grid-template-columns:1fr 1.05fr;gap:20px;align-items:start}
+@media(max-width:900px){.labcols{grid-template-columns:1fr}}
+.prevcard{background:linear-gradient(180deg,#14161c,#1b1e27);border-radius:18px;padding:22px;color:#e9edf5;position:sticky;top:76px}
+.prevcard h3{margin:0 0 2px;font-size:16px;color:#fff}
+.prevcard .psub{color:#8a93a5;font-size:12.5px;margin:0 0 16px}
+.lp-players{display:flex;gap:16px;justify-content:center}
+.lp-col{text-align:center}
+.lp-screen{width:140px;aspect-ratio:9/16;border-radius:14px;position:relative;overflow:hidden;background:radial-gradient(120% 90% at 30% 20%,#243b6b 0%,#101426 60%,#0a0c14 100%);display:grid;place-items:center;border:1px solid rgba(255,255,255,.08)}
+.lp-screen.edited{background:radial-gradient(120% 90% at 30% 20%,#1d4a3f 0%,#0f1e26 60%,#0a0c14 100%)}
+.lp-screen .cflash{position:absolute;top:8px;right:8px;background:rgba(220,38,55,.95);color:#fff;font-size:8.5px;font-weight:800;letter-spacing:.05em;padding:3px 7px;border-radius:6px;opacity:0;transition:opacity .15s}
+.lp-label{margin-top:10px;font-weight:700;font-size:12.5px;color:#cdd6e4}
+.lp-time{font-size:19px;font-weight:800;font-variant-numeric:tabular-nums;color:#fff}
+.lp-time small{font-size:11px;color:#8a93a5;font-weight:600}
+.lp-saved{margin:14px auto 0;width:fit-content;background:rgba(14,159,110,.18);color:#3ad39c;font-weight:800;font-size:12px;padding:4px 14px;border-radius:14px}
+.lp-mtl{margin-top:18px}
+.lp-mlbl{display:flex;justify-content:space-between;font-size:10.5px;color:#8a93a5;font-weight:700;letter-spacing:.05em;margin-bottom:5px}
+.lp-track{display:flex;height:26px;border-radius:8px;overflow:hidden;gap:1px;position:relative}
+.lp-track i{display:block;height:100%}
+.lp-track i.sp{background:#3d7ffb}
+.lp-track i.cut{background:#592931}
+.lp-track i.keptsil{background:#2a3140}
+.lp-ph{position:absolute;top:-3px;bottom:-3px;width:2px;background:#fff;border-radius:2px;left:0;opacity:0;box-shadow:0 0 8px rgba(255,255,255,.7)}
+.lp-legend{display:flex;gap:14px;justify-content:center;margin-top:10px;font-size:10.5px;color:#8a93a5;font-weight:600}
+.lp-legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.lp-playrow{display:flex;justify-content:center;margin-top:16px}
+.lp-play{display:inline-flex;align-items:center;gap:9px;background:var(--blue);color:#fff;font-weight:800;font-size:13.5px;padding:11px 22px;border-radius:22px}
+.lp-play:hover{background:var(--blue-dk)}
 *{box-sizing:border-box}
 svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
 .ric svg.ic{width:19px;height:19px}
@@ -545,6 +573,7 @@ input[type=range].vol{width:64px;flex:none}
     <p>Dial in your cutting style once — every video you drop gets chopped with these settings automatically.</p>
   </div>
   <div class="presets" id="presetGrid"></div>
+  <div class="labcols">
   <div class="labcard">
     <h3>Fine-tune</h3>
     <p class="lsub">These become your defaults for every new video. You can still tweak any single video in the editor.</p>
@@ -574,6 +603,37 @@ input[type=range].vol{width:64px;flex:none}
       <button class="savebtn" id="lbSave">Save as my default</button>
       <button class="resetbtn" id="lbReset">Reset to Balanced</button>
     </div>
+  </div>
+
+  <div class="prevcard">
+    <h3>See your style in action</h3>
+    <p class="psub">Our demo clip, chopped live with your settings. Your own videos will get exactly these cuts.</p>
+    <div class="lp-players">
+      <div class="lp-col">
+        <div class="lp-screen"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".6"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg></div>
+        <div class="lp-label">Original</div>
+        <div class="lp-time" id="lpRaw">0:20.0</div>
+      </div>
+      <div class="lp-col">
+        <div class="lp-screen edited"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" opacity=".6"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg><span class="cflash" id="lpFlash">CUT SKIPPED</span></div>
+        <div class="lp-label">Chopped</div>
+        <div class="lp-time" id="lpEd">0:14.2 <small>−29%</small></div>
+      </div>
+    </div>
+    <div class="lp-saved" id="lpSaved">Saving 5.8s of dead air</div>
+    <div class="lp-mtl">
+      <div class="lp-mlbl"><span>WHAT GETS CUT</span><span id="lpCuts">6 cuts</span></div>
+      <div class="lp-track" id="lpTrack"><div class="lp-ph" id="lpPh"></div></div>
+      <div class="lp-legend">
+        <span><i style="background:#3d7ffb"></i>Speech kept</span>
+        <span><i style="background:#2a3140"></i>Pause kept</span>
+        <span><i style="background:#592931"></i>Cut away</span>
+      </div>
+    </div>
+    <div class="lp-playrow">
+      <button class="lp-play" id="lpPlay"><svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M8 5.5v13l11-6.5z"/></svg>Play preview</button>
+    </div>
+  </div>
   </div>
 </div>
 
@@ -1807,6 +1867,7 @@ function labLabels(){
   $('lbOvV').textContent=$('lbOv').value+'ms';
   $('lbStV').textContent=sign(+$('lbSt').value)+'ms';
   $('lbEnV').textContent=sign(+$('lbEn').value)+'ms';
+  renderLabPreview();
 }
 function matchPreset(v){
   for(const k of Object.keys(PRESETS)){
@@ -1835,6 +1896,74 @@ function saveDefaults(v){
   try{localStorage.setItem('chopDefaults',JSON.stringify(v));}catch(e){}
   renderPresets();
   toast('Saved — every new video will use these settings');
+}
+/* ---- cut lab live preview (hard-coded demo segments; swap for Lewis's
+        filmed clip + its pipeline JSON when ready) ---- */
+const LP_SEGS=[
+  {s:0.0,e:0.5,k:'sil'},{s:0.5,e:3.2,k:'sp'},{s:3.2,e:3.7,k:'fill'},
+  {s:3.7,e:6.4,k:'sp'},{s:6.4,e:7.9,k:'sil'},{s:7.9,e:10.6,k:'sp'},
+  {s:10.6,e:11.0,k:'fill',soft:true},{s:11.0,e:13.8,k:'sp'},{s:13.8,e:14.9,k:'sil'},
+  {s:14.9,e:17.6,k:'sp'},{s:17.6,e:18.1,k:'fill'},{s:18.1,e:19.5,k:'sp'},{s:19.5,e:20.0,k:'sil'}
+];
+const LP_DUR=20;
+function lpCutRanges(){
+  const v=labValues();
+  const st={minSil:v.minSil,fillers:v.fillers,soft:v.soft,stp:v.startPadMs/1000,enp:v.endPadMs/1000};
+  const cut=g=>g.k==='sil'?(g.e-g.s)>=st.minSil:(g.k==='fill'?st.fillers&&(!g.soft||st.soft):false);
+  const ivs=[];
+  LP_SEGS.forEach(g=>{ if(!cut(g)) return;
+    const l=ivs[ivs.length-1];
+    if(l&&g.s<=l.e+0.001) l.e=g.e; else ivs.push({s:g.s,e:g.e});
+  });
+  return ivs.map(iv=>{
+    let s=iv.s,e=iv.e;
+    if(iv.s>0.01) s=iv.s+st.enp;
+    if(iv.e<LP_DUR-0.01) e=iv.e-st.stp;
+    return {s:Math.max(0,s),e:Math.min(LP_DUR,e)};
+  }).filter(iv=>iv.e-iv.s>0.005);
+}
+const lpFmt=t=>{ const m=Math.floor(t/60); return m+':'+(t-m*60).toFixed(1).padStart(4,'0'); };
+function renderLabPreview(){
+  if(!$('lpTrack')) return;
+  const cuts=lpCutRanges();
+  const cutSec=cuts.reduce((a,c)=>a+(c.e-c.s),0);
+  $('lpRaw').textContent=lpFmt(LP_DUR);
+  $('lpEd').innerHTML=lpFmt(LP_DUR-cutSec)+' <small>−'+Math.round(cutSec/LP_DUR*100)+'%</small>';
+  $('lpSaved').textContent='Saving '+cutSec.toFixed(1)+'s of dead air';
+  $('lpCuts').textContent=cuts.length+' cut'+(cuts.length===1?'':'s');
+  const track=$('lpTrack');
+  track.querySelectorAll('i').forEach(n=>n.remove());
+  const parts=[];
+  LP_SEGS.forEach(g=>{
+    let a=g.s;
+    cuts.forEach(c=>{ if(c.e<=a||c.s>=g.e) return;
+      if(c.s>a) parts.push({s:a,e:c.s,k:g.k});
+      parts.push({s:Math.max(a,c.s),e:Math.min(g.e,c.e),k:'cut'});
+      a=Math.min(g.e,c.e);
+    });
+    if(a<g.e) parts.push({s:a,e:g.e,k:g.k});
+  });
+  parts.forEach(p=>{
+    if(p.e-p.s<0.02) return;
+    const i=document.createElement('i');
+    i.style.width=((p.e-p.s)/LP_DUR*100)+'%';
+    i.className=p.k==='cut'?'cut':(p.k==='sp'||p.k==='fill'?'sp':'keptsil');
+    track.appendChild(i);
+  });
+}
+let _lpPlaying=false;
+async function lpPlayPreview(){
+  if(_lpPlaying) return; _lpPlaying=true;
+  const cuts=lpCutRanges(); const ph=$('lpPh'); ph.style.opacity=1;
+  const t0=performance.now();
+  let t=0;
+  while(t<LP_DUR && !$('viewLab').classList.contains('hidden')){
+    t=(performance.now()-t0)/1000*2.2;
+    if(cuts.find(c=>t>=c.s&&t<c.e)){ $('lpFlash').style.opacity=1; setTimeout(()=>$('lpFlash').style.opacity=0,220); }
+    ph.style.left=Math.min(100,t/LP_DUR*100)+'%';
+    await new Promise(r=>requestAnimationFrame(r));
+  }
+  ph.style.opacity=0; _lpPlaying=false;
 }
 /* ---------------- credits ------------------------------------------ */
 function creditsGet(){ try{ const v=localStorage.getItem('chopCredits'); return v===null?200:Math.max(0,parseInt(v,10)||0); }catch(e){ return 200; } }
@@ -2005,8 +2134,9 @@ $('renderBtn').onclick=async()=>{
   $('navLab').onclick=()=>{ labSet(cutDefaults()); renderPresets(); showView('lab'); };
   updateQueueBadge();
   ['lbSil','lbOv','lbSt','lbEn'].forEach(id=>$(id).oninput=labLabels);
-  $('lbFill').onclick=function(){ this.classList.toggle('on'); };
-  $('lbSoft').onclick=function(){ this.classList.toggle('on'); };
+  $('lbFill').onclick=function(){ this.classList.toggle('on'); renderLabPreview(); };
+  $('lbSoft').onclick=function(){ this.classList.toggle('on'); renderLabPreview(); };
+  $('lpPlay').onclick=lpPlayPreview;
   $('lbSave').onclick=()=>saveDefaults(labValues());
   $('lbReset').onclick=()=>{ labSet(PRESETS.balanced.v); saveDefaults(labValues()); };
   labSet(cutDefaults()); renderPresets();
