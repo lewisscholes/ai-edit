@@ -3,11 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Chop</title>
 <script src="coi-serviceworker.js"></script>
 <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="%231a6dff"/><stop offset="1" stop-color="%237c3aed"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(%23g)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="white"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="white" opacity=".55"/></svg>'>
 <style>
 :root{
+  color-scheme:light;
   --bg:#f6f8fb; --card:#fff; --ink:#101319; --mut:#66707f; --line:#e4e8ef;
   --blue:#1a6dff; --blue-dk:#0d4fc4; --blue-soft:#eaf1ff;
   --amber:#b45309; --amber-soft:#fff4dd;
@@ -408,7 +410,11 @@ input[type=range].vol{width:64px;flex:none}
 </style>
 </head>
 <body>
-<script>try{if(localStorage.getItem('chopTheme')==='dark')document.documentElement.classList.add('dark')}catch(e){}</script>
+<script>try{
+  var t=localStorage.getItem('chopTheme');
+  if(t==='dark'||(t===null&&window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches))
+    document.documentElement.classList.add('dark');
+}catch(e){}</script>
 
 <header id="hdr">
   <div class="hwrap">
