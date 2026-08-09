@@ -1387,18 +1387,14 @@ let _ffmpeg=null;
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error('Failed to load '+src)); document.head.appendChild(s); }); }
 async function getFFmpeg(onLog){
   if(_ffmpeg) return _ffmpeg;
-  await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js');
-  await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js');
+  await loadScript('vendor/ffmpeg/ffmpeg.js'); /* self-hosted: workers must be same-origin */
   const { FFmpeg } = window.FFmpegWASM;
-  const { toBlobURL } = window.FFmpegUtil;
   const ff=new FFmpeg();
   if(onLog) ff.on('log',({message})=>onLog(message));
   const mt=window.crossOriginIsolated===true;
-  const base=mt?'https://cdn.jsdelivr.net/npm/@ffmpeg/core-mt@0.12.6/dist/umd'
-              :'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
-  const cfg={ coreURL:await toBlobURL(base+'/ffmpeg-core.js','text/javascript'),
-              wasmURL:await toBlobURL(base+'/ffmpeg-core.wasm','application/wasm') };
-  if(mt) cfg.workerURL=await toBlobURL(base+'/ffmpeg-core.worker.js','text/javascript');
+  const base=new URL(mt?'vendor/ffmpeg/core-mt/':'vendor/ffmpeg/core/',location.href).href;
+  const cfg={ coreURL:base+'ffmpeg-core.js', wasmURL:base+'ffmpeg-core.wasm' };
+  if(mt) cfg.workerURL=base+'ffmpeg-core.worker.js';
   await ff.load(cfg);
   _ffmpeg=ff;
   return ff;
