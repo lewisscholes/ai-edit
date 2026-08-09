@@ -347,7 +347,7 @@ input[type=range].vol{width:64px;flex:none}
       <div class="stat-mini"><span id="msOrig">1:28</span><span>→</span><span id="msEdit">1:04</span><span class="sv" id="msSaved">−27%</span></div>
       <div class="ctl">
         <div class="ctl-top"><b>Remove silences over</b><span class="val" id="vSil">0.50s</span></div>
-        <input type="range" id="sSil" min="0.2" max="2" step="0.05" value="0.5">
+        <input type="range" id="sSil" min="0.1" max="2" step="0.05" value="0.4">
         <small>Any pause longer than this is cut automatically. Lower removes more dead air.</small>
       </div>
       <div class="swrow"><div class="grow"><b>Remove filler words</b><small>um, uh, hmm…</small></div><div class="tgl on" id="tglFill"></div></div>
@@ -359,12 +359,12 @@ input[type=range].vol{width:64px;flex:none}
       </div>
       <div class="ctl">
         <div class="ctl-top"><b>Clip start</b><span class="val" id="vStart">+40ms</span></div>
-        <input type="range" id="sStart" min="-200" max="200" step="10" value="40">
+        <input type="range" id="sStart" min="-300" max="300" step="10" value="40">
         <small>Positive keeps a little more before each clip; negative trims tighter.</small>
       </div>
       <div class="ctl">
         <div class="ctl-top"><b>Clip end</b><span class="val" id="vEnd">−40ms</span></div>
-        <input type="range" id="sEnd" min="-200" max="200" step="10" value="-40">
+        <input type="range" id="sEnd" min="-300" max="300" step="10" value="-40">
         <small>Positive keeps a little more after each clip; negative trims tighter.</small>
       </div>
       <p class="sp-sub" id="cutsSummary" style="margin-top:6px"></p>
