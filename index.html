@@ -505,18 +505,27 @@ input[type=range].vol{width:64px;flex:none}
 .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
 /* ================= mobile ================= */
 @media(max-width:760px){
-  /* editor: stack — icon bar on top, video hero, settings below */
-  #viewEditor{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1.25fr) minmax(0,1fr)}
-  .rail{flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:none;border-bottom:1px solid var(--line);padding:6px 10px;gap:4px;align-items:center;order:1}
+  /* editor: TikTok-style — video hero on top, transport built in, tools below */
+  #viewEditor{display:flex;flex-direction:column;height:calc(100vh - 52px);position:relative}
+  .rcol{order:1;flex:none;display:flex;flex-direction:column;min-height:0}
+  .stagewrap{height:52vh;min-height:0;flex:none;padding:10px 10px 64px;transition:height .35s ease}
+  body.stagecompact .stagewrap{height:29vh}
+  /* back button floats over the video, TikTok-style */
+  .backrail{position:absolute;top:12px;left:12px;z-index:35;width:40px;height:40px;border-radius:50%;background:rgba(10,12,18,.5);color:#fff;border:none;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:0;margin:0;display:grid;place-items:center;font-size:17px}
+  /* transport bar integrated into the bottom edge of the stage */
+  .transport{left:0;right:0;bottom:0;transform:none;width:100%;max-width:none;border-radius:0;box-shadow:none;background:var(--panel);border-top:1px solid var(--line);padding:8px 14px;gap:8px}
+  /* toolbar sits below the video + transport */
+  .rail{order:2;flex:none;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:none;border-bottom:1px solid var(--line);padding:6px 10px;gap:4px;align-items:center}
+  .rail>div{margin-bottom:0!important}
   .rail .rbtn{width:auto;min-width:54px;padding:6px 8px 5px;font-size:10px}
   .rail .rbtn .ric svg.ic{width:17px;height:17px}
   .railspace{flex:1;min-width:8px}
-  .backrail{width:auto;padding:7px 12px;margin:0}
   .exportrail{width:auto;padding:8px 14px;flex-direction:row;gap:6px;font-size:12px}
-  .rcol{order:2;min-height:0;overflow-y:auto}
-  .spanel{order:3;border-right:none;border-top:1px solid var(--line);padding:16px 18px}
-  .stagewrap{padding:14px 12px 74px;min-height:300px;flex:none}
-  .transport{bottom:10px;padding:8px 12px;gap:8px}
+  /* compact strip, no takes-flow row (it lives in the Retakes panel) */
+  .stripwrap{padding:6px 12px 8px}
+  .flowwrap{display:none}
+  /* panel scrolls independently — scrolling it shrinks the video */
+  .spanel{order:3;flex:1;min-height:0;overflow-y:auto;border-right:none;border-top:1px solid var(--line);padding:16px 18px}
   /* glass nav: tighter so labels never wrap */
   .glassnav{bottom:14px;padding:4px;max-width:calc(100vw - 20px)}
   .gbtn{padding:9px 13px;font-size:12px;gap:6px;white-space:nowrap}
@@ -525,7 +534,6 @@ input[type=range].vol{width:64px;flex:none}
   .hero h1{font-size:24px}
   .kcols{grid-template-columns:1fr}
 }
-
 </style>
 </head>
 <body>
@@ -1866,6 +1874,7 @@ function showView(v){
   $('navDash').classList.toggle('on',v==='home');
   $('navLab').classList.toggle('on',v==='lab');
   $('navQueue').classList.toggle('on',v==='queue');
+  if(v!=='editor') document.body.classList.remove('stagecompact');
   if(v!=='lab') document.body.classList.remove('labfocus');
   else setTimeout(()=>{ try{evalLabFocus();}catch(e){} },350);
   $('hdr').classList.toggle('full',v==='editor');
@@ -2501,6 +2510,14 @@ $('renderBtn').onclick=async()=>{
   $('authPass').addEventListener('keydown',e=>{ if(e.key==='Enter') authGo(); });
   $('pSave').onclick=saveProfile;
   $('pmSignout').onclick=async()=>{ $('pMenu').classList.add('hidden'); try{await sb.auth.signOut();}catch(e){} routeAuth(null); };
+  /* mobile: scrolling the panel shrinks the video; scrolling back to top expands it */
+  const spEl=document.querySelector('.spanel');
+  spEl.addEventListener('scroll',()=>{
+    if(window.innerWidth>760||$('viewEditor').classList.contains('hidden')) return;
+    const y=spEl.scrollTop;
+    if(y>50) document.body.classList.add('stagecompact');
+    else if(y<8) document.body.classList.remove('stagecompact');
+  },{passive:true});
   initAuth();
   document.querySelectorAll('.pack .buy').forEach(b=>{
     b.onclick=()=>toast('Checkout coming soon — payments aren’t live yet');
