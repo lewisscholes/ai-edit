@@ -15,8 +15,10 @@ if (typeof window === 'undefined') {
   self.addEventListener('fetch', (event) => {
     const r = event.request;
     if (r.cache === 'only-if-cached' && r.mode !== 'same-origin') return;
+    // navigations always revalidate so users never run a stale build
+    const req = r.mode === 'navigate' ? new Request(r.url, { cache: 'no-cache' }) : r;
     event.respondWith(
-      fetch(r).then((res) => {
+      fetch(req).then((res) => {
         if (res.status === 0) return res;
         const h = new Headers(res.headers);
         h.set('Cross-Origin-Embedder-Policy', 'credentialless');

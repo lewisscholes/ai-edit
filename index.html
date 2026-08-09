@@ -105,18 +105,18 @@ html.dark body{background:#0e1014}
 .exportrail.approve{background:var(--green);box-shadow:0 4px 14px rgba(14,159,110,.35)}
 .qhead{display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap}
 .qhead h1{font-size:24px;margin:0;flex:1}
-.backedit{display:inline-flex;align-items:center;gap:8px;background:var(--blue);color:#fff;font-weight:800;font-size:13.5px;padding:11px 18px;border-radius:12px;box-shadow:0 4px 14px rgba(26,109,255,.3)}
+.backedit{display:inline-flex;align-items:center;gap:8px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:var(--blue);color:#fff;font-weight:800;font-size:13.5px;padding:11px 18px;border-radius:12px;box-shadow:0 4px 14px rgba(26,109,255,.3)}
 .backedit:hover{background:var(--blue-dk)}
 .exportall{display:inline-flex;align-items:center;gap:8px;background:var(--green);color:#fff;font-weight:800;font-size:13.5px;padding:11px 18px;border-radius:12px}
 .exportall:disabled{opacity:.45;cursor:default}
 .kcols{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
 @media(max-width:1080px){.kcols{grid-template-columns:1fr 1fr}}
 @media(max-width:860px){.kcols{grid-template-columns:1fr}}
-.kcol{background:var(--soft2);border-radius:16px;padding:14px;min-height:120px}
+.kcol{background:var(--soft2);border-radius:16px;padding:14px;min-height:120px;min-width:0}
 .kcol h3{margin:0 0 12px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);display:flex;align-items:center;gap:8px}
 .kcol h3 .cnt{background:var(--card);border-radius:10px;padding:1px 9px;font-size:11px;color:var(--ink)}
 .kempty{color:var(--mut);font-size:12.5px;text-align:center;padding:18px 6px}
-.vcard{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:10px;margin-bottom:10px;display:flex;gap:11px;align-items:center}
+.vcard{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:10px;margin-bottom:10px;display:flex;gap:11px;align-items:center;min-width:0;overflow:hidden}
 .vthumb{width:44px;aspect-ratio:9/16;border-radius:8px;flex:none;background:linear-gradient(160deg,#3c4454,#20242c);background-size:cover;background-position:center}
 .vmeta{flex:1;min-width:0}
 .vmeta b{font-size:12.5px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -339,7 +339,7 @@ header.full .hwrap{max-width:none}
 
 /* ================= processing ================= */
 .proc{max-width:520px;margin:56px auto 0;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:32px 34px}
-.proc h2{margin:0 0 4px;font-size:20px}
+.proc h2{margin:0 0 4px;font-size:20px;overflow-wrap:anywhere}
 .proc>p{color:var(--mut);margin:0 0 20px;font-size:13.5px}
 .pstep{display:flex;align-items:center;gap:13px;padding:9px 0}
 .pstep .st{width:25px;height:25px;border-radius:50%;display:grid;place-items:center;font-size:12.5px;flex:none;background:var(--soft2);color:#a5aebc;font-weight:800}
@@ -412,10 +412,10 @@ header.full .hwrap{max-width:none}
 .rtag{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.04em;background:var(--rose);color:#fff;border-radius:5px;padding:1px 5px;margin-right:4px;vertical-align:2px}
 .rtag.b{background:var(--green)}
 /* retakes in panel */
-.rk{border:1px solid var(--line);border-radius:12px;margin-bottom:14px;overflow:hidden}
+.rk{border:1px solid var(--line);border-radius:12px;margin-bottom:14px;overflow:hidden;background:var(--card)}
 .rk.pending{border-color:var(--rose-line)}
 .rk.done{border-color:#bfe8d4}
-.rkhead{display:flex;align-items:center;gap:8px;padding:9px 13px;background:#fafbfd;border-bottom:1px solid var(--line);font-size:12px;font-weight:800}
+.rkhead{display:flex;align-items:center;gap:8px;padding:9px 13px;background:var(--hovbg);border-bottom:1px solid var(--line);font-size:12px;font-weight:800}
 .rkhead .status{margin-left:auto;font-size:10.5px;padding:3px 8px;border-radius:9px}
 .rk.pending .status{background:var(--rose-soft);color:var(--rose)}
 .rk.done .status{background:var(--green-soft);color:var(--green)}
@@ -426,13 +426,13 @@ header.full .hwrap{max-width:none}
 .take p{margin:0 0 9px;font-size:12.5px;line-height:1.45}
 .tk-btns{display:flex;gap:7px}
 .tk-btns .prev{background:var(--soft2);font-weight:700;font-size:11.5px;padding:6px 10px;border-radius:8px}
-.tk-btns .prev:hover{background:#e2e7ef}
+.tk-btns .prev:hover{background:var(--tglbg)}
 .tk-btns .keep{background:var(--blue);color:#fff;font-weight:800;font-size:11.5px;padding:6px 12px;border-radius:8px;flex:1}
 .tk-btns .keep:hover{background:var(--blue-dk)}
 .take.chosen{background:var(--green-soft)}
 .take.dropped{opacity:.5}
 .take.dropped p{text-decoration:line-through}
-.rkfoot{padding:8px 13px;display:flex;gap:12px;font-size:11.5px;background:#fafbfd;border-top:1px solid var(--line)}
+.rkfoot{padding:8px 13px;display:flex;gap:12px;font-size:11.5px;background:var(--hovbg);border-top:1px solid var(--line)}
 .rkfoot button{color:var(--mut);font-weight:700}
 .rkfoot button:hover{color:var(--blue)}
 /* cuts list */
@@ -521,7 +521,7 @@ input[type=range].vol{width:64px;flex:none}
 .mbtns .sec{background:var(--soft2)}
 .mbtns .sec:hover{background:#e2e7ef}
 .mclose{float:right;font-size:19px;color:var(--mut);margin:-4px -4px 0 0;padding:5px}
-.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--ink);color:var(--bg);font-weight:700;font-size:13px;padding:11px 19px;border-radius:12px;z-index:99;transition:.25s;opacity:0}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--ink);color:var(--bg);font-weight:700;font-size:13px;padding:11px 19px;border-radius:12px;z-index:99;transition:.25s;opacity:0;max-width:calc(100vw - 32px);overflow-wrap:anywhere}
 .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
 /* ================= mobile ================= */
 @media(max-width:760px){
@@ -1034,14 +1034,19 @@ async function extractAudio(file){
   try{ const b=await extractViaWebAudio(file); return {blob:b,ext:'.wav'}; }
   catch(e){ const b=await extractViaFFmpeg(file); return {blob:b,ext:'.m4a'}; }
 }
+let _ffLock=Promise.resolve();
+function withFFmpeg(fn){ const run=_ffLock.then(fn,fn); _ffLock=run.then(()=>{},()=>{}); return run; }
 async function extractViaFFmpeg(file){
-  const ff=await getFFmpeg();
-  await ff.writeFile('ain.mp4',new Uint8Array(await file.arrayBuffer()));
-  await ff.exec(['-i','ain.mp4','-vn','-ac','1','-ar','16000','-c:a','aac','-b:a','48k','aout.m4a']);
-  const out=await ff.readFile('aout.m4a');
-  await ff.deleteFile('ain.mp4').catch(()=>{}); await ff.deleteFile('aout.m4a').catch(()=>{});
-  if(!out||!out.length) throw new Error('no audio track found');
-  return new Blob([out.buffer],{type:'audio/mp4'});
+  return withFFmpeg(async()=>{
+    const ff=await getFFmpeg();
+    const id=Math.random().toString(36).slice(2,8);
+    await ff.writeFile('ain'+id+'.mp4',new Uint8Array(await file.arrayBuffer()));
+    await ff.exec(['-i','ain'+id+'.mp4','-vn','-ac','1','-ar','16000','-c:a','aac','-b:a','48k','aout'+id+'.m4a']);
+    const out=await ff.readFile('aout'+id+'.m4a');
+    await ff.deleteFile('ain'+id+'.mp4').catch(()=>{}); await ff.deleteFile('aout'+id+'.m4a').catch(()=>{});
+    if(!out||!out.length) throw new Error('no audio track found');
+    return new Blob([out.buffer],{type:'audio/mp4'});
+  });
 }
 async function extractViaWebAudio(file){
   const buf=await file.arrayBuffer();
@@ -1262,7 +1267,7 @@ function loop(ts){
   const dt=lastTs===null?0:Math.min(0.1,(ts-lastTs)/1000); lastTs=ts;
   if(!state.useRealVideo&&state.playing) state.vt=Math.min(rawDur(),state.vt+dt);
   let t=player.time;
-  if(state.snippet){ if(t>=state.snippet.end){ player.pause(); state.snippet=null; } }
+  if(state.snippet){ if(t>=state.snippet.end){ player.pause(); state.snippet=null; syncPrevBtns(); } }
   else if(state.playing&&state.mode==='edited'){
     const iv=cutAt(t);
     if(iv){
@@ -1367,8 +1372,8 @@ function renderRetakes(){
       const txt=document.createElement('p'); txt.textContent='“'+seg.text+'”';
       const btns=document.createElement('div'); btns.className='tk-btns';
       const prev=document.createElement('button'); prev.className='prev'; prev.textContent='▶';
-      prev.title='Preview this take';
-      prev.onclick=()=>previewRange(seg.start,seg.end);
+      prev.title='Preview this take'; prev.dataset.key='rk'+idx+key;
+      prev.onclick=()=>previewRange(seg.start,seg.end,'rk'+idx+key);
       const keep=document.createElement('button'); keep.className='keep';
       keep.textContent=p.choice===key?'✓ Keeping this':'Keep this take';
       keep.onclick=()=>{ pushHist(); p.choice=key; clearRtManuals(idx); renderAll(); if(pendingPairs()===0) toast('All retakes reviewed — ready to export'); };
@@ -1556,7 +1561,15 @@ function renderOverlays(){
   cap.style.fontSize=state.capSize+'px';
 }
 
-function previewRange(start,end){ state.snippet={end}; player.time=start; player.play(); }
+function previewRange(start,end,key){
+  if(state.playing&&state.snippet&&state.snippet.key===key){ player.pause(); state.snippet=null; syncPrevBtns(); return; }
+  state.snippet={end,key}; player.time=start; player.play(); syncPrevBtns();
+}
+function syncPrevBtns(){
+  document.querySelectorAll('.tk-btns .prev').forEach(b=>{
+    b.textContent=(state.playing&&state.snippet&&state.snippet.key===b.dataset.key)?'❚❚':'▶';
+  });
+}
 
 /* ---------------- panels ------------------------------------------- */
 function openPanel(p){
@@ -2083,12 +2096,15 @@ async function exportJob(j,btn){
   if(btn){ btn.disabled=true; btn.textContent='0%'; }
   _rendering=true;
   try{
-    const ff=await getFFmpeg();
-    ff.on('progress',({progress})=>{ if(btn) btn.textContent=Math.round(Math.max(0,Math.min(1,progress))*100)+'%'; });
-    await ff.writeFile('input.mp4',new Uint8Array(await file.arrayBuffer()));
-    await ff.exec(args);
-    const out=await ff.readFile('output.mp4');
-    await ff.deleteFile('input.mp4').catch(()=>{}); await ff.deleteFile('output.mp4').catch(()=>{});
+    const out=await withFFmpeg(async()=>{
+      const ff=await getFFmpeg();
+      ff.on('progress',({progress})=>{ if(btn) btn.textContent=Math.round(Math.max(0,Math.min(1,progress))*100)+'%'; });
+      await ff.writeFile('input.mp4',new Uint8Array(await file.arrayBuffer()));
+      await ff.exec(args);
+      const o=await ff.readFile('output.mp4');
+      await ff.deleteFile('input.mp4').catch(()=>{}); await ff.deleteFile('output.mp4').catch(()=>{});
+      return o;
+    });
     if(!out||!out.length) throw new Error('no output');
     const a=document.createElement('a');
     a.href=URL.createObjectURL(new Blob([out.buffer],{type:'video/mp4'}));
@@ -2539,19 +2555,22 @@ $('renderBtn').onclick=async()=>{
   btn.disabled=true; btn.textContent='Chopping…';
   try{
     lbl.textContent='Warming up (first time takes a moment)…'; bar.style.width='4%';
-    const ff=await getFFmpeg();
-    ff.on('progress',({progress})=>{
-      const p=Math.max(0,Math.min(1,progress));
-      bar.style.width=(10+p*88)+'%';
-      lbl.textContent='Chopping your video… '+Math.round(p*100)+'%';
+    const out=await withFFmpeg(async()=>{
+      const ff=await getFFmpeg();
+      ff.on('progress',({progress})=>{
+        const p=Math.max(0,Math.min(1,progress));
+        bar.style.width=(10+p*88)+'%';
+        lbl.textContent='Chopping your video… '+Math.round(p*100)+'%';
+      });
+      lbl.textContent='Reading your video…'; bar.style.width='8%';
+      const buf=new Uint8Array(await state.file.arrayBuffer());
+      await ff.writeFile('input.mp4',buf);
+      lbl.textContent='Chopping your video…'; bar.style.width='10%';
+      await ff.exec(renderArgs());
+      const o=await ff.readFile('output.mp4');
+      await ff.deleteFile('input.mp4').catch(()=>{}); await ff.deleteFile('output.mp4').catch(()=>{});
+      return o;
     });
-    lbl.textContent='Reading your video…'; bar.style.width='8%';
-    const buf=new Uint8Array(await state.file.arrayBuffer());
-    await ff.writeFile('input.mp4',buf);
-    lbl.textContent='Chopping your video…'; bar.style.width='10%';
-    await ff.exec(renderArgs());
-    const out=await ff.readFile('output.mp4');
-    await ff.deleteFile('input.mp4').catch(()=>{}); await ff.deleteFile('output.mp4').catch(()=>{});
     if(!out||!out.length) throw new Error('Something went wrong during the chop — please try again');
     bar.style.width='100%'; lbl.textContent='Done — your video is in your downloads folder.';
     const blob=new Blob([out.buffer],{type:'video/mp4'});
