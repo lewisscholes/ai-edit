@@ -85,9 +85,10 @@ html.dark body{background:#0e1014}
 .gbtn.on svg{color:var(--blue)}
 .gbtn .gbdg{background:var(--blue);color:#fff;font-size:10px;font-weight:800;min-width:17px;height:17px;border-radius:9px;line-height:17px;text-align:center;padding:0 4px}
 /* ================= review queue (kanban) ================= */
-.rbtn.rqueue{background:linear-gradient(135deg,#1a6dff,#7c3aed);color:#fff;box-shadow:0 4px 14px rgba(26,109,255,.4)}
-.rbtn.rqueue:hover{filter:brightness(1.08)}
-.rbtn.rqueue .bdg{background:#fff;color:var(--blue-dk)}
+.rail .rbtn.rqueue{background:linear-gradient(135deg,#1a6dff,#7c3aed);color:#fff}
+.rail .rbtn.rqueue:hover{background:linear-gradient(135deg,#1a6dff,#7c3aed);filter:brightness(1.1);color:#fff}
+.rail .rbtn.rqueue{box-shadow:0 4px 14px rgba(26,109,255,.4)}
+.rail .rbtn.rqueue .bdg{background:#fff;color:var(--blue-dk)}
 .exportrail.approve{background:var(--green);box-shadow:0 4px 14px rgba(14,159,110,.35)}
 .qhead{display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap}
 .qhead h1{font-size:24px;margin:0;flex:1}
