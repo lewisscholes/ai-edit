@@ -2092,6 +2092,9 @@ async function exportJob(j,btn){
   if(_rendering){ toast('Another export is already running — one at a time'); return; }
   const wasCurrent=currentJobName; saveCurrentJob();
   applyJobToState(j); currentJobName=j.name;
+  /* wait for the player to know the source resolution (drives the 1080p upscale) */
+  const vidEl=$('vid');
+  if(vidEl.src&&!vidEl.videoWidth){ await new Promise(res=>{ const d=()=>{vidEl.removeEventListener('loadedmetadata',d);res();}; vidEl.addEventListener('loadedmetadata',d); setTimeout(res,3000); }); }
   const args=renderArgs(), file=j.file;
   if(btn){ btn.disabled=true; btn.textContent='0%'; }
   _rendering=true;
@@ -2540,10 +2543,13 @@ function renderArgs(){
     '[0:a]atrim=start='+c.start.toFixed(3)+':end='+c.end.toFixed(3)+',asetpts=PTS-STARTPTS,afade=t=in:d='+fade.toFixed(3)+',afade=t=out:st='+Math.max(0,c.end-c.start-fade).toFixed(3)+':d='+fade.toFixed(3)+'[a'+i+'];').join('');
   const chain=kept.map((_,i)=>'[v'+i+'][a'+i+']').join('');
   /* upscale to at least 1080 wide (TikTok minimum) when the source is smaller —
-     e.g. iOS compresses library videos during the web hand-off */
-  const fc=parts+chain+'concat=n='+kept.length+":v=1:a=1[vc][a];[vc]scale='if(lt(iw,1080),1080,iw)':-2:flags=lanczos[v]";
+     e.g. iOS compresses library videos during the web hand-off. Plain scale only:
+     expression filters hang the wasm build. */
+  const srcW=($('vid')&&$('vid').videoWidth)||0;
+  const upscale=srcW>0&&srcW<1080;
+  const fc=parts+chain+'concat=n='+kept.length+':v=1:a=1'+(upscale?'[vc][a];[vc]scale=1080:-2:flags=lanczos[v]':'[v][a]');
   return ['-i','input.mp4','-filter_complex',fc,'-map','[v]','-map','[a]',
-          '-c:v','libx264','-preset','superfast','-crf','18','-c:a','aac','-b:a','192k',
+          '-c:v','libx264','-preset','ultrafast','-crf','17','-c:a','aac','-b:a','192k',
           '-movflags','+faststart','output.mp4'];
 }
 let _rendering=false;
