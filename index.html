@@ -183,7 +183,9 @@ body.labfocus header,body.labfocus .glassnav{opacity:0;pointer-events:none}
 .sp-sub .live{color:var(--green);font-weight:800;letter-spacing:.04em}
 .sp-x{color:var(--mut);font-size:12px;align-self:flex-start;padding:2px;margin-left:2px}
 /* ================= auth + profile setup ================= */
-.authwrap{max-width:420px;margin:60px auto 0;padding:0 20px}
+.authwrap{display:grid;place-items:center;min-height:calc(100vh - 52px);padding:24px 20px}
+.authwrap .authcard{width:100%;max-width:420px}
+.authwrap.wide .authcard{max-width:900px}
 .authcard{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:32px 30px;box-shadow:0 20px 50px rgba(16,19,25,.08)}
 .authlogo{display:flex;justify-content:center;margin-bottom:18px}
 .authlogo svg{width:52px;height:52px}
@@ -209,7 +211,6 @@ body.labfocus header,body.labfocus .glassnav{opacity:0;pointer-events:none}
 .avopt.sel{border-color:var(--blue);box-shadow:0 0 0 3px var(--blue-soft)}
 .avopt.up{background:var(--soft2);color:var(--mut);font-size:20px}
 /* split auth layout with benefits panel */
-.authwrap.wide{max-width:900px}
 .authsplit{display:grid;grid-template-columns:1fr 1fr;padding:0;overflow:hidden}
 .authform{padding:32px 30px}
 .abenefit{position:relative;background:linear-gradient(135deg,#1a6dff,#7c3aed);color:#fff;padding:40px 34px;display:flex;flex-direction:column;justify-content:center}
@@ -221,7 +222,7 @@ body.labfocus header,body.labfocus .glassnav{opacity:0;pointer-events:none}
 .abenefit li{display:flex;align-items:flex-start;gap:13px;margin-bottom:17px;font-size:14.5px;line-height:1.45}
 .abenefit .bic{width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,.16);display:grid;place-items:center;flex:none}
 .abenefit .bic svg{width:16px;height:16px}
-@media(max-width:760px){.authsplit{grid-template-columns:1fr}.abenefit{display:none}.authwrap.wide{max-width:420px}}
+@media(max-width:760px){.authsplit{grid-template-columns:1fr}.abenefit{display:none}.authwrap.wide .authcard{max-width:420px}}
 *{box-sizing:border-box}
 svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
 .ric svg.ic{width:19px;height:19px}
