@@ -2092,10 +2092,8 @@ async function exportJob(j,btn){
   if(_rendering){ toast('Another export is already running — one at a time'); return; }
   const wasCurrent=currentJobName; saveCurrentJob();
   applyJobToState(j); currentJobName=j.name;
-  /* wait for the player to know the source resolution (drives the 1080p upscale) */
-  const vidEl=$('vid');
-  if(vidEl.src&&!vidEl.videoWidth){ await new Promise(res=>{ const d=()=>{vidEl.removeEventListener('loadedmetadata',d);res();}; vidEl.addEventListener('loadedmetadata',d); setTimeout(res,3000); }); }
-  const args=renderArgs(), file=j.file;
+  if(!j.vw) j.vw=await measureWidth(j.url);
+  const args=renderArgs(j.vw>0&&j.vw<1080), file=j.file;
   if(btn){ btn.disabled=true; btn.textContent='0%'; }
   _rendering=true;
   try{
@@ -2534,7 +2532,7 @@ async function getFFmpeg(onLog){
   _ffmpeg=ff;
   return ff;
 }
-function renderArgs(){
+function renderArgs(upscale){
   const st=state.settings;
   const kept=keptClips();
   const fade=Math.min(0.2,st.overlapMs/1000/2)||0.03;
@@ -2545,12 +2543,22 @@ function renderArgs(){
   /* upscale to at least 1080 wide (TikTok minimum) when the source is smaller —
      e.g. iOS compresses library videos during the web hand-off. Plain scale only:
      expression filters hang the wasm build. */
-  const srcW=($('vid')&&$('vid').videoWidth)||0;
-  const upscale=srcW>0&&srcW<1080;
+  const upscale=!!arguments[0];
   const fc=parts+chain+'concat=n='+kept.length+':v=1:a=1'+(upscale?'[vc][a];[vc]scale=1080:-2:flags=lanczos[v]':'[v][a]');
   return ['-i','input.mp4','-filter_complex',fc,'-map','[v]','-map','[a]',
           '-c:v','libx264','-preset','ultrafast','-crf','17','-c:a','aac','-b:a','192k',
           '-movflags','+faststart','output.mp4'];
+}
+async function measureWidth(url){
+  if(!url) return 0;
+  return await new Promise(res=>{
+    const v=document.createElement('video');
+    v.muted=true; v.playsInline=true; v.preload='metadata'; v.src=url;
+    const done=w=>{ v.removeAttribute('src'); res(w||0); };
+    v.onloadedmetadata=()=>done(v.videoWidth);
+    v.onerror=()=>done(0);
+    setTimeout(()=>done(v.videoWidth),4000);
+  });
 }
 let _rendering=false;
 $('renderBtn').onclick=async()=>{
@@ -2574,7 +2582,9 @@ $('renderBtn').onclick=async()=>{
       const buf=new Uint8Array(await state.file.arrayBuffer());
       await ff.writeFile('input.mp4',buf);
       lbl.textContent='Chopping your video…'; bar.style.width='10%';
-      await ff.exec(renderArgs());
+      let vw=$('vid').videoWidth||0;
+      if(!vw) vw=await measureWidth(state.fileUrl);
+      await ff.exec(renderArgs(vw>0&&vw<1080));
       const o=await ff.readFile('output.mp4');
       await ff.deleteFile('input.mp4').catch(()=>{}); await ff.deleteFile('output.mp4').catch(()=>{});
       return o;
