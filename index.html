@@ -1828,7 +1828,7 @@ async function startEdit(isDemo){
   const picked=queue.splice(0,queue.length); renderQueue();
   picked.forEach(q=>{
     if(jobByName(q.file.name)) return;
-    batch.push({name:q.file.name,file:q.file,url:q.url,thumb:q.thumb,status:'queued',payload:null,choices:null,manuals:null,settings:null,pending:0});
+    batch.push({name:q.file.name,file:q.file,url:q.url,thumb:q.thumb,status:'queued',payload:null,choices:null,manuals:null,settings:null,pending:0,_hydrated:true});
   });
   updateQueueBadge();
   const first=batch.find(x=>x.status==='queued');
@@ -1855,9 +1855,20 @@ function saveCurrentJob(){
   else if(j.status==='approved'&&j.pending>0) j.status='review';
   dbPutJob(j);
 }
-function openJob(j){
+async function hydrateJob(j){
+  if(j._hydrated||!j.file) return;
+  try{
+    const buf=await j.file.arrayBuffer();
+    j.file=new File([buf],j.name,{type:j.file.type||'video/mp4'});
+    if(j.url){ try{URL.revokeObjectURL(j.url);}catch(e){} }
+    j.url=URL.createObjectURL(j.file);
+    j._hydrated=true;
+  }catch(e){}
+}
+async function openJob(j){
   if(!j.payload){ toast(j.name+' is still processing'); return; }
   if(!j.file) toast(j.name+': video preview unavailable on this device — cuts and retakes still editable');
+  await hydrateJob(j);
   saveCurrentJob();
   currentJobName=j.name;
   state.file=j.file; state.fileUrl=j.url; resetThumbs();
@@ -2092,6 +2103,7 @@ async function exportJob(j,btn){
   if(_rendering){ toast('Another export is already running — one at a time'); return; }
   const wasCurrent=currentJobName; saveCurrentJob();
   applyJobToState(j); currentJobName=j.name;
+  await hydrateJob(j);
   if(!j.vw) j.vw=await measureWidth(j.url);
   const args=renderArgs(j.vw>0&&j.vw<1080), file=j.file;
   if(btn){ btn.disabled=true; btn.textContent='0%'; }
