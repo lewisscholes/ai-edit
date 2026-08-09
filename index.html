@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Chop</title>
+<script src="coi-serviceworker.js"></script>
 <link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="%231a6dff"/><stop offset="1" stop-color="%237c3aed"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(%23g)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="white"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="white" opacity=".55"/></svg>'>
 <style>
 :root{
@@ -604,10 +605,17 @@ input[type=range].vol{width:64px;flex:none}
     <button class="mclose" id="mClose">✕</button>
     <h2>Export</h2>
     <p class="sub2" id="exportSummary"></p>
-    <div class="stubnote">🔌 <b>Mockup mode.</b> This is where the render backend plugs in: the edit list below goes to the FFmpeg worker, which slices the source and returns the finished MP4. Everything above this point is already real.</div>
+    <div class="mbtns" style="margin-top:0">
+      <button class="prim" id="renderBtn">🎬 Render MP4</button>
+    </div>
+    <div id="renderProg" class="hidden" style="margin-top:12px">
+      <div class="pbar"><div id="renderBar"></div></div>
+      <small id="renderLbl" style="color:var(--mut);display:block;margin-top:6px">Preparing…</small>
+    </div>
+    <p class="sub2" style="margin-top:10px;font-size:12px;color:var(--mut)">Rendered on your device — your video never leaves this browser.</p>
     <div class="edlbox" id="edlBox"></div>
     <div class="mbtns">
-      <button class="prim" id="dlEdl">⬇ Download edit list (JSON)</button>
+      <button class="sec" id="dlEdl">⬇ Edit list (JSON)</button>
       <button class="sec" id="cpFfmpeg">Copy FFmpeg command</button>
       <button class="sec" id="cpEdl">Copy JSON</button>
     </div>
@@ -1373,6 +1381,81 @@ $('dlEdl').onclick=()=>{
 };
 $('cpEdl').onclick=()=>{ navigator.clipboard.writeText(JSON.stringify(buildEdl(),null,2)).then(()=>toast('Edit list copied')); };
 $('cpFfmpeg').onclick=()=>{ navigator.clipboard.writeText(ffmpegCmd()).then(()=>toast('FFmpeg command copied')); };
+
+/* ---------------- in-browser render (ffmpeg.wasm) ------------------ */
+let _ffmpeg=null;
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error('Failed to load '+src)); document.head.appendChild(s); }); }
+async function getFFmpeg(onLog){
+  if(_ffmpeg) return _ffmpeg;
+  await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js');
+  await loadScript('https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd/index.js');
+  const { FFmpeg } = window.FFmpegWASM;
+  const { toBlobURL } = window.FFmpegUtil;
+  const ff=new FFmpeg();
+  if(onLog) ff.on('log',({message})=>onLog(message));
+  const mt=window.crossOriginIsolated===true;
+  const base=mt?'https://cdn.jsdelivr.net/npm/@ffmpeg/core-mt@0.12.6/dist/umd'
+              :'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd';
+  const cfg={ coreURL:await toBlobURL(base+'/ffmpeg-core.js','text/javascript'),
+              wasmURL:await toBlobURL(base+'/ffmpeg-core.wasm','application/wasm') };
+  if(mt) cfg.workerURL=await toBlobURL(base+'/ffmpeg-core.worker.js','text/javascript');
+  await ff.load(cfg);
+  _ffmpeg=ff;
+  return ff;
+}
+function renderArgs(){
+  const st=state.settings;
+  const kept=keptClips();
+  const fade=Math.min(0.2,st.overlapMs/1000/2)||0.03;
+  const parts=kept.map((c,i)=>
+    '[0:v]trim=start='+c.start.toFixed(3)+':end='+c.end.toFixed(3)+',setpts=PTS-STARTPTS[v'+i+'];'+
+    '[0:a]atrim=start='+c.start.toFixed(3)+':end='+c.end.toFixed(3)+',asetpts=PTS-STARTPTS,afade=t=in:d='+fade.toFixed(3)+',afade=t=out:st='+Math.max(0,c.end-c.start-fade).toFixed(3)+':d='+fade.toFixed(3)+'[a'+i+'];').join('');
+  const chain=kept.map((_,i)=>'[v'+i+'][a'+i+']').join('');
+  const fc=parts+chain+'concat=n='+kept.length+':v=1:a=1[v][a]';
+  return ['-i','input.mp4','-filter_complex',fc,'-map','[v]','-map','[a]',
+          '-c:v','libx264','-preset','ultrafast','-crf','20','-c:a','aac','-b:a','160k',
+          '-movflags','+faststart','output.mp4'];
+}
+let _rendering=false;
+$('renderBtn').onclick=async()=>{
+  if(_rendering) return;
+  if(!state.file){ toast('Demo footage can’t be rendered — drop a real video first'); return; }
+  if(state.file.size>500*1024*1024){ toast('Files over 500 MB can’t be rendered in-browser yet'); return; }
+  _rendering=true;
+  const bar=$('renderBar'), lbl=$('renderLbl'), btn=$('renderBtn');
+  $('renderProg').classList.remove('hidden');
+  btn.disabled=true; btn.textContent='Rendering…';
+  try{
+    lbl.textContent='Loading render engine (first time only, ~30 MB)…'; bar.style.width='4%';
+    const ff=await getFFmpeg();
+    ff.on('progress',({progress})=>{
+      const p=Math.max(0,Math.min(1,progress));
+      bar.style.width=(10+p*88)+'%';
+      lbl.textContent='Rendering… '+Math.round(p*100)+'%';
+    });
+    lbl.textContent='Reading your video…'; bar.style.width='8%';
+    const buf=new Uint8Array(await state.file.arrayBuffer());
+    await ff.writeFile('input.mp4',buf);
+    lbl.textContent='Rendering…'; bar.style.width='10%';
+    await ff.exec(renderArgs());
+    const out=await ff.readFile('output.mp4');
+    await ff.deleteFile('input.mp4').catch(()=>{}); await ff.deleteFile('output.mp4').catch(()=>{});
+    if(!out||!out.length) throw new Error('Render produced no output');
+    bar.style.width='100%'; lbl.textContent='Done — '+(out.length/1048576).toFixed(1)+' MB';
+    const blob=new Blob([out.buffer],{type:'video/mp4'});
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=(state.file.name.replace(/\.[^.]+$/,'')||'chop')+'-chopped.mp4';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+    toast('🎬 Chopped MP4 downloaded');
+  }catch(err){
+    lbl.textContent='⚠ '+(err&&err.message?err.message:'Render failed');
+    toast('⚠ Render failed — see export panel');
+  }finally{
+    _rendering=false; btn.disabled=false; btn.textContent='🎬 Render MP4';
+  }
+};
 
 /* ---------------- boot --------------------------------------------- */
 (function(){
