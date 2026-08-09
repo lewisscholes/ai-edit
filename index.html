@@ -2100,14 +2100,24 @@ async function routeAuth(session){
   if(!userProfile||!userProfile.name){ initPsetup(); showView('psetup'); }
   else showView('home');
 }
+/* uploaded avatars must be fetched with CORS: the app is cross-origin
+   isolated (for the renderer), which blocks plain <img>/CSS loads */
+const _avBlobCache={};
+function loadAvatarBg(el,url,done){
+  if(_avBlobCache[url]){ el.style.background='url('+_avBlobCache[url]+') center/cover no-repeat'; el.textContent=''; if(done)done(); return; }
+  fetch(url).then(r=>{ if(!r.ok) throw 0; return r.blob(); }).then(b=>{
+    _avBlobCache[url]=URL.createObjectURL(b);
+    el.style.background='url('+_avBlobCache[url]+') center/cover no-repeat';
+    el.textContent='';
+    if(done)done();
+  }).catch(()=>{});
+}
 function avatarStyle(el,avatar,name){
   el.style.backgroundImage=''; el.style.background=''; el.textContent='';
-  if(avatar&&avatar.startsWith('http')){ el.style.background='url('+avatar+') center/cover no-repeat'; }
-  else{
-    const gi=avatar&&avatar.startsWith('g:')?(+avatar.slice(2)||0):0;
-    el.style.background=AV_GRADS[gi%AV_GRADS.length];
-    el.textContent=(name||'C')[0].toUpperCase();
-  }
+  const gi=avatar&&avatar.startsWith('g:')?(+avatar.slice(2)||0):0;
+  el.style.background=AV_GRADS[gi%AV_GRADS.length];
+  el.textContent=(name||'C')[0].toUpperCase();
+  if(avatar&&avatar.startsWith('http')) loadAvatarBg(el,avatar);
 }
 function syncHeaderProfile(){
   const btn=$('profBtn');
@@ -2159,7 +2169,7 @@ function initPsetup(){
   });
   const up=document.createElement('div'); up.className='avopt up'+((_avSel&&_avSel.startsWith('http'))?' sel':''); up.title='Upload a photo';
   up.innerHTML='<svg class="ic" viewBox="0 0 24 24" style="width:18px;height:18px"><path d="M12 16V5m0 0L8 9m4-4l4 4M5 19.5h14"/></svg>';
-  if(_avSel&&_avSel.startsWith('http')) up.style.background='url('+_avSel+') center/cover no-repeat';
+  if(_avSel&&_avSel.startsWith('http')) loadAvatarBg(up,_avSel,()=>{ up.innerHTML=''; });
   up.onclick=()=>$('avFile').click();
   g.appendChild(up);
   $('avFile').onchange=async()=>{
@@ -2410,8 +2420,10 @@ $('renderBtn').onclick=async()=>{
       :'<svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M20 13.5A8 8 0 0 1 10.5 4a8 8 0 1 0 9.5 9.5z"/></svg> Dark mode';
     try{localStorage.setItem('chopTheme',dark?'dark':'light');}catch(e){}
   }
-  let saved='light'; try{saved=localStorage.getItem('chopTheme')||'light';}catch(e){}
-  setTheme(saved==='dark');
+  /* resolve exactly like the pre-load script: stored choice first, else follow the OS */
+  let saved=null; try{saved=localStorage.getItem('chopTheme');}catch(e){}
+  const wantDark=saved!==null?saved==='dark':(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);
+  setTheme(!!wantDark);
   $('pmTheme').onclick=()=>setTheme(!document.documentElement.classList.contains('dark'));
   $('profBtn').onclick=e=>{ e.stopPropagation(); $('pMenu').classList.toggle('hidden'); };
   document.addEventListener('click',e=>{ if(!e.target.closest('.prof')) $('pMenu').classList.add('hidden'); });
