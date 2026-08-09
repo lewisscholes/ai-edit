@@ -603,22 +603,25 @@ input[type=range].vol{width:64px;flex:none}
 <div class="mback hidden" id="exportModal">
   <div class="modal">
     <button class="mclose" id="mClose">✕</button>
-    <h2>Export</h2>
+    <h2>Your video is ready to chop</h2>
     <p class="sub2" id="exportSummary"></p>
-    <div class="mbtns" style="margin-top:0">
-      <button class="prim" id="renderBtn">🎬 Render MP4</button>
+    <div class="mbtns" style="margin-top:4px">
+      <button class="prim" id="renderBtn" style="flex:1;padding:14px;font-size:15px">⬇ Download chopped video</button>
     </div>
-    <div id="renderProg" class="hidden" style="margin-top:12px">
+    <div id="renderProg" class="hidden" style="margin-top:14px">
       <div class="pbar"><div id="renderBar"></div></div>
-      <small id="renderLbl" style="color:var(--mut);display:block;margin-top:6px">Preparing…</small>
+      <small id="renderLbl" style="color:var(--mut);display:block;margin-top:6px">Getting ready…</small>
     </div>
-    <p class="sub2" style="margin-top:10px;font-size:12px;color:var(--mut)">Rendered on your device — your video never leaves this browser.</p>
-    <div class="edlbox" id="edlBox"></div>
-    <div class="mbtns">
-      <button class="sec" id="dlEdl">⬇ Edit list (JSON)</button>
-      <button class="sec" id="cpFfmpeg">Copy FFmpeg command</button>
-      <button class="sec" id="cpEdl">Copy JSON</button>
-    </div>
+    <p class="sub2" style="margin-top:12px;font-size:12.5px;color:var(--mut)">🔒 Everything happens on your device — your video is never uploaded anywhere.</p>
+    <details style="margin-top:16px">
+      <summary style="cursor:pointer;color:var(--mut);font-size:12.5px;font-weight:700">Advanced</summary>
+      <div class="edlbox" id="edlBox" style="margin-top:10px"></div>
+      <div class="mbtns">
+        <button class="sec" id="dlEdl">⬇ Edit list (JSON)</button>
+        <button class="sec" id="cpFfmpeg">Copy FFmpeg command</button>
+        <button class="sec" id="cpEdl">Copy JSON</button>
+      </div>
+    </details>
   </div>
 </div>
 
@@ -1368,7 +1371,8 @@ function ffmpegCmd(){
 $('exportBtn').onclick=()=>{
   const pend=pendingPairs();
   if(pend>0){ openPanel('retakes'); toast('⚠️ '+pend+' retake'+(pend>1?'s':'')+' still need a decision before export'); highlightPair(state.pairs.findIndex(p=>p.choice===null)); return; }
-  $('exportSummary').textContent=fmt(rawDur())+' raw → '+fmt(editedDur())+' edited · subtitles '+(state.subtitles?'on':'off');
+  const trimmed=Math.round(rawDur()-editedDur());
+  $('exportSummary').textContent=fmt(rawDur())+' → '+fmt(editedDur())+' — we trimmed '+trimmed+' second'+(trimmed===1?'':'s')+' of dead air and retakes';
   $('edlBox').textContent=JSON.stringify(buildEdl(),null,2);
   $('exportModal').classList.remove('hidden');
 };
@@ -1420,36 +1424,36 @@ $('renderBtn').onclick=async()=>{
   _rendering=true;
   const bar=$('renderBar'), lbl=$('renderLbl'), btn=$('renderBtn');
   $('renderProg').classList.remove('hidden');
-  btn.disabled=true; btn.textContent='Rendering…';
+  btn.disabled=true; btn.textContent='Chopping…';
   try{
-    lbl.textContent='Loading render engine (first time only, ~30 MB)…'; bar.style.width='4%';
+    lbl.textContent='Warming up (first time takes a moment)…'; bar.style.width='4%';
     const ff=await getFFmpeg();
     ff.on('progress',({progress})=>{
       const p=Math.max(0,Math.min(1,progress));
       bar.style.width=(10+p*88)+'%';
-      lbl.textContent='Rendering… '+Math.round(p*100)+'%';
+      lbl.textContent='Chopping your video… '+Math.round(p*100)+'%';
     });
     lbl.textContent='Reading your video…'; bar.style.width='8%';
     const buf=new Uint8Array(await state.file.arrayBuffer());
     await ff.writeFile('input.mp4',buf);
-    lbl.textContent='Rendering…'; bar.style.width='10%';
+    lbl.textContent='Chopping your video…'; bar.style.width='10%';
     await ff.exec(renderArgs());
     const out=await ff.readFile('output.mp4');
     await ff.deleteFile('input.mp4').catch(()=>{}); await ff.deleteFile('output.mp4').catch(()=>{});
-    if(!out||!out.length) throw new Error('Render produced no output');
-    bar.style.width='100%'; lbl.textContent='Done — '+(out.length/1048576).toFixed(1)+' MB';
+    if(!out||!out.length) throw new Error('Something went wrong during the chop — please try again');
+    bar.style.width='100%'; lbl.textContent='✅ Done! Your video is in your downloads folder.';
     const blob=new Blob([out.buffer],{type:'video/mp4'});
     const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);
     a.download=(state.file.name.replace(/\.[^.]+$/,'')||'chop')+'-chopped.mp4';
     a.click();
     setTimeout(()=>URL.revokeObjectURL(a.href),30000);
-    toast('🎬 Chopped MP4 downloaded');
+    toast('✅ Chopped video downloaded');
   }catch(err){
-    lbl.textContent='⚠ '+(err&&err.message?err.message:'Render failed');
-    toast('⚠ Render failed — see export panel');
+    lbl.textContent='⚠ '+(err&&err.message?err.message:'Something went wrong — please try again');
+    toast('⚠ That didn’t work — try again');
   }finally{
-    _rendering=false; btn.disabled=false; btn.textContent='🎬 Render MP4';
+    _rendering=false; btn.disabled=false; btn.textContent='⬇ Download chopped video';
   }
 };
 
