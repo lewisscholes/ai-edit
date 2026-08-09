@@ -19,6 +19,7 @@
   --stage:#17181c;
   --panel:#fff; --hovbg:#f2f5f9; --soft2:#eef1f6; --range:#dbe2ec; --bord2:#c9d3e2; --tglbg:#d6dce6; --hdr:rgba(255,255,255,.9);
   --glass:rgba(255,255,255,.55); --glassbord:rgba(255,255,255,.65); --glasson:rgba(255,255,255,.88);
+  --sptoast:rgba(255,255,255,.92);
 }
 html.dark{
   --bg:#0e1014; --card:#161922; --ink:#e9edf5; --mut:#8a93a5; --line:#262c38;
@@ -29,6 +30,7 @@ html.dark{
   --green:#3ad39c; --green-soft:#12291f;
   --panel:#161922; --hovbg:#20242f; --soft2:#20242f; --range:#2a3140; --bord2:#39404f; --tglbg:#39404f; --hdr:rgba(14,16,20,.85);
   --glass:rgba(22,25,34,.55); --glassbord:rgba(255,255,255,.12); --glasson:rgba(48,54,68,.9);
+  --sptoast:rgba(22,25,34,.92);
   background:#0e1014; color-scheme:dark;
 }
 html.dark body{background:#0e1014}
@@ -161,6 +163,25 @@ html.dark body{background:#0e1014}
 /* cut lab focus mode: chrome fades away when the whole lab fits on screen */
 header,.glassnav{transition:opacity .35s ease}
 body.labfocus header,body.labfocus .glassnav{opacity:0;pointer-events:none}
+/* social proof toast */
+.sp-toast{position:fixed;right:24px;bottom:24px;z-index:90;display:flex;align-items:center;gap:12px;
+  background:var(--sptoast);backdrop-filter:blur(18px) saturate(1.5);-webkit-backdrop-filter:blur(18px) saturate(1.5);
+  border:1px solid var(--glassbord);border-radius:16px;padding:13px 18px 13px 13px;max-width:330px;
+  box-shadow:0 14px 40px rgba(16,19,25,.18),0 2px 8px rgba(16,19,25,.08);
+  transform:translateY(140%);opacity:0;transition:transform .45s cubic-bezier(.2,.9,.25,1.15),opacity .4s}
+.sp-toast.show{transform:translateY(0);opacity:1}
+.sp-toast.hide{transform:translateY(30%);opacity:0;transition:transform .5s ease,opacity .45s}
+@media(max-width:900px){.sp-toast{display:none}}
+.sp-av{width:40px;height:40px;border-radius:50%;flex:none;display:grid;place-items:center;color:#fff;font-weight:800;font-size:16px;position:relative}
+.sp-av .dot{position:absolute;bottom:-1px;right:-1px;width:12px;height:12px;border-radius:50%;background:var(--green);border:2.5px solid var(--panel)}
+.sp-av .dot::after{content:"";position:absolute;inset:-2px;border-radius:50%;border:2px solid var(--green);opacity:.6;animation:sppulse 1.6s ease-out infinite}
+@keyframes sppulse{0%{transform:scale(.6);opacity:.7}80%{transform:scale(1.7);opacity:0}100%{opacity:0}}
+.sp-txt{font-size:13.5px;line-height:1.4;min-width:0}
+.sp-txt b{font-weight:800}
+.sp-txt .n{color:var(--blue);font-weight:800}
+.sp-sub{color:var(--mut);font-size:11px;font-weight:600;margin-top:2px;display:flex;align-items:center;gap:6px}
+.sp-sub .live{color:var(--green);font-weight:800;letter-spacing:.04em}
+.sp-x{color:var(--mut);font-size:12px;align-self:flex-start;padding:2px;margin-left:2px}
 *{box-sizing:border-box}
 svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
 .ric svg.ic{width:19px;height:19px}
@@ -842,6 +863,16 @@ input[type=range].vol{width:64px;flex:none}
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- social proof notification -->
+<div class="sp-toast" id="spToast">
+  <div class="sp-av" id="spAv">A<span class="dot"></span></div>
+  <div class="sp-txt">
+    <div id="spMsg"></div>
+    <div class="sp-sub"><span class="live">● LIVE</span><span id="spAgo">just now</span></div>
+  </div>
+  <button class="sp-x" id="spX">✕</button>
+</div>
 
 <script>
 /* =====================================================================
@@ -1975,6 +2006,45 @@ window.addEventListener('scroll',()=>{
   _labFocusTimer=setTimeout(evalLabFocus,400);
 },{passive:true});
 window.addEventListener('resize',()=>{ clearTimeout(_labFocusTimer); _labFocusTimer=setTimeout(evalLabFocus,300); });
+/* ---------------- social proof notifications ----------------------- */
+const SP_NAMES=['Aaron','Jess','Marcus','Sophie','Dan','Priya','Liam','Chloe','Tyler','Megan','Ella','Josh','Amara','Ben','Freya','Noah','Isla','Sam'];
+const SP_AGOS=['just now','1 min ago','2 min ago','just now','5 min ago','just now'];
+let _spIdx=Math.floor(Math.random()*SP_NAMES.length), _spTimer=null, _spHideTimer=null;
+function spBuild(){
+  const roll=Math.random();
+  if(roll<0.12){ /* monthly group stat */
+    const n=(Math.floor(Math.random()*9)+4)*100;
+    return {group:true,n,msg:'<b>'+n.toLocaleString()+' videos</b> chopped by creators this month <span class="n">— join them</span>'};
+  }
+  const name=SP_NAMES[_spIdx++%SP_NAMES.length];
+  const kind=Math.random();
+  let n,when;
+  if(kind<0.45){ n=2+Math.floor(Math.random()*13); when='today'; }
+  else if(kind<0.8){ n=12+Math.floor(Math.random()*40); when='this week'; }
+  else { n=40+Math.floor(Math.random()*120); when='this month'; }
+  return {name,n,msg:'<b>'+name+'</b> has edited <span class="n">'+n+' videos</span> on Chop '+when};
+}
+function spShow(){
+  if($('viewHome').classList.contains('hidden')||window.innerWidth<=900){ spSchedule(); return; }
+  const d=spBuild();
+  $('spAv').style.background=GRADS[Math.floor(Math.random()*GRADS.length)];
+  $('spAv').childNodes[0].nodeValue=d.group?'⌁':d.name[0];
+  $('spMsg').innerHTML=d.msg;
+  $('spAgo').textContent=SP_AGOS[Math.floor(Math.random()*SP_AGOS.length)];
+  const t=$('spToast');
+  t.classList.remove('hide'); t.classList.add('show');
+  clearTimeout(_spHideTimer);
+  _spHideTimer=setTimeout(spHide,5200);
+}
+function spHide(){
+  const t=$('spToast');
+  t.classList.add('hide'); t.classList.remove('show');
+  spSchedule();
+}
+function spSchedule(){
+  clearTimeout(_spTimer);
+  _spTimer=setTimeout(spShow,25000+Math.random()*35000);
+}
 let _lpPlaying=false;
 async function lpPlayPreview(){
   if(_lpPlaying) return; _lpPlaying=true;
@@ -2164,6 +2234,9 @@ $('renderBtn').onclick=async()=>{
   $('lbSave').onclick=()=>saveDefaults(labValues());
   $('lbReset').onclick=()=>{ labSet(PRESETS.balanced.v); saveDefaults(labValues()); };
   labSet(cutDefaults()); renderPresets();
+  /* social proof: first pop ~8s after landing, then randomised gaps */
+  $('spX').onclick=()=>{ clearTimeout(_spHideTimer); spHide(); };
+  _spTimer=setTimeout(spShow,8000);
   document.querySelectorAll('.pack .buy').forEach(b=>{
     b.onclick=()=>toast('Checkout coming soon — payments aren’t live yet');
   });
