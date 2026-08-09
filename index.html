@@ -158,6 +158,9 @@ html.dark body{background:#0e1014}
 .lp-playrow{display:flex;justify-content:center;margin-top:16px}
 .lp-play{display:inline-flex;align-items:center;gap:9px;background:var(--blue);color:#fff;font-weight:800;font-size:13.5px;padding:11px 22px;border-radius:22px}
 .lp-play:hover{background:var(--blue-dk)}
+/* cut lab focus mode: chrome fades away when the whole lab fits on screen */
+header,.glassnav{transition:opacity .35s ease}
+body.labfocus header,body.labfocus .glassnav{opacity:0;pointer-events:none}
 *{box-sizing:border-box}
 svg.ic{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:-3px}
 .ric svg.ic{width:19px;height:19px}
@@ -1719,6 +1722,8 @@ function showView(v){
   $('navDash').classList.toggle('on',v==='home');
   $('navLab').classList.toggle('on',v==='lab');
   $('navQueue').classList.toggle('on',v==='queue');
+  if(v!=='lab') document.body.classList.remove('labfocus');
+  else setTimeout(()=>{ try{evalLabFocus();}catch(e){} },350);
   $('hdr').classList.toggle('full',v==='editor');
   document.body.style.overflow=v==='editor'?'hidden':'';
   window.scrollTo(0,0);
@@ -1951,6 +1956,25 @@ function renderLabPreview(){
     track.appendChild(i);
   });
 }
+/* focus mode: when Fine-tune + preview are both fully on screen in the Cut Lab,
+   fade out the header and glass nav; any scroll brings them back, and they
+   re-hide once scrolling settles with both cards still fully visible */
+let _labFocusTimer=null;
+function evalLabFocus(){
+  if($('viewLab').classList.contains('hidden')){ document.body.classList.remove('labfocus'); return; }
+  const lab=document.querySelector('#viewLab .labcard'), prev=document.querySelector('#viewLab .prevcard');
+  if(!lab||!prev) return;
+  const vh=window.innerHeight;
+  const full=el=>{ const r=el.getBoundingClientRect(); return r.top>=0&&r.bottom<=vh; };
+  document.body.classList.toggle('labfocus', full(lab)&&full(prev));
+}
+window.addEventListener('scroll',()=>{
+  if($('viewLab').classList.contains('hidden')) return;
+  document.body.classList.remove('labfocus');
+  clearTimeout(_labFocusTimer);
+  _labFocusTimer=setTimeout(evalLabFocus,700);
+},{passive:true});
+window.addEventListener('resize',()=>{ clearTimeout(_labFocusTimer); _labFocusTimer=setTimeout(evalLabFocus,300); });
 let _lpPlaying=false;
 async function lpPlayPreview(){
   if(_lpPlaying) return; _lpPlaying=true;
