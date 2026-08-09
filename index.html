@@ -49,6 +49,40 @@ header.full .hwrap{max-width:none}
 .runbtn:disabled{background:#c9d3e2;box-shadow:none;cursor:not-allowed}
 .runbtn:not(:disabled):hover{background:var(--blue-dk)}
 .demolink{display:block;text-align:center;margin-top:12px;color:var(--blue);font-weight:700;font-size:13.5px;text-decoration:none}
+/* ================= home stats ================= */
+.stats-h{margin:44px 0 0}
+.stats-h .eyebrow{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--blue);font-weight:800}
+.stats-h h2{font-size:24px;margin:6px 0 4px}
+.stats-h p{color:var(--mut);margin:0 0 18px;font-size:14px}
+.impact{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px}
+.icard{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 24px}
+.icard .big{font-size:38px;font-weight:800;color:var(--blue);line-height:1.1}
+.icard .big small{font-size:20px;font-weight:800}
+.icard .lbl{font-size:15px;font-weight:700;margin-top:10px}
+.icard .sub{color:var(--mut);font-size:12.5px;margin-top:2px}
+.icard.hero-card{background:linear-gradient(135deg,#1a6dff,#4e8dff);border:none;color:#fff;box-shadow:0 10px 24px rgba(26,109,255,.35)}
+.icard.hero-card .big,.icard.hero-card .lbl{color:#fff}
+.consist{display:grid;grid-template-columns:280px 1fr;gap:16px;margin-top:16px}
+@media (max-width:820px){.consist{grid-template-columns:1fr}}
+.ring-card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px;text-align:center}
+.ring-wrap{position:relative;width:150px;height:150px;margin:0 auto 14px}
+.ring-wrap svg{transform:rotate(-90deg)}
+.ring-wrap .ring-num{position:absolute;inset:0;display:grid;place-items:center;font-size:28px;font-weight:800}
+.ring-card b{font-size:16.5px;display:block}
+.ring-card small{color:var(--mut);font-size:12.5px;display:block;margin-top:4px}
+.act-card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px 24px}
+.act-top{display:flex;align-items:baseline;gap:18px}
+.act-top h3{font-size:16.5px;margin:0;flex:1}
+.act-top .as{text-align:right}
+.act-top .as b{font-size:20px;display:block}
+.act-top .as small{color:var(--mut);font-size:12px}
+.act-sub{color:var(--mut);font-size:12.5px;margin:2px 0 14px}
+.heat{display:grid;grid-auto-flow:column;grid-template-rows:repeat(7,11px);gap:3px;overflow-x:auto;padding-bottom:4px}
+.heat i{width:11px;height:11px;border-radius:3px;background:#eef1f6}
+.heat i.l1{background:#bcd4ff}.heat i.l2{background:#7fabff}.heat i.l3{background:#3d7ffb}.heat i.l4{background:#0d4fc4}
+.heat-leg{display:flex;align-items:center;gap:4px;justify-content:flex-end;margin-top:10px;color:var(--mut);font-size:11.5px}
+.heat-leg i{width:11px;height:11px;border-radius:3px;background:#eef1f6;display:inline-block}
+.heat-leg i.l1{background:#bcd4ff}.heat-leg i.l2{background:#7fabff}.heat-leg i.l3{background:#3d7ffb}.heat-leg i.l4{background:#0d4fc4}
 .edits-h{display:flex;align-items:baseline;gap:10px;margin:40px 0 12px}
 .edits-h h2{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--mut);margin:0}
 .edits-h .n{background:var(--blue-soft);color:var(--blue-dk);font-size:11.5px;font-weight:800;padding:2px 9px;border-radius:12px}
@@ -275,6 +309,44 @@ input[type=range].vol{width:64px;flex:none}
   <input type="file" id="fileInput" accept="video/mp4,video/quicktime,video/*" class="hidden">
   <button class="runbtn" id="runBtn" disabled>Run automatic edit</button>
   <a class="demolink" href="#" id="demoLink">No footage handy? Try it with demo footage →</a>
+
+  <div class="stats-h">
+    <div class="eyebrow">Your AI Edit stats</div>
+    <h2>Your editing impact</h2>
+    <p>Lifetime numbers across all your AI edits.</p>
+  </div>
+  <div class="impact">
+    <div class="icard hero-card"><div class="big" id="stSaved">0<small>m</small></div><div class="lbl">Time saved editing</div></div>
+    <div class="icard"><div class="big" id="stVideos">0</div><div class="lbl">Videos edited</div></div>
+    <div class="icard"><div class="big" id="stMoney">$0</div><div class="lbl">Saved vs. manual editing</div><div class="sub">at $30/h</div></div>
+    <div class="icard"><div class="big" id="stStreak">0</div><div class="lbl">Day streak</div></div>
+  </div>
+  <div class="stats-h"><h2>Consistency</h2></div>
+  <div class="consist">
+    <div class="ring-card">
+      <div class="ring-wrap">
+        <svg width="150" height="150" viewBox="0 0 150 150">
+          <circle cx="75" cy="75" r="64" fill="none" stroke="#e4e8ef" stroke-width="13"/>
+          <circle id="ringArc" cx="75" cy="75" r="64" fill="none" stroke="var(--blue)" stroke-width="13" stroke-linecap="round" stroke-dasharray="402" stroke-dashoffset="402"/>
+        </svg>
+        <div class="ring-num" id="ringPct">0%</div>
+      </div>
+      <b id="ringTier">Getting started</b>
+      <small id="ringSub">Active 0 / 30 days · 0-day streak</small>
+      <small id="ringPeak">Peak day: —</small>
+    </div>
+    <div class="act-card">
+      <div class="act-top">
+        <h3>Activity</h3>
+        <div class="as"><b id="actCur">0</b><small>Current streak</small></div>
+        <div class="as"><b id="actLong">0</b><small>Longest streak</small></div>
+      </div>
+      <div class="act-sub">Last 6 months</div>
+      <div class="heat" id="heatGrid"></div>
+      <div class="heat-leg">Less <i></i><i class="l1"></i><i class="l2"></i><i class="l3"></i><i class="l4"></i> More</div>
+    </div>
+  </div>
+
   <div class="edits-h"><h2>Your edits</h2><span class="n" id="editCount">0</span></div>
   <div class="egrid hidden" id="egrid"></div>
   <div class="empty" id="editsEmpty">Videos you edit will show up here.</div>
@@ -1076,6 +1148,7 @@ function loadEditor(isDemo,payload){
   if(!state.edits.find(e=>e.name===name)){
     state.edits.unshift({name,grad:GRADS[state.edits.length%GRADS.length]});
     renderEditsGrid();
+    statsRecord(rawDur()-editedDur());
   }
   showView('editor');
   openPanel('retakes');
@@ -1084,6 +1157,56 @@ function loadEditor(isDemo,payload){
   if(pendingPairs()) toast('✂ Auto edit ready — '+pendingPairs()+' retakes need your review');
 }
 
+/* ---------------- lifetime stats (localStorage) -------------------- */
+function statsLoad(){ try{ return JSON.parse(localStorage.getItem('aiEditStats')||'{"edits":[]}'); }catch(e){ return {edits:[]}; } }
+function statsSave(s){ try{ localStorage.setItem('aiEditStats',JSON.stringify(s)); }catch(e){} }
+const dkey=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+function statsRecord(savedSec){
+  const s=statsLoad();
+  s.edits.push({d:dkey(new Date()), saved:Math.max(0,Math.round(savedSec))});
+  statsSave(s); renderHomeStats();
+}
+function fmtSaved(sec){
+  if(sec<60) return Math.round(sec)+'<small>s</small>';
+  const m=Math.floor(sec/60);
+  if(m<60) return m+'<small>m</small>';
+  return Math.floor(m/60)+'<small>h</small> '+(m%60)+'<small>m</small>';
+}
+function renderHomeStats(){
+  const edits=statsLoad().edits;
+  const days={}; edits.forEach(e=>days[e.d]=(days[e.d]||0)+1);
+  const totalSaved=edits.reduce((a,e)=>a+(e.saved||0),0);
+  $('stSaved').innerHTML=fmtSaved(totalSaved);
+  $('stVideos').textContent=edits.length;
+  $('stMoney').textContent='$'+Math.round(totalSaved/3600*30);
+  let cur=0; { const d=new Date(); while(days[dkey(d)]){ cur++; d.setDate(d.getDate()-1); } }
+  const uniq=Object.keys(days).sort(); let longest=0,run=0,prev=null;
+  for(const dd of uniq){
+    if(prev){ const diff=Math.round((new Date(dd)-new Date(prev))/86400000); run=(diff===1)?run+1:1; }
+    else run=1;
+    longest=Math.max(longest,run); prev=dd;
+  }
+  $('stStreak').textContent=cur; $('actCur').textContent=cur; $('actLong').textContent=longest;
+  const today=new Date();
+  let active30=0; for(let i=0;i<30;i++){ const d=new Date(today); d.setDate(today.getDate()-i); if(days[dkey(d)]) active30++; }
+  const pct=edits.length?Math.min(99,Math.round(35+active30*2+Math.min(20,edits.length)+cur*2)):0;
+  $('ringPct').textContent=pct+'%';
+  $('ringArc').style.strokeDashoffset=402-402*pct/100;
+  $('ringTier').textContent=edits.length?('Top '+Math.max(1,100-pct)+'% of creators'):'Getting started';
+  $('ringSub').textContent='Active '+active30+' / 30 days · '+cur+'-day streak';
+  const wd=['Sundays','Mondays','Tuesdays','Wednesdays','Thursdays','Fridays','Saturdays'];
+  const wc=[0,0,0,0,0,0,0]; edits.forEach(e=>wc[new Date(e.d+'T12:00:00').getDay()]++);
+  const mx=Math.max(...wc);
+  $('ringPeak').textContent='Peak day: '+(mx?wd[wc.indexOf(mx)]:'—');
+  const g=$('heatGrid'); g.innerHTML='';
+  const start=new Date(today); start.setDate(today.getDate()-today.getDay()-25*7);
+  for(let c=0;c<26;c++) for(let r=0;r<7;r++){
+    const d=new Date(start); d.setDate(start.getDate()+c*7+r);
+    const el=document.createElement('i');
+    if(d<=today){ const n=days[dkey(d)]||0; if(n) el.className='l'+Math.min(4,n); }
+    g.appendChild(el);
+  }
+}
 function renderEditsGrid(){
   $('editCount').textContent=state.edits.length;
   $('editsEmpty').classList.toggle('hidden',state.edits.length>0);
@@ -1158,6 +1281,7 @@ $('cpFfmpeg').onclick=()=>{ navigator.clipboard.writeText(ffmpegCmd()).then(()=>
   const eq=$('eqrow');
   for(let i=0;i<9;i++){ const b=document.createElement('i'); b.style.animationDelay=(i*0.09)+'s'; eq.appendChild(b); }
   renderEditsGrid();
+  renderHomeStats();
 })();
 </script>
 </body>
