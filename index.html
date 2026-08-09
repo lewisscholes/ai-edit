@@ -466,11 +466,34 @@ async function api(body){
   if(!r.ok||j.error) throw new Error(j.error||('Server error '+r.status));
   return j;
 }
+/* Extract 16kHz mono WAV from the video in-browser — the backend only needs
+   audio for analysis, so we upload ~1MB instead of the full video file. */
+async function extractAudio(file){
+  const buf=await file.arrayBuffer();
+  const probe=new (window.AudioContext||window.webkitAudioContext)();
+  const decoded=await probe.decodeAudioData(buf);
+  probe.close();
+  const rate=16000, len=Math.ceil(decoded.duration*rate);
+  const off=new OfflineAudioContext(1,len,rate);
+  const src=off.createBufferSource(); src.buffer=decoded; src.connect(off.destination); src.start();
+  const mono=(await off.startRendering()).getChannelData(0);
+  const pcm=new DataView(new ArrayBuffer(44+mono.length*2));
+  const wstr=(o,s)=>{for(let i=0;i<s.length;i++)pcm.setUint8(o+i,s.charCodeAt(i));};
+  wstr(0,'RIFF'); pcm.setUint32(4,36+mono.length*2,true); wstr(8,'WAVE'); wstr(12,'fmt ');
+  pcm.setUint32(16,16,true); pcm.setUint16(20,1,true); pcm.setUint16(22,1,true);
+  pcm.setUint32(24,rate,true); pcm.setUint32(28,rate*2,true); pcm.setUint16(32,2,true);
+  pcm.setUint16(34,16,true); wstr(36,'data'); pcm.setUint32(40,mono.length*2,true);
+  for(let i=0;i<mono.length;i++){ const s=Math.max(-1,Math.min(1,mono[i])); pcm.setInt16(44+i*2,s<0?s*0x8000:s*0x7FFF,true); }
+  return new Blob([pcm.buffer],{type:'audio/wav'});
+}
 const PIPELINE = {
   key:null, jobId:null,
   async upload(){
-    const p=await api({action:'presign',filename:state.file.name});
-    const put=await fetch(p.uploadUrl,{method:'PUT',body:state.file});
+    let blob=state.file, name=state.file.name;
+    try{ blob=await extractAudio(state.file); name=name.replace(/\.[^.]+$/,'')+'.wav'; }
+    catch(e){ /* fall back to uploading the full video */ }
+    const p=await api({action:'presign',filename:name});
+    const put=await fetch(p.uploadUrl,{method:'PUT',body:blob});
     if(!put.ok) throw new Error('Upload failed ('+put.status+')');
     this.key=p.key;
   },
