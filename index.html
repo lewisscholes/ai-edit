@@ -2143,7 +2143,10 @@ $('approveBtn').onclick=()=>{
     const pend=pendingPairs();
     if(pend>0){ openPanel('retakes'); toast(pend+' retake'+(pend>1?'s':'')+' still need a decision'); highlightPair(state.pairs.findIndex(p=>p.choice===null)); return; }
     saveCurrentJob(); j.status='approved'; dbPutJob(j);
-    toast('Moved to Ready to export ✓');
+    /* straight to the queue so they can grab the next video */
+    player.pause(); updateQueueBadge(); syncApproveBtn(); openKanban();
+    toast('Moved to Ready to export ✓ — pick your next video');
+    return;
   }
   updateQueueBadge(); renderKanban(); syncApproveBtn();
 };
