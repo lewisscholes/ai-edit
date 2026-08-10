@@ -538,6 +538,14 @@ input[type=range].vol{width:64px;flex:none}
 #qeCtx{display:none}
 body.qesel #qeCtx{display:flex}
 body.qesel #qeHdr{display:none}
+.gapc.sel{box-shadow:inset 0 0 0 2.5px #fff}
+#qeRestoreBtn,#mRestoreBtn{display:none}
+body.qegap #qeRestoreBtn{display:flex}
+body.qegap #qeSplitBtn,body.qegap #qeDelBtn{display:none}
+body.qegap #mRestoreBtn{display:flex!important}
+body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
+.qtool.res{color:var(--green)}
+.qtool.res:hover{border-color:var(--green);background:var(--green-soft);color:var(--green)}
 /* takes flow */
 .flowbar{flex:none;display:flex;align-items:center;gap:8px;background:var(--panel);border-top:1px solid var(--line);padding:7px 18px;font-size:12px;font-weight:700;color:var(--mut);cursor:pointer;user-select:none}
 .flowbar:hover{color:var(--ink)}
@@ -921,6 +929,7 @@ body.qesel #qeHdr{display:none}
     <div class="mctxbar">
       <button class="qtool" id="mSplitBtn"><svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M12 3v18M7 7l-3.5 5L7 17M17 7l3.5 5L17 17"/></svg>Split</button>
       <button class="qtool del" id="mDelBtn"><svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10 11v5M14 11v5"/></svg>Delete</button>
+      <button class="qtool res" id="mRestoreBtn"><svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M4 10.5h11a5 5 0 0 1 0 10h-4M4 10.5L8.5 6M4 10.5L8.5 15"/></svg>Restore</button>
       <span class="msp"></span>
       <span class="qdur" id="mSelDur"></span>
       <button class="qx" id="mCloseBtn">✕</button>
@@ -1045,6 +1054,7 @@ body.qesel #qeHdr{display:none}
       <div class="qehdr" id="qeCtx">
         <button class="qtool" id="qeSplitBtn"><svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M12 3v18M7 7l-3.5 5L7 17M17 7l3.5 5L17 17"/></svg>Split</button>
         <button class="qtool del" id="qeDelBtn"><svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 13h9l1-13M10 11v5M14 11v5"/></svg>Delete</button>
+        <button class="qtool res" id="qeRestoreBtn"><svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><path d="M4 10.5h11a5 5 0 0 1 0 10h-4M4 10.5L8.5 6M4 10.5L8.5 15"/></svg>Restore</button>
         <span class="hsp"></span>
         <span class="qstat" id="qeSelDur"></span>
         <button class="zbtn" id="qeCloseBtn" title="Deselect">✕</button>
@@ -1240,7 +1250,7 @@ const state = {
   mode:'edited', playing:false, vt:0, snippet:null, rtPreview:null,
   edits:[], panel:'edit',
   past:[], future:[],
-  manualCuts:[], splits:[], qeSel:null, qeZoom:1
+  manualCuts:[], splits:[], qeSel:null, qeGap:null, qeZoom:1
 };
 
 /* ---------------- helpers ------------------------------------------ */
@@ -1345,7 +1355,7 @@ function applySnap(js){
   state.settings=o.settings;
   state.manualCuts=o.manualCuts||[];
   state.splits=o.splits||[];
-  state.qeSel=null;
+  state.qeSel=null; state.qeGap=null;
   syncSettingUI();
 }
 function pushHist(){ state.past.push(snap()); if(state.past.length>60) state.past.shift(); state.future=[]; updUndoUI(); }
@@ -1599,16 +1609,23 @@ function qeBands(){
 }
 function qeSelect(i){
   state.qeSel=i;
-  document.body.classList.toggle('qesel',i!==null);
+  if(i!==null) state.qeGap=null;
+  renderStrip();
+}
+function qeSelectGap(iv){
+  state.qeGap=iv?{s:iv.s,e:iv.e}:null;
+  if(iv) state.qeSel=null;
   renderStrip();
 }
 function qeSyncUI(bands){
-  document.body.classList.toggle('qesel',state.qeSel!==null);
+  const gapOn=!!state.qeGap;
+  document.body.classList.toggle('qesel',state.qeSel!==null||gapOn);
+  document.body.classList.toggle('qegap',gapOn);
   const ivs=cutIntervals(); const tot=ivs.reduce((a,i)=>a+(i.e-i.s),0);
   const st=$('qeStat'); if(st) st.textContent=ivs.length+' cut'+(ivs.length===1?'':'s')+' · saving '+tot.toFixed(1)+'s';
   const zl=$('qeZlvl'); if(zl) zl.textContent=state.qeZoom+'×';
   const b=(state.qeSel!==null&&bands)?bands[state.qeSel]:null;
-  const d=b?fmt1(b.e-b.s):'';
+  const d=b?fmt1(b.e-b.s):(gapOn?fmt1(state.qeGap.e-state.qeGap.s)+' cut':'');
   const s1=$('qeSelDur'); if(s1) s1.textContent=d;
   const s2=$('mSelDur'); if(s2) s2.textContent=d;
 }
@@ -1632,11 +1649,13 @@ function renderStrip(){
     d.dataset.band=i; el.appendChild(d);
   });
   cutIntervals().forEach(iv=>{
-    const g=document.createElement('div'); g.className='gapc';
+    const g=document.createElement('div');
+    const on=state.qeGap&&Math.abs(state.qeGap.s-iv.s)<0.02&&Math.abs(state.qeGap.e-iv.e)<0.02;
+    g.className='gapc'+(on?' sel':'');
     g.style.left=(iv.s/rd*100)+'%'; g.style.width=((iv.e-iv.s)/rd*100)+'%';
     g.title=fmt1(iv.e-iv.s)+' cut — tap to restore';
     g.onpointerdown=ev=>ev.stopPropagation();
-    g.onclick=ev=>{ ev.stopPropagation(); qeRestore(iv.s,iv.e); };
+    g.onclick=ev=>{ ev.stopPropagation(); qeSelectGap(on?null:iv); };
     el.appendChild(g);
   });
   state.splits.forEach(f=>{ if(f<=0||f>=rd) return; const s=document.createElement('div'); s.className='splitmark'; s.style.left=(f/rd*100)+'%'; el.appendChild(s); });
@@ -1676,10 +1695,11 @@ function qeRestore(s,e){
   pushHist();
   state.manualCuts=state.manualCuts.filter(c=>!(c.s<e-0.001&&c.e>s+0.001));
   state.segments.forEach(sg=>{ if(sg.end>s+0.001&&sg.start<e-0.001&&isCut(sg)&&!sg.retake) sg.manual=false; });
-  state.qeSel=null;
+  state.qeSel=null; state.qeGap=null;
   renderAll(); saveCurrentJob(); updateQueueBadge();
   toast('Footage restored');
 }
+function qeRestoreSel(){ if(state.qeGap) qeRestore(state.qeGap.s,state.qeGap.e); }
 function qeSplit(){
   const bands=qeBands();
   if(state.qeSel===null||!bands[state.qeSel]) return;
@@ -1728,8 +1748,8 @@ function qeZoomSet(z){
   };
   $('qeZin').onclick=()=>qeZoomSet(state.qeZoom*2);
   $('qeZout').onclick=()=>qeZoomSet(state.qeZoom/2);
-  [['qeSplitBtn',qeSplit],['mSplitBtn',qeSplit],['qeDelBtn',qeDelete],['mDelBtn',qeDelete]].forEach(([id,fn])=>{ const b=$(id); if(b) b.onclick=fn; });
-  [['qeCloseBtn'],['mCloseBtn']].forEach(([id])=>{ const b=$(id); if(b) b.onclick=()=>qeSelect(null); });
+  [['qeSplitBtn',qeSplit],['mSplitBtn',qeSplit],['qeDelBtn',qeDelete],['mDelBtn',qeDelete],['qeRestoreBtn',qeRestoreSel],['mRestoreBtn',qeRestoreSel]].forEach(([id,fn])=>{ const b=$(id); if(b) b.onclick=fn; });
+  [['qeCloseBtn'],['mCloseBtn']].forEach(([id])=>{ const b=$(id); if(b) b.onclick=()=>{ state.qeGap=null; qeSelect(null); }; });
   document.querySelectorAll('.sidestack .sic2').forEach(b=>b.onclick=()=>openPanel(b.dataset.p));
 })();
 
@@ -2185,7 +2205,7 @@ function loadEditor(isDemo,payload,opts){
   state.settings={...cutDefaults()};
   state.mode='edited'; state.snippet=null; state.vt=0; state.playing=false;
   state.past=[]; state.future=[]; updUndoUI();
-  state.manualCuts=[]; state.splits=[]; state.qeSel=null; state.qeZoom=1;
+  state.manualCuts=[]; state.splits=[]; state.qeSel=null; state.qeGap=null; state.qeZoom=1;
   state.useRealVideo=!isDemo&&!!state.fileUrl;
   const vid=$('vid');
   if(state.useRealVideo){
