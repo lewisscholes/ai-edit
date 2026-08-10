@@ -335,6 +335,10 @@ header.full .hwrap{max-width:none}
 .ecard .meta{padding:9px 12px}
 .ecard .meta b{font-size:13px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ecard .meta small{color:var(--mut);font-size:11.5px}
+.ecard{position:relative}
+.edel{position:absolute;top:8px;right:8px;width:24px;height:24px;border-radius:50%;background:rgba(10,12,18,.55);color:#fff;font-size:11px;display:grid;place-items:center;opacity:0;transition:.15s;z-index:2}
+.ecard:hover .edel{opacity:1}
+@media(hover:none){.edel{opacity:1}}
 .empty{color:var(--mut);font-size:13.5px;background:var(--card);border:1px dashed var(--line);border-radius:14px;padding:24px;text-align:center}
 
 /* ================= processing ================= */
@@ -1770,6 +1774,7 @@ async function dbPutJob(j){
     .put({name:j.name,status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,settings:j.settings||null,thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,blob:(j.file&&j.file.size<=800*1024*1024)?j.file:null,ts:Date.now()});
   }catch(e){}
 }
+async function dbDelJob(name){ try{ const db=await idb(); db.transaction('jobs','readwrite').objectStore('jobs').delete(name); }catch(e){} }
 async function dbAllJobs(){ try{ const db=await idb(); return await new Promise(res=>{ const rq=db.transaction('jobs').objectStore('jobs').getAll(); rq.onsuccess=()=>res(rq.result||[]); rq.onerror=()=>res([]); }); }catch(e){ return []; } }
 async function restoreJobs(){
   const rows=await dbAllJobs();
@@ -2018,13 +2023,27 @@ function renderHomeStats(){
     g.appendChild(el);
   }
 }
+function deleteVideo(name){
+  const i=batch.findIndex(j=>j.name===name);
+  if(i>-1){ const j=batch[i]; if(j.url){ try{URL.revokeObjectURL(j.url);}catch(e){} } batch.splice(i,1); }
+  dbDelJob(name);
+  const ei=state.edits.findIndex(e=>e.name===name);
+  if(ei>-1) state.edits.splice(ei,1);
+  if(currentJobName===name) currentJobName=null;
+  renderEditsGrid(); renderKanban(); updateQueueBadge();
+  toast(name+' removed');
+}
 function renderEditsGrid(){
   $('editCount').textContent=state.edits.length;
   $('editsEmpty').classList.toggle('hidden',state.edits.length>0);
   const g=$('egrid'); g.classList.toggle('hidden',state.edits.length===0); g.innerHTML='';
   state.edits.forEach(e=>{
     const c=document.createElement('div'); c.className='ecard';
-    c.innerHTML='<div class="thumb" style="background:'+e.grad+'"><svg class="ic" viewBox="0 0 24 24" style="width:26px;height:26px;color:#fff"><rect x="4" y="4.5" width="16" height="15" rx="2"/><path d="M8 4.5v15M16 4.5v15M4 9h4M4 15h4M16 9h4M16 15h4"/></svg></div><div class="meta"><b>'+escapeHtml(e.name)+'</b><small>Today · open in editor</small></div>';
+    const job=jobByName(e.name);
+    const bg=(job&&job.thumb&&job.thumb!=='err')?('url('+job.thumb+') center/cover no-repeat #20242c'):e.grad;
+    const icon=(job&&job.thumb&&job.thumb!=='err')?'':'<svg class="ic" viewBox="0 0 24 24" style="width:26px;height:26px;color:#fff"><rect x="4" y="4.5" width="16" height="15" rx="2"/><path d="M8 4.5v15M16 4.5v15M4 9h4M4 15h4M16 9h4M16 15h4"/></svg>';
+    c.innerHTML='<div class="thumb" style="background:'+bg+'">'+icon+'</div><button class="edel" title="Remove from Chop">✕</button><div class="meta"><b>'+escapeHtml(e.name)+'</b><small>Today · open in editor</small></div>';
+    c.querySelector('.edel').onclick=ev=>{ ev.stopPropagation(); if(confirm('Remove '+e.name+' and its edit from Chop? This can’t be undone.')) deleteVideo(e.name); };
     c.onclick=()=>{ if(e.name==='demo-footage.mp4'){ showView('editor'); } else openFromLibrary(e.name); };
     g.appendChild(c);
   });
