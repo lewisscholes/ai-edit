@@ -585,6 +585,11 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
 .fcard.retake.decided .fnum{background:var(--green)}
 .fcard .fbadge{margin-left:auto;font-size:9px;font-weight:800;letter-spacing:.04em;padding:2px 7px;border-radius:7px;background:var(--rose-soft);color:var(--rose);flex:none}
 .fcard.decided .fbadge{background:var(--green-soft);color:var(--green)}
+.kwhen{display:block;color:var(--mut);font-size:10px;margin-top:3px;font-weight:600}
+.expprog{position:fixed;right:16px;bottom:84px;z-index:70;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 16px;box-shadow:0 12px 34px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:3px;font-size:12.5px;max-width:280px}
+.expprog b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.expprog span{color:var(--mut);font-weight:700;font-variant-numeric:tabular-nums}
+.epshare{margin-top:8px;background:var(--blue);color:#fff;border-radius:10px;padding:9px 14px;font-weight:800;font-size:12.5px;cursor:pointer}
 /* export modal / toast */
 .mback{position:fixed;inset:0;background:rgba(12,15,22,.55);z-index:80;display:grid;place-items:center;padding:20px}
 .modal{background:var(--panel);border-radius:18px;max-width:640px;width:100%;max-height:86vh;overflow-y:auto;padding:26px 28px}
@@ -1055,7 +1060,7 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
              src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 48'%3E%3Crect width='120' height='48' rx='10' fill='%231a6dff'/%3E%3Ctext x='60' y='31' font-family='Arial' font-size='17' font-weight='800' fill='white' text-anchor='middle'%3EBRAND%3C/text%3E%3C/svg%3E">
         <div class="caption" id="caption"></div>
         <div class="cutflash" id="cutflash">CUT SKIPPED</div>
-        <div class="vmode" id="vMode"><button data-m="original">Source</button><button data-m="edited" class="on">Edited</button></div>
+        <div class="vmode" id="vMode"><button data-m="original">Raw</button><button data-m="edited" class="on">Edited</button></div>
       </div>
       <div class="sidestack">
         <button class="sic2" data-p="text"><span class="cir"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M5.5 7V4.5h13V7M12 4.5V19.5M9 19.5h6"/></svg></span><small>Text</small></button>
@@ -1065,7 +1070,7 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
       <div class="transport">
         <button class="playbtn" id="playBtn">▶</button>
         <div class="modetgl" id="modeTgl">
-          <button data-m="original">Source</button>
+          <button data-m="original">Raw</button>
           <button data-m="edited" class="on">Edited</button>
         </div>
         <span class="tnow" id="tNow">0:00</span>
@@ -2283,12 +2288,12 @@ function renderQueue(){
 $('runBtn').onclick=()=>startEdit(false);
 
 const STEPS=[
-  ['Uploading','Chunked upload to storage — presigned, direct'],
-  ['Transcribing','Deepgram Nova-3 · word timestamps + filler detection'],
-  ['Detecting dead air','Silero VAD over the waveform'],
-  ['Finding filler words','um, uh, like, you know…'],
-  ['Matching retakes','Fuzzy transcript match · keep-last suggested'],
-  ['Building your edit','Assembling the cut list']
+  ['Uploading',''],
+  ['Listening to your audio',''],
+  ['Detecting dead air',''],
+  ['Finding filler words',''],
+  ['Matching retakes',''],
+  ['Building your edit','']
 ];
 /* =============== batch / review queue machinery =================== */
 const batch=[]; /* jobs: {name,file,url,thumb,status,payload,rawSec,editedSec,pending,choices,manuals,settings,err} */
@@ -2297,11 +2302,12 @@ let _idb=null;
 function idb(){ return _idb||(_idb=new Promise((res,rej)=>{ try{ const r=indexedDB.open('chop',1); r.onupgradeneeded=()=>r.result.createObjectStore('jobs',{keyPath:'name'}); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }catch(e){rej(e);} })); }
 async function dbWrite(j,ts){
   try{ const db=await idb(); db.transaction('jobs','readwrite').objectStore('jobs')
-    .put({name:j.name,status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,settings:j.settings||null,manualCuts:j.manualCuts||null,splits:j.splits||null,videoKey:j.videoKey||null,thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,blob:(j.file&&j.file.size<=800*1024*1024)?j.file:null,ts});
+    .put({name:j.name,status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,settings:j.settings||null,manualCuts:j.manualCuts||null,splits:j.splits||null,videoKey:j.videoKey||null,statusAt:j.statusAt||null,thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,blob:(j.file&&j.file.size<=800*1024*1024)?j.file:null,ts});
   }catch(e){}
 }
 async function dbPutJob(j){
   if(!j||!j.payload||j.status==='error') return;
+  if(j.status!==j._lastSt){ j.statusAt=Date.now(); j._lastSt=j.status; }
   const ts=Date.now(); j._ts=ts;
   dbWrite(j,ts);
   cloudPutJob(j,ts);
@@ -2311,7 +2317,7 @@ async function dbAllJobs(){ try{ const db=await idb(); return await new Promise(
 /* ---------------- cloud sync (account-wide jobs/credits/stats) ------ */
 const _cloudQ={};
 function cloudStrip(j){
-  return {status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,settings:j.settings||null,manualCuts:j.manualCuts||null,splits:j.splits||null,thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,rawSec:j.rawSec||0,editedSec:j.editedSec||0,videoKey:j.videoKey||null};
+  return {status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,settings:j.settings||null,manualCuts:j.manualCuts||null,splits:j.splits||null,thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,rawSec:j.rawSec||0,editedSec:j.editedSec||0,videoKey:j.videoKey||null,statusAt:j.statusAt||null};
 }
 /* background upload of the full video so other devices can stream it */
 const _vidQ=[]; let _vidBusy=false;
@@ -2372,7 +2378,8 @@ async function cloudSyncJobs(){
       const local=jobByName(r.name);
       if(!local){
         const st=(d.status==='processing'||d.status==='queued')?'review':(d.status||'review');
-        const j={name:r.name,file:null,url:null,thumb:d.thumb,status:st,payload:d.payload,choices:d.choices,manuals:d.manuals,settings:d.settings,manualCuts:d.manualCuts||null,splits:d.splits||null,videoKey:d.videoKey||null,pending:0,_ts:r.ts||0};
+        const j={name:r.name,file:null,url:null,thumb:d.thumb,status:st,payload:d.payload,choices:d.choices,manuals:d.manuals,settings:d.settings,manualCuts:d.manualCuts||null,splits:d.splits||null,videoKey:d.videoKey||null,statusAt:d.statusAt||null,pending:0,_ts:r.ts||0};
+        j._lastSt=j.status;
         jobStats(j); batch.push(j); changed++;
         if(!state.edits.find(e=>e.name===j.name)) state.edits.push({name:j.name,grad:GRADS[state.edits.length%GRADS.length]});
         dbWrite(j,r.ts||0);
@@ -2428,7 +2435,8 @@ async function restoreJobs(){
     let file=null,url=null;
     try{ if(r.blob){ file=new File([r.blob],r.name,{type:r.blob.type||'video/mp4'}); url=URL.createObjectURL(file); } }catch(e){}
     const st=(r.status==='processing'||r.status==='queued')?'review':r.status;
-    const j={name:r.name,file,url,thumb:r.thumb,status:st,payload:r.payload,choices:r.choices,manuals:r.manuals,settings:r.settings,manualCuts:r.manualCuts||null,splits:r.splits||null,videoKey:r.videoKey||null,pending:0,_ts:r.ts||0};
+    const j={name:r.name,file,url,thumb:r.thumb,status:st,payload:r.payload,choices:r.choices,manuals:r.manuals,settings:r.settings,manualCuts:r.manualCuts||null,splits:r.splits||null,videoKey:r.videoKey||null,statusAt:r.statusAt||null,pending:0,_ts:r.ts||0};
+    j._lastSt=j.status;
     jobStats(j); batch.push(j); n++;
     if(!state.edits.find(e=>e.name===j.name)) state.edits.push({name:j.name,grad:GRADS[state.edits.length%GRADS.length]});
   });
@@ -2442,7 +2450,7 @@ async function runPipelineOnce(title,isDemo,file){
   const holder=$('procSteps'); holder.innerHTML='';
   const rows=STEPS.map(([b,s],i)=>{
     const d=document.createElement('div'); d.className='pstep pend';
-    d.innerHTML='<div class="st">'+(i+1)+'</div><div><b>'+b+'</b><small>'+s+'</small></div>';
+    d.innerHTML='<div class="st">'+(i+1)+'</div><div><b>'+b+'</b>'+(s?'<small>'+s+'</small>':'')+'</div>';
     holder.appendChild(d); return d;
   });
   const fill=$('pbarFill'); fill.style.width='0%';
@@ -2778,6 +2786,66 @@ $('approveBtn').onclick=()=>{
   }
   updateQueueBadge(); renderKanban(); syncApproveBtn();
 };
+function fmtWhen(ts){
+  const d=new Date(ts);
+  const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return ('0'+d.getHours()).slice(-2)+':'+('0'+d.getMinutes()).slice(-2)+' · '+d.getDate()+' '+M[d.getMonth()];
+}
+/* export countdown pop-up — lives on the queue page only */
+let _epTimer=null,_epLeft=0,_epDone=false;
+function epEl(){
+  let el=$('expProg');
+  if(!el){
+    const q=$('viewQueue'); if(!q) return null;
+    el=document.createElement('div'); el.className='expprog hidden'; el.id='expProg';
+    el.innerHTML='<b id="epName"></b><span id="epTime"></span>';
+    q.appendChild(el);
+  }
+  return el;
+}
+function epShow(name,est){
+  const el=epEl(); if(!el) return;
+  const sh=el.querySelector('.epshare'); sh&&sh.remove();
+  _epLeft=Math.max(5,Math.round(est)); _epDone=false;
+  $('epName').textContent='Exporting '+name;
+  $('epTime').textContent='≈ '+_epLeft+'s left';
+  el.classList.remove('hidden');
+  clearInterval(_epTimer);
+  _epTimer=setInterval(()=>{
+    if(_epDone) return;
+    _epLeft=Math.max(1,_epLeft-1);
+    $('epTime').textContent=_epLeft<=1?'finishing up…':'≈ '+_epLeft+'s left';
+  },1000);
+}
+function epUpdate(frac,elapsed){
+  if(frac>0.03&&frac<1) _epLeft=Math.max(1,Math.round(elapsed*(1-frac)/frac));
+}
+function epDone(name,blob){
+  const el=epEl(); if(!el) return;
+  _epDone=true; clearInterval(_epTimer);
+  $('epName').textContent=name+' exported ✓';
+  $('epTime').textContent='';
+  let shared=false;
+  try{
+    if(blob){
+      const f=new File([blob],name.replace(/\.[^.]+$/,'')+'-chopped.mp4',{type:'video/mp4'});
+      if(navigator.canShare&&navigator.canShare({files:[f]})){
+        const b=document.createElement('button'); b.className='epshare';
+        b.textContent='Save to camera roll';
+        b.onclick=()=>{ navigator.share({files:[f]}).catch(()=>{}); };
+        el.appendChild(b); shared=true;
+      }
+    }
+  }catch(e){}
+  setTimeout(()=>{ el.classList.add('hidden'); const s=el.querySelector('.epshare'); s&&s.remove(); },shared?45000:6000);
+}
+function epFail(){ const el=$('expProg'); clearInterval(_epTimer); if(el) el.classList.add('hidden'); }
+function dlBlob(blob,name){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=name.replace(/\.[^.]+$/,'')+'-chopped.mp4'; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+}
 function kanbanCard(j){
   const d=document.createElement('div'); d.className='vcard';
   const th=document.createElement('div'); th.className='vthumb';
@@ -2796,7 +2864,8 @@ function kanbanCard(j){
     else if(j.status==='approved') chip='<span class="kchip exp">APPROVED</span>';
     else if(j.status==='exported') chip='<span class="kchip exp">EXPORTED</span>';
   }
-  m.innerHTML='<b>'+escapeHtml(j.name)+'</b><small>'+escapeHtml(sub)+'</small>'+chip;
+  m.innerHTML='<b>'+escapeHtml(j.name)+'</b><small>'+escapeHtml(sub)+'</small>'+chip
+    +(j.statusAt?'<small class="kwhen">In this column since '+fmtWhen(j.statusAt)+'</small>':'');
   d.appendChild(m);
   const act=document.createElement('div'); act.className='vact';
   if(j.status==='review'){
@@ -2867,11 +2936,13 @@ async function exportJob(j,btn){
     const kept=keptClips().map(c=>({s:+c.start.toFixed(3),e:+c.end.toFixed(3)}));
     const fade=Math.min(0.2,state.settings.overlapMs/1000/2)||0.03;
     if(btn){ btn.disabled=true; }
+    epShow(j.name,20+Math.round((j.editedSec||30)*0.6));
     try{
-      await serverRender(null,j.name,kept,fade,t=>{ if(btn) btn.textContent=t; },j.videoKey);
+      const blob=await serverRender(null,j.name,kept,fade,t=>{ if(btn) btn.textContent=t; },j.videoKey);
+      dlBlob(blob,j.name); epDone(j.name,blob);
       j.status='exported'; dbPutJob(j);
       toast(j.name+' exported in 1080p');
-    }catch(e){ toast(j.name+': '+((e&&e.message)||'render failed — try again')); if(btn){btn.disabled=false;btn.textContent='Export';} }
+    }catch(e){ epFail(); toast(j.name+': '+((e&&e.message)||'render failed — try again')); if(btn){btn.disabled=false;btn.textContent='Export';} }
     _rendering=false;
     const back=wasCur&&jobByName(wasCur);
     if(back&&back.payload){ applyJobToState(back); currentJobName=back.name; }
@@ -2892,11 +2963,13 @@ async function exportJob(j,btn){
     const wasCur=currentJobName; saveCurrentJob(); applyJobToState(j); currentJobName=j.name;
     const kept=keptClips().map(c=>({s:+c.start.toFixed(3),e:+c.end.toFixed(3)}));
     const fade=Math.min(0.2,state.settings.overlapMs/1000/2)||0.03;
+    epShow(j.name,20+Math.round((j.editedSec||30)*0.6));
     try{
-      await serverRender(j.file,j.name,kept,fade,t=>{ if(btn) btn.textContent=t; },j.videoKey||null);
+      const blob=await serverRender(j.file,j.name,kept,fade,t=>{ if(btn) btn.textContent=t; },j.videoKey||null);
+      dlBlob(blob,j.name); epDone(j.name,blob);
       j.status='exported'; dbPutJob(j);
       toast(j.name+' exported in 1080p');
-    }catch(e){ toast(j.name+': '+((e&&e.message)||'HD render failed — try again')); if(btn){btn.disabled=false;btn.textContent='Export';} }
+    }catch(e){ epFail(); toast(j.name+': '+((e&&e.message)||'HD render failed — try again')); if(btn){btn.disabled=false;btn.textContent='Export';} }
     _rendering=false;
     const back=wasCur&&jobByName(wasCur);
     if(back&&back.payload){ applyJobToState(back); currentJobName=back.name; }
@@ -2906,10 +2979,16 @@ async function exportJob(j,btn){
   const args=renderArgs(), file=j.file;
   if(btn){ btn.disabled=true; btn.textContent='0%'; }
   _rendering=true;
+  epShow(j.name,Math.round((j.editedSec||30)*0.5)+6);
+  const _t0=Date.now();
   try{
     const out=await withFFmpeg(async()=>{
       const ff=await getFFmpeg();
-      ff.on('progress',({progress})=>{ if(btn) btn.textContent=Math.round(Math.max(0,Math.min(1,progress))*100)+'%'; });
+      ff.on('progress',({progress})=>{
+        const p=Math.max(0,Math.min(1,progress));
+        if(btn) btn.textContent=Math.round(p*100)+'%';
+        epUpdate(p,(Date.now()-_t0)/1000);
+      });
       await ff.writeFile('input.mp4',new Uint8Array(await file.arrayBuffer()));
       await ff.exec(args);
       const o=await ff.readFile('output.mp4');
@@ -2917,13 +2996,11 @@ async function exportJob(j,btn){
       return o;
     });
     if(!out||!out.length) throw new Error('no output');
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(new Blob([out.buffer],{type:'video/mp4'}));
-    a.download=j.name.replace(/\.[^.]+$/,'')+'-chopped.mp4'; a.click();
-    setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+    const blob=new Blob([out.buffer],{type:'video/mp4'});
+    dlBlob(blob,j.name); epDone(j.name,blob);
     j.status='exported'; dbPutJob(j);
     toast(j.name+' exported');
-  }catch(e){ toast(j.name+': export failed — '+((e&&e.message)||'try again')); if(btn){ btn.disabled=false; btn.textContent='Export'; } }
+  }catch(e){ epFail(); toast(j.name+': export failed — '+((e&&e.message)||'try again')); if(btn){ btn.disabled=false; btn.textContent='Export'; } }
   _rendering=false;
   /* restore whichever video the user was editing */
   const back=wasCurrent&&jobByName(wasCurrent);
@@ -3390,10 +3467,7 @@ async function serverRender(file,name,keptList,fade,progress,existingKey){
   if(!res.ok) throw new Error('HD render failed: '+(await res.text()).slice(0,120));
   const blob=await res.blob();
   if(!blob.size) throw new Error('empty render');
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  a.download=name.replace(/\.[^.]+$/,'')+'-chopped.mp4'; a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+  return blob;
 }
 let _rendering=false;
 $('renderBtn').onclick=async()=>{
@@ -3412,7 +3486,7 @@ $('renderBtn').onclick=async()=>{
       const kept=keptClips().map(c=>({s:+c.start.toFixed(3),e:+c.end.toFixed(3)}));
       const fade=Math.min(0.2,state.settings.overlapMs/1000/2)||0.03;
       bar.style.width='20%';
-      await serverRender(state.file,state.file.name,kept,fade,t=>{ lbl.textContent=t; bar.style.width=t.indexOf('Render')===0?'60%':'25%'; });
+      dlBlob(await serverRender(state.file,state.file.name,kept,fade,t=>{ lbl.textContent=t; bar.style.width=t.indexOf('Render')===0?'60%':'25%'; }),state.file.name);
       bar.style.width='100%'; lbl.textContent='Done — 1080p video in your downloads folder.';
       toast('Chopped video downloaded in 1080p');
     }catch(e){ lbl.textContent=(e&&e.message)||'HD render failed — try again'; toast('That didn’t work — try again'); }
