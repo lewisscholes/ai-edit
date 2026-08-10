@@ -939,7 +939,7 @@ input[type=range].vol{width:64px;flex:none}
           <div class="avatar"><svg class="ic" viewBox="0 0 24 24" style="width:24px;height:24px;color:#fff"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg></div>
           <div class="tc" id="vtc">0:00</div>
           <div class="eqrow" id="eqrow"></div>
-          <div class="lbl">DEMO FOOTAGE · 9:16</div>
+          <div class="lbl" id="vstLbl">DEMO FOOTAGE · 9:16</div>
         </div>
         <div class="textoverlay hidden" id="textoverlay"></div>
         <img class="logooverlay hidden" id="logooverlay" alt=""
@@ -1671,6 +1671,14 @@ function addFiles(list){
   const added=[];
   for(const f of list){
     if(!/\.(mp4|mov)$/i.test(f.name)&&!/video/.test(f.type)){ toast(f.name+' isn’t an MP4 or MOV — skipped'); continue; }
+    const known=jobByName(f.name);
+    if(known&&known.payload&&!known.file){
+      /* reconnecting a lost file to an existing edit — no credits, no re-chop */
+      known.file=f; known.url=URL.createObjectURL(f); known._hydrated=false;
+      hydrateJob(known).then(()=>{ dbPutJob(known); if(currentJobName===known.name) openJob(known); });
+      toast(f.name+' reconnected to its edit');
+      continue;
+    }
     const maxGB=window.innerWidth<=760?1:2;
     if(f.size>maxGB*1024*1024*1024){ toast(f.name+' is over '+maxGB+' GB — skipped'+(maxGB===1?' (bigger files work on desktop)':'')); continue; }
     if(queue.find(q=>q.file.name===f.name&&q.file.size===f.size)) continue;
@@ -1939,6 +1947,7 @@ function loadEditor(isDemo,payload,opts){
   } else {
     vid.removeAttribute('src'); vid.classList.add('hidden'); $('vstage').classList.remove('hidden');
     state.scale=1;
+    $('vstLbl').textContent=isDemo?'DEMO FOOTAGE · 9:16':'VIDEO NOT ON THIS DEVICE — DROP THE FILE ON THE DASHBOARD TO RECONNECT';
   }
   document.querySelectorAll('#modeTgl button').forEach(b=>b.classList.toggle('on',b.dataset.m==='edited'));
   syncPlayUI(); syncSettingUI();
