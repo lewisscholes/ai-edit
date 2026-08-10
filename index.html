@@ -690,7 +690,8 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
 <body>
 <script>try{
   var t=localStorage.getItem('chopTheme');
-  var d=(t!=='light'); /* dark by default — light only if the user chose it */
+  /* dark by default — light only if the user explicitly picked it */
+  var d=!(t==='light'&&localStorage.getItem('chopThemeChosen')==='1');
   if(d) document.documentElement.classList.add('dark');
   document.documentElement.style.background=d?'#0e1014':'#f6f8fb';
 }catch(e){}</script>
@@ -3436,10 +3437,10 @@ $('renderBtn').onclick=async()=>{
       :'<svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M20 13.5A8 8 0 0 1 10.5 4a8 8 0 1 0 9.5 9.5z"/></svg> Dark mode';
     try{localStorage.setItem('chopTheme',dark?'dark':'light');}catch(e){}
   }
-  /* resolve exactly like the pre-load script: dark by default, light only when chosen */
-  let saved=null; try{saved=localStorage.getItem('chopTheme');}catch(e){}
-  setTheme(saved!=='light');
-  $('pmTheme').onclick=()=>setTheme(!document.documentElement.classList.contains('dark'));
+  /* resolve exactly like the pre-load script: dark by default, light only when explicitly chosen */
+  let saved=null,chosen=null; try{saved=localStorage.getItem('chopTheme');chosen=localStorage.getItem('chopThemeChosen');}catch(e){}
+  setTheme(!(saved==='light'&&chosen==='1'));
+  $('pmTheme').onclick=()=>{ try{localStorage.setItem('chopThemeChosen','1');}catch(e){} setTheme(!document.documentElement.classList.contains('dark')); };
   $('profBtn').onclick=e=>{ e.stopPropagation(); $('pMenu').classList.toggle('hidden'); };
   document.addEventListener('click',e=>{ if(!e.target.closest('.prof')) $('pMenu').classList.add('hidden'); });
   $('pmBilling').onclick=()=>{ $('pMenu').classList.add('hidden'); renderCredits(); showView('billing'); };
