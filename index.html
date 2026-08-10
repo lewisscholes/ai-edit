@@ -2212,8 +2212,15 @@ $('tglLogo').onclick=function(){ state.showLogo=!state.showLogo; this.classList.
 
 /* ---------------- transport ---------------------------------------- */
 $('playBtn').onclick=()=>{
-  /* iOS: unlock the standby video for audible programmatic playback while we
-     still have the user gesture (one-time per load) */
+  /* first play: NOW attach the standby video source (deferred from load so it
+     never competes with the preview/thumbnails), and unlock its audio for iOS
+     while we still have the user gesture */
+  if(sbyV&&!sbyV.src&&state.useRealVideo&&state.fileUrl){
+    try{
+      if(/^https?:/.test(state.fileUrl)) sbyV.crossOrigin='anonymous'; else sbyV.removeAttribute('crossorigin');
+      sbyV.src=state.fileUrl;
+    }catch(e){}
+  }
   if(sbyV&&sbyV.src&&!sbyV._unlocked){
     try{
       sbyV.muted=false; sbyV.volume=0;
@@ -2681,11 +2688,14 @@ function loadEditor(isDemo,payload,opts){
     if(/^https?:/.test(state.fileUrl)) vid.crossOrigin='anonymous'; else vid.removeAttribute('crossorigin');
     vid.src=state.fileUrl; vid.classList.remove('hidden'); $('vstage').classList.add('hidden');
     gvInit();
+    /* SPEED: the standby video stays EMPTY at load — the main preview and the
+       timeline thumbnails get the decoder to themselves. The standby only
+       attaches its source on the first play tap (see playBtn), which is the
+       only moment gapless playback is ever needed. */
     if(sbyV){
       try{
-        if(/^https?:/.test(state.fileUrl)) sbyV.crossOrigin='anonymous'; else sbyV.removeAttribute('crossorigin');
+        sbyV.pause(); sbyV.removeAttribute('src'); try{sbyV.load();}catch(e2){}
         sbyV.muted=true; sbyV.style.opacity='0'; sbyV.style.pointerEvents='none'; sbyV._target=null; sbyV._unlocked=false;
-        sbyV.src=state.fileUrl;
       }catch(e){}
     }
     state.scale=1;
