@@ -15,6 +15,10 @@ if (typeof window === 'undefined') {
   self.addEventListener('fetch', (event) => {
     const r = event.request;
     if (r.cache === 'only-if-cached' && r.mode !== 'same-origin') return;
+    // cross-origin traffic (R2 video streams/uploads, APIs) must NOT be proxied:
+    // Safari breaks media range requests through a SW, and long uploads die if
+    // the worker is terminated mid-transfer. COEP credentialless handles these.
+    try { if (new URL(r.url).origin !== self.location.origin) return; } catch (e) {}
     // navigations always revalidate so users never run a stale build
     const req = r.mode === 'navigate' ? new Request(r.url, { cache: 'no-cache' }) : r;
     event.respondWith(

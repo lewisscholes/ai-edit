@@ -2310,10 +2310,28 @@ async function vidPump(){
   _vidBusy=true;
   try{
     const p=await api({action:'presign',filename:'sync-'+j.name});
-    const put=await fetch(p.uploadUrl,{method:'PUT',body:j.file});
-    if(put.ok){ j.videoKey=p.key; dbPutJob(j); toast(j.name+' synced — now watchable on your other devices ✓'); }
-    else { j._vidQd=0; }
-  }catch(e){ j._vidQd=0; }
+    await new Promise((res,rej)=>{
+      const x=new XMLHttpRequest();
+      x.open('PUT',p.uploadUrl);
+      x.upload.onprogress=e=>{
+        if(!e.total) return;
+        j.syncPct=Math.round(e.loaded/e.total*100);
+        if(!j._syncT) j._syncT=setTimeout(()=>{ j._syncT=null; renderKanban(); },1500);
+      };
+      x.onload=()=>(x.status>=200&&x.status<300)?res():rej(new Error('upload '+x.status));
+      x.onerror=()=>rej(new Error('network'));
+      x.send(j.file);
+    });
+    j.videoKey=p.key; j.syncPct=null;
+    dbPutJob(j); renderKanban();
+    toast(j.name+' synced — now watchable on your other devices ✓');
+  }catch(e){
+    j.syncPct=null;
+    j._vidTries=(j._vidTries||0)+1;
+    if(j._vidTries<4){ setTimeout(()=>{ j._vidQd=0; cloudUploadVideo(j); },15000); }  /* auto-retry */
+    else j._vidQd=0;
+    renderKanban();
+  }
   _vidBusy=false;
   if(_vidQ.length) vidPump();
 }
@@ -2571,6 +2589,7 @@ function loadEditor(isDemo,payload,opts){
   state.useRealVideo=!isDemo&&!!state.fileUrl;
   const vid=$('vid');
   if(state.useRealVideo){
+    if(/^https?:/.test(state.fileUrl)) vid.crossOrigin='anonymous'; else vid.removeAttribute('crossorigin');
     vid.src=state.fileUrl; vid.classList.remove('hidden'); $('vstage').classList.add('hidden');
     state.scale=1;
     vid.onloadedmetadata=()=>{ state.scale=state.realAnalysis?1:(vid.duration/DEMO_DUR||1); };
@@ -2755,6 +2774,7 @@ function kanbanCard(j){
   else if(j.status==='error'){ sub=j.err||'failed'; chip='<span class="kchip err">FAILED</span>'; }
   else{
     sub=fmt(j.rawSec||0)+' → '+fmt(j.editedSec||0)+(j.pending?' · '+j.pending+' retake'+(j.pending>1?'s':'')+' to decide':' · no retakes pending');
+    if(j.file&&!j.videoKey) sub+=(j.syncPct!=null)?' · syncing '+j.syncPct+'%':' · sync queued';
     if(j.name===currentJobName&&j.status==='review') chip='<span class="kchip now">EDITING NOW</span>';
     else if(j.status==='review') chip='<span class="kchip rev">NEEDS REVIEW</span>';
     else if(j.status==='approved') chip='<span class="kchip exp">APPROVED</span>';
