@@ -530,6 +530,10 @@ input[type=range].vol{width:64px;flex:none}
 .kseg.sel{box-shadow:inset 0 0 0 2.5px #fff}
 .gapc{position:absolute;top:6px;bottom:6px;cursor:pointer;background:var(--rose);border-radius:5px;will-change:left,width}
 .gapc::after{content:"✂";position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:9.5px}
+/* Source view: cuts shown full-width — footage dimmed under a red strike */
+.gapc.wide{top:0;bottom:0;border-radius:8px;background:#20242c;background-repeat:no-repeat;overflow:hidden}
+.gapc.wide::before{content:"";position:absolute;inset:0;background:rgba(16,18,24,.45);background-image:repeating-linear-gradient(135deg,rgba(224,53,95,.5) 0 6px,transparent 6px 12px)}
+.gapc.wide::after{content:"";display:none}
 .splitmark{position:absolute;top:6px;bottom:6px;width:2px;margin-left:-1px;background:rgba(255,255,255,.8);z-index:3;pointer-events:none;border-radius:2px}
 /* centre-locked stick (TikTok): the strip moves under it, it never moves */
 .qestick{position:absolute;left:50%;top:-6px;bottom:-3px;width:3px;margin-left:-1.5px;background:#fff;pointer-events:none;z-index:6;box-shadow:0 0 0 1px rgba(0,0,0,.25),0 2px 8px rgba(0,0,0,.4);border-radius:3px}
@@ -1683,22 +1687,30 @@ let _qeLC=null;
 function qeLayout(){
   if(_qeLC) return _qeLC;
   const rd=rawDur()||1;
-  const wrap=$('qeWrap');
-  const trackPx=Math.max(240,((wrap&&wrap.clientWidth)||600)*state.qeZoom);
-  const notch=Math.min(0.05,16/trackPx);
+  const src=state.mode==='original';
   const cuts=cutIntervals().map(c=>({type:'cut',s:c.s/rd,e:c.e/rd})).filter(c=>c.e-c.s>0.0004);
   const bands=qeBands().map((b,i)=>({type:'keep',s:b.s/rd,e:b.e/rd,band:i}));
-  const seq=cuts.concat(bands).sort((a,b)=>a.s-b.s);
-  const totCut=cuts.reduce((a,c)=>a+(c.e-c.s),0);
-  const scale=(1-cuts.length*notch)/((1-totCut)||1);
-  let pos=0;
-  for(const it of seq){ it.x=pos; it.w=it.type==='cut'?notch:Math.max(0.004,(it.e-it.s)*scale); pos+=it.w; }
+  let seq;
+  if(src){
+    /* SOURCE: real proportions — cut sections show full-width in red */
+    seq=cuts.concat(bands).sort((a,b)=>a.s-b.s);
+    seq.forEach(it=>{ it.x=it.s; it.w=Math.max(0.003,it.e-it.s); });
+  }else{
+    /* EDITED: only your kept footage — cuts disappear entirely */
+    seq=bands.slice().sort((a,b)=>a.s-b.s);
+    const tot=seq.reduce((a,b)=>a+(b.e-b.s),0)||1;
+    let pos=0;
+    for(const it of seq){ it.x=pos; it.w=Math.max(0.004,(it.e-it.s)/tot); pos+=it.w; }
+  }
   _qeLC=seq;
   return seq;
 }
 function qeFracToX(f){
-  for(const it of qeLayout()){ if(f>=it.s&&f<=it.e) return it.type==='cut'?it.x+it.w/2:it.x+((f-it.s)/(it.e-it.s))*it.w; }
-  return Math.min(1,Math.max(0,f));
+  const its=qeLayout();
+  for(const it of its){ if(f>=it.s&&f<=it.e) return it.type==='cut'?it.x+((f-it.s)/(it.e-it.s))*it.w:it.x+((f-it.s)/(it.e-it.s))*it.w; }
+  /* f falls inside a removed cut (edited view): sit at the join */
+  for(const it of its){ if(it.s>=f) return it.x; }
+  return 1;
 }
 function qeXToFrac(x){
   const its=qeLayout();
@@ -1729,9 +1741,10 @@ function renderStrip(){
     }else{
       const on=state.qeGap&&Math.abs(state.qeGap.s-it.s*rd)<0.05&&Math.abs(state.qeGap.e-it.e*rd)<0.05;
       const g=document.createElement('div');
-      g.className='gapc'+(on?' sel':'');
+      g.className='gapc wide'+(on?' sel':'');
       g.style.left=(it.x*100)+'%'; g.style.width=(it.w*100)+'%';
       g.title=fmt1((it.e-it.s)*rd)+' cut — tap, then Restore';
+      g.dataset.fs=it.s; g.dataset.fe=it.e;
       const ivRaw={s:it.s*rd,e:it.e*rd};
       g.onclick=ev=>{ ev.stopPropagation(); qeSelectGap(on?null:ivRaw); };
       el.appendChild(g);
@@ -1779,7 +1792,7 @@ function qePaintThumbs(el){
   qeEnsureStrip();
   if(!_qeStrip) return;
   const paint=()=>{
-    el.querySelectorAll('.kseg').forEach(d=>{
+    el.querySelectorAll('.kseg,.gapc.wide').forEach(d=>{
       const fs=parseFloat(d.dataset.fs), fe=parseFloat(d.dataset.fe);
       if(isNaN(fs)||isNaN(fe)||fe<=fs) return;
       const w=d.offsetWidth; if(!w) return;
@@ -1812,12 +1825,19 @@ function qeFrame(el,its,bRaw,rd){
       const ov=document.createElement('div'); ov.className='gtrim'; el.appendChild(ov);
       const rawToX=t=>it.x+((t/rd-it.s)/(it.e-it.s))*it.w;
       const chip=f.querySelector('.fdur');
-      let pend=false,lastX=0;
+      let pend=false,lastX=0,snapped=false;
       const apply=()=>{
         pend=false;
         const r=el.getBoundingClientRect();
         const xf=(lastX-r.left)/r.width;
-        const t=(it.s+((xf-it.x)/it.w)*(it.e-it.s))*rd;
+        let t=(it.s+((xf-it.x)/it.w)*(it.e-it.s))*rd;
+        /* snap to the playhead stick (push through to release) */
+        const stickT=player.time;
+        if(stickT>orig.s+0.01&&stickT<orig.e-0.01){
+          const px=Math.abs(rawToX(t)-rawToX(stickT))*r.width;
+          if(px<9){ if(!snapped){ snapped=true; try{navigator.vibrate&&navigator.vibrate(8);}catch(e){} } t=stickT; }
+          else snapped=false;
+        }
         if(key==='s'){
           cur.s=Math.min(Math.max(t,orig.s),orig.e-0.05);
           const x0=rawToX(orig.s), xl=rawToX(cur.s);
@@ -2137,7 +2157,7 @@ function syncModeUI(){
   document.querySelectorAll('#modeTgl button,#vMode button').forEach(x=>x.classList.toggle('on',x.dataset.m===state.mode));
 }
 document.querySelectorAll('#modeTgl button,#vMode button').forEach(b=>{
-  b.onclick=()=>{ state.mode=b.dataset.m; syncModeUI(); renderStats(); };
+  b.onclick=()=>{ state.mode=b.dataset.m; state.qeGap=null; syncModeUI(); renderStats(); renderStrip(); };
 });
 $('scrub').addEventListener('input',function(){
   scrubbing=true;
