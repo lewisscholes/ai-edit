@@ -474,7 +474,7 @@ header.full .hwrap{max-width:none}
 .logooverlay{position:absolute;top:4%;right:5%;width:17%;pointer-events:none;border-radius:8px}
 .sidestack{display:none;position:absolute;right:10px;top:58px;z-index:30;flex-direction:column;gap:13px;align-items:center}
 .sic2{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;color:#fff}
-.sic2 .cir{width:40px;height:40px;border-radius:50%;background:rgba(10,12,18,.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:grid;place-items:center}
+.sic2 .cir{width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.94);color:#101319;box-shadow:0 3px 10px rgba(0,0,0,.35);display:grid;place-items:center}
 .sic2 small{font-size:8.5px;font-weight:800;color:#e6ebf4;text-shadow:0 1px 3px rgba(0,0,0,.8);letter-spacing:.03em}
 .sic2 .soon2{position:absolute;top:-3px;right:-2px;background:#f59e0b;color:#101319;font-size:6.5px;font-weight:800;padding:1.5px 4px;border-radius:6px}
 .cutflash{position:absolute;top:12px;right:12px;background:rgba(220,38,55,.92);color:#fff;font-size:10px;font-weight:800;letter-spacing:.06em;padding:4px 9px;border-radius:7px;opacity:0;transition:opacity .2s}
@@ -606,15 +606,18 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
   .backrail{position:absolute;top:10px;left:10px;z-index:35;width:38px;height:38px;border-radius:50%;background:rgba(10,12,18,.5);color:#fff;border:none;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:0;margin:0;display:grid;place-items:center;font-size:16px}
   .rail>.udwrap{position:absolute;top:10px;right:10px;z-index:35;margin:0!important;gap:6px}
   .rail>.udwrap .iconbtn{width:38px;height:38px;border-radius:50%;background:rgba(10,12,18,.5);color:#fff;border:none;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
-  /* toolbar sits under the play bar */
-  .rail{order:3;flex:none;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:none;border-bottom:1px solid var(--line);padding:7px 14px;gap:6px;align-items:center;background:var(--panel);zoom:.76}
+  /* toolbar sits BELOW the timeline (TikTok order) — fixed height so swapping
+     to Split/Delete never shifts the layout */
+  .rail{order:4;flex:none;height:62px;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:none;border-bottom:1px solid var(--line);padding:7px 14px;gap:6px;align-items:center;background:var(--panel);zoom:.76}
   .rail .rbtn.soon{display:none} /* Text/Image/Subs live on the video edge on mobile */
   .rail .rbtn{width:auto;min-width:58px;padding:6px 9px 5px;font-size:10.5px;gap:3px}
   .rail .rbtn .ric svg.ic{width:18px;height:18px}
   .railspace{flex:1;min-width:8px}
   .exportrail{width:auto;padding:9px 15px;flex-direction:row;gap:6px;font-size:12.5px;margin-right:2px}
-  /* editable timeline gets its own dedicated row below the toolbar */
-  .stripwrap{order:4;padding:6px 10px 8px;flex:none}
+  /* editable timeline sits right under the play bar, with thumb space below
+     so scrubbing doesn't catch the toolbar */
+  .stripwrap{order:3;padding:6px 10px 2px;flex:none}
+  .tlwrap{padding-bottom:16px} /* thumb space — still part of the scrub surface */
   .qestrip{height:58px}
   .cap{width:30px}
   .qehdr{min-height:26px;margin-bottom:4px}
@@ -1027,9 +1030,9 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
         <div class="cutflash" id="cutflash">CUT SKIPPED</div>
       </div>
       <div class="sidestack">
-        <button class="sic2" data-p="text"><span class="soon2">SOON</span><span class="cir"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M5.5 7V4.5h13V7M12 4.5V19.5M9 19.5h6"/></svg></span><small>Text</small></button>
-        <button class="sic2" data-p="image"><span class="soon2">SOON</span><span class="cir"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4.5 17l4.5-4.5 3.5 3.5 3-3 4 4"/></svg></span><small>Image</small></button>
-        <button class="sic2" data-p="subtitles"><span class="soon2">SOON</span><span class="cir"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M7 12.2h4M13.5 12.2h3.5M7 15.2h2.2M11.5 15.2h5.5"/></svg></span><small>Subs</small></button>
+        <button class="sic2" data-p="text"><span class="cir"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M5.5 7V4.5h13V7M12 4.5V19.5M9 19.5h6"/></svg></span><small>Text</small></button>
+        <button class="sic2" data-p="image"><span class="cir"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4.5 17l4.5-4.5 3.5 3.5 3-3 4 4"/></svg></span><small>Image</small></button>
+        <button class="sic2" data-p="subtitles"><span class="cir"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M7 12.2h4M13.5 12.2h3.5M7 15.2h2.2M11.5 15.2h5.5"/></svg></span><small>Subs</small></button>
       </div>
       <div class="transport">
         <button class="playbtn" id="playBtn">▶</button>
@@ -1645,8 +1648,11 @@ function qeSyncUI(bands){
   const s1=$('qeSelDur'); if(s1) s1.textContent=d;
   const s2=$('mSelDur'); if(s2) s2.textContent=d;
 }
-/* compact TikTok layout: kept bands proportional, cuts collapse to ✂ notches */
+/* compact TikTok layout: kept bands proportional, cuts collapse to ✂ notches.
+   Cached — paintTime runs every animation frame and must stay cheap. */
+let _qeLC=null;
 function qeLayout(){
+  if(_qeLC) return _qeLC;
   const rd=rawDur()||1;
   const wrap=$('qeWrap');
   const trackPx=Math.max(240,((wrap&&wrap.clientWidth)||600)*state.qeZoom);
@@ -1658,6 +1664,7 @@ function qeLayout(){
   const scale=(1-cuts.length*notch)/((1-totCut)||1);
   let pos=0;
   for(const it of seq){ it.x=pos; it.w=it.type==='cut'?notch:Math.max(0.004,(it.e-it.s)*scale); pos+=it.w; }
+  _qeLC=seq;
   return seq;
 }
 function qeFracToX(f){
@@ -1671,6 +1678,7 @@ function qeXToFrac(x){
 }
 function renderStrip(){
   const el=$('qeStrip'); if(!el) return;
+  _qeLC=null; /* state changed — recompute layout */
   const rd=rawDur()||1;
   const wrap=$('qeWrap'); const wrapW=(wrap&&wrap.clientWidth)||600;
   el.style.width=Math.round(wrapW*state.qeZoom)+'px';
@@ -1839,40 +1847,61 @@ function qeZoomSet(z){
    centre-locked) · tap = select · pinch (or ⌘/Ctrl+scroll) = zoom */
 (function(){
   const el=$('qeWrap'); if(!el) return;
-  const pts=new Map(); let pinchD=0,pinchZ=1;
-  let zoomPend=false,zoomVal=1;
-  const zoomTo=z=>{ zoomVal=z; if(zoomPend)return; zoomPend=true;
-    requestAnimationFrame(()=>{ zoomPend=false; qeZoomSet(zoomVal); }); };
+  const pts=new Map();
+  let pinch=null;           /* {d0,z0,fx} — fx = strip fraction under the stick, frozen */
   let bubT=null;
   function bubShow(){ const b=$('qeBub'); if(b&&_qeStrip){ b.classList.add('show'); clearTimeout(bubT); bubT=setTimeout(()=>b.classList.remove('show'),500); } }
+  function pinchApply(){
+    /* zoom the strip in place — width + scroll only, NO re-render, NO jumping */
+    const stp=$('qeStrip'); if(!stp) return;
+    const sw=Math.round(el.clientWidth*state.qeZoom);
+    stp.style.width=sw+'px';
+    el.scrollLeft=Math.round(pinch.fx*sw);
+  }
   el.onpointerdown=ev=>{
     if(ev.target.closest('.cap')) return;
     el.setPointerCapture(ev.pointerId);
     pts.set(ev.pointerId,ev.clientX);
-    if(pts.size===2){ const v=[...pts.values()]; pinchD=Math.abs(v[0]-v[1]); pinchZ=state.qeZoom; return; }
+    if(pts.size===2){
+      const v=[...pts.values()];
+      pinch={d0:Math.abs(v[0]-v[1]),z0:state.qeZoom,fx:qeFracToX(Math.min(1,player.time/(rawDur()||1)))};
+      window._qePanning=true;
+      return;
+    }
     const x0=ev.clientX, sl0=el.scrollLeft; let moved=false;
     window._qePanning=true;
     state.snippet=null; state.rtPreview=null;
-    el.onpointermove=mv=>{
-      pts.set(mv.pointerId,mv.clientX);
-      if(pts.size===2){ const v=[...pts.values()]; const d=Math.abs(v[0]-v[1]);
-        if(pinchD>10) zoomTo(pinchZ*d/pinchD);
-        return; }
-      const dx=mv.clientX-x0;
-      if(Math.abs(dx)>5) moved=true;
-      if(!moved) return;
+    let panPend=false,panX=x0;
+    const panApply=()=>{
+      panPend=false;
+      if(pinch) return;
+      const dx=panX-x0;
       const stp=$('qeStrip'); const sw=stp.offsetWidth||1;
       const sl=Math.min(sw,Math.max(0,sl0-dx));
       el.scrollLeft=sl;
       const t=qeXToFrac(sl/sw)*(rawDur()||1);
       player.time=t; bubShow(); paintTime(t);
     };
+    el.onpointermove=mv=>{
+      pts.set(mv.pointerId,mv.clientX);
+      if(pinch){
+        if(pts.size>=2){
+          const v=[...pts.values()]; const d=Math.abs(v[0]-v[1]);
+          if(pinch.d0>10){ state.qeZoom=Math.min(8,Math.max(1,pinch.z0*d/pinch.d0)); pinchApply(); }
+        }
+        return; /* once pinching, the rest of this gesture is zoom-only */
+      }
+      if(Math.abs(mv.clientX-x0)>5) moved=true;
+      if(!moved) return;
+      panX=mv.clientX;
+      if(!panPend){ panPend=true; requestAnimationFrame(panApply); }
+    };
     el.onpointerup=up=>{
       pts.delete(up.pointerId);
-      if(pts.size<2) pinchD=0;
-      if(pts.size>0) return;
+      if(pts.size>0) return;         /* wait for all fingers */
       el.onpointermove=null;
       window._qePanning=false;
+      if(pinch){ pinch=null; qeZoomSet(state.qeZoom); return; }  /* settle: one clean re-render */
       if(!moved){
         const t=document.elementFromPoint(up.clientX,up.clientY);
         const ks=t&&t.closest?t.closest('.kseg'):null;
@@ -1883,10 +1912,13 @@ function qeZoomSet(z){
     };
     el.onpointercancel=el.onpointerup;
   };
+  let whPend=false;
   el.addEventListener('wheel',ev=>{
     if(!ev.ctrlKey&&!ev.metaKey) return;
     ev.preventDefault();
-    zoomTo(state.qeZoom*(ev.deltaY<0?1.12:0.89));
+    state.qeZoom=Math.min(8,Math.max(1,state.qeZoom*(ev.deltaY<0?1.12:0.89)));
+    if(whPend) return; whPend=true;
+    requestAnimationFrame(()=>{ whPend=false; qeZoomSet(state.qeZoom); });
   },{passive:false});
   [['qeSplitBtn',qeSplit],['mSplitBtn',qeSplit],['qeDelBtn',qeDelete],['mDelBtn',qeDelete],['qeRestoreBtn',qeRestoreSel],['mRestoreBtn',qeRestoreSel]].forEach(([id,fn])=>{ const b=$(id); if(b) b.onclick=fn; });
   [['qeCloseBtn'],['mCloseBtn']].forEach(([id])=>{ const b=$(id); if(b) b.onclick=()=>{ state.qeGap=null; qeSelect(null); }; });
