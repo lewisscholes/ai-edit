@@ -517,7 +517,12 @@ input[type=range].vol{width:64px;flex:none}
 .qtool:hover{border-color:var(--blue);color:var(--blue-dk);background:var(--hovbg)}
 .qtool.del{color:var(--rose)}
 .qtool.del:hover{border-color:var(--rose);background:var(--rose-soft);color:var(--rose)}
-.tlzone{position:relative;margin:9px 0 4px}
+.tlzone{position:relative;margin:22px 0 4px}
+.qtick{position:absolute;top:-17px;transform:translateX(-50%);font-size:9.5px;font-weight:700;color:#7b8496;font-variant-numeric:tabular-nums;pointer-events:none}
+.vmode{display:none;position:absolute;top:10px;left:50%;transform:translateX(-50%);z-index:30;background:rgba(16,18,24,.45);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.18);border-radius:18px;padding:3px;gap:2px}
+.vmode button{padding:5px 14px;border-radius:15px;font-size:11.5px;font-weight:800;color:rgba(255,255,255,.75)}
+.vmode button.on{background:rgba(255,255,255,.92);color:#101319}
+.mactions{display:none}
 .tlwrap{overflow-x:scroll;overflow-y:hidden;scrollbar-width:none;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .tlwrap::-webkit-scrollbar{display:none}
 .qestrip{position:relative;height:56px}
@@ -601,23 +606,37 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
   .rcol{display:contents}
   .stagewrap{order:1;height:50vh;height:50dvh;min-height:0;flex:none;padding:8px;transition:height .35s ease}
   body.stagecompact .stagewrap{height:24vh;height:24dvh}
-  .sidestack{display:flex}
-  body.stagecompact .sidestack{display:none}
+  .vmode{display:flex} /* liquid-glass Source/Edited toggle on the video */
   .backrail{position:absolute;top:10px;left:10px;z-index:35;width:38px;height:38px;border-radius:50%;background:rgba(10,12,18,.5);color:#fff;border:none;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:0;margin:0;display:grid;place-items:center;font-size:16px}
   .rail>.udwrap{position:absolute;top:10px;right:10px;z-index:35;margin:0!important;gap:6px}
   .rail>.udwrap .iconbtn{width:38px;height:38px;border-radius:50%;background:rgba(10,12,18,.5);color:#fff;border:none;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
-  /* toolbar sits BELOW the timeline (TikTok order) — fixed height so swapping
-     to Split/Delete never shifts the layout */
-  .rail{order:4;flex:none;height:62px;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:none;border-bottom:1px solid var(--line);padding:7px 14px;gap:6px;align-items:center;background:var(--panel);zoom:.76}
-  .rail .rbtn.soon{display:none} /* Text/Image/Subs live on the video edge on mobile */
-  .rail .rbtn{width:auto;min-width:58px;padding:6px 9px 5px;font-size:10.5px;gap:3px}
-  .rail .rbtn .ric svg.ic{width:18px;height:18px}
-  .railspace{flex:1;min-width:8px}
-  .exportrail{width:auto;padding:9px 15px;flex-direction:row;gap:6px;font-size:12.5px;margin-right:2px}
+  /* toolbar: scrollable row of icon squares below the timeline — fixed height
+     so swapping to Split/Delete never shifts the layout */
+  .rail{order:4;flex:none;height:82px;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:none;border-bottom:none;padding:8px 12px;gap:8px;align-items:center;background:#0d0f14;zoom:1}
+  .rail::-webkit-scrollbar{display:none}
+  .rail .rbtn{flex:none;width:64px;min-width:64px;height:62px;padding:0;background:#171a21;border:1px solid #262a33;border-radius:14px;color:#cfd6e2;font-size:10px;gap:4px;justify-content:center}
+  .rail .rbtn.on{background:#1c2634;border-color:#2f5cb8;color:#8fb1ff}
+  .rail .rbtn .sbdg{display:none}
+  .rail .rbtn .ric svg.ic{width:19px;height:19px}
+  .railspace{display:none}
+  .rail .exportrail{display:none} /* Done + Queue live in the action row below */
+  .mctxbar .qtool{background:#171a21;border-color:#262a33;color:#fff}
+  .mctxbar .qtool.del{color:#ff7d9d}
+  .mctxbar .qtool.res{color:#3ad39c}
+  .mctxbar .qdur{color:#8a93a5}
+  .mctxbar .qx{border-color:#262a33;color:#8a93a5}
+  /* persistent Done + Queue pills */
+  .mactions{display:flex;order:5;gap:10px;background:#0d0f14;padding:2px 14px 12px;border-bottom:1px solid #1e222a}
+  .mact{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:16px;padding:13px 0;font-size:14.5px;font-weight:800}
+  .mact.done{background:#fff;color:#101319}
+  .mact.done.inq{background:var(--green-soft);color:var(--green)}
+  .mact.q{background:#171a21;color:#fff;border:1px solid #262a33}
   /* editable timeline sits right under the play bar, with thumb space below
      so scrubbing doesn't catch the toolbar */
-  .stripwrap{order:3;padding:6px 10px 2px;flex:none}
-  .tlwrap{padding-bottom:16px} /* thumb space — still part of the scrub surface */
+  .stripwrap{order:3;padding:0 10px 0;flex:none;background:#0d0f14;border:none}
+  #qeHdr{display:none} /* no header text on mobile — just the timeline */
+  .tlzone{margin:20px 0 0}
+  .tlwrap{padding-bottom:14px} /* thumb space — still part of the scrub surface */
   .qestrip{height:58px}
   .cap{width:30px}
   .qehdr{min-height:26px;margin-bottom:4px}
@@ -634,15 +653,19 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
   .mctxbar .qx{flex:none;width:32px;height:32px;border:1.5px solid var(--line);border-radius:10px;display:grid;place-items:center;color:var(--mut)}
   /* desktop-only ctx row hides on mobile (tools live in the toolbar here) */
   body.qesel #qeCtx{display:none}
-  /* player bar directly above the toolbar */
-  .transport{order:2;position:static;transform:none;width:100%;max-width:none;border-radius:0;box-shadow:none;background:var(--panel);border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:8px 14px;gap:9px;flex:none;zoom:.88}
+  /* player bar directly under the video — dark, minimal (mode toggle lives on the video now) */
+  .transport{order:2;position:static;transform:none;width:100%;max-width:none;border-radius:0;box-shadow:none;background:#0d0f14;border-top:none;border-bottom:none;padding:8px 14px;gap:9px;flex:none;zoom:.88;color:#fff}
+  .transport .modetgl{display:none}
+  .transport .ttot{color:#8a93a5}
+  .transport .tico{color:#cfd6e2}
+  .playbtn{background:#1a1d24}
   #vol,#muteBtn{display:none}
   .stage{box-shadow:0 4px 16px rgba(0,0,0,.22)} /* kill the heavy black glow bleeding onto the toolbar */
   .playbtn{width:32px;height:32px;font-size:12px}
   .modetgl button{padding:4px 10px;font-size:11.5px}
   .tico{font-size:14px;padding:2px}
   /* panel scrolls independently — scrolling it shrinks the video */
-  .spanel{order:5;flex:1;min-height:0;overflow-y:auto;border-right:none;padding:14px 16px}
+  .spanel{order:6;flex:1;min-height:0;overflow-y:auto;border-right:none;padding:14px 16px}
   /* glass nav */
   .glassnav{bottom:14px;padding:4px;max-width:calc(100vw - 20px)}
   .gbtn{padding:9px 13px;font-size:12px;gap:6px;white-space:nowrap}
@@ -928,7 +951,7 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
     <button class="rbtn" data-panel="transcript"><span class="ric"><svg class="ic" viewBox="0 0 24 24"><path d="M6 3.5h8l4 4v17H6z" transform="scale(1 .85)"/><path d="M14 3.5v3.5h4M9.5 11h5M9.5 14.2h5M9.5 7.8h1.8"/></svg></span>Script</button>
     <button class="rbtn soon" data-panel="text"><span class="sbdg">SOON</span><span class="ric"><svg class="ic" viewBox="0 0 24 24"><path d="M5.5 7V4.5h13V7M12 4.5V19.5M9 19.5h6"/></svg></span>Text</button>
     <button class="rbtn soon" data-panel="image"><span class="sbdg">SOON</span><span class="ric"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4.5 17l4.5-4.5 3.5 3.5 3-3 4 4"/></svg></span>Image</button>
-    <button class="rbtn soon" data-panel="subtitles"><span class="sbdg">SOON</span><span class="ric"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M7 12.2h4M13.5 12.2h3.5M7 15.2h2.2M11.5 15.2h5.5"/></svg></span>Subtitles</button>
+    <button class="rbtn soon" data-panel="subtitles"><span class="sbdg">SOON</span><span class="ric"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M7 12.2h4M13.5 12.2h3.5M7 15.2h2.2M11.5 15.2h5.5"/></svg></span>Captions</button>
     <div class="railspace"></div>
     <button class="exportrail approve hidden" id="approveBtn" title="Move this video to Ready to export"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Done</button>
     <button class="exportrail" id="exportBtn"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M12 4v10.5m0 0l-4-4m4 4l4-4M5 19.5h14"/></svg>Export</button>
@@ -1028,6 +1051,7 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
              src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 48'%3E%3Crect width='120' height='48' rx='10' fill='%231a6dff'/%3E%3Ctext x='60' y='31' font-family='Arial' font-size='17' font-weight='800' fill='white' text-anchor='middle'%3EBRAND%3C/text%3E%3C/svg%3E">
         <div class="caption" id="caption"></div>
         <div class="cutflash" id="cutflash">CUT SKIPPED</div>
+        <div class="vmode" id="vMode"><button data-m="original">Source</button><button data-m="edited" class="on">Edited</button></div>
       </div>
       <div class="sidestack">
         <button class="sic2" data-p="text"><span class="cir"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M5.5 7V4.5h13V7M12 4.5V19.5M9 19.5h6"/></svg></span><small>Text</small></button>
@@ -1069,6 +1093,12 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
         <div class="qestick" id="ph2"></div>
         <div class="qbub" id="qeBub"></div>
       </div>
+    </div>
+
+    <!-- mobile action row: Done + Queue always visible -->
+    <div class="mactions">
+      <button class="mact done" id="mDoneBtn"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Done</button>
+      <button class="mact q" id="mQueueBtn"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><rect x="3.5" y="4" width="5" height="16" rx="1.2"/><rect x="10" y="4" width="5" height="10" rx="1.2"/><rect x="16.5" y="4" width="5" height="13" rx="1.2"/></svg>Queue</button>
     </div>
 
     <!-- takes flow (collapsed by default — it mirrors the Retakes panel) -->
@@ -1709,6 +1739,14 @@ function renderStrip(){
       prevKeep=false;
     }
   });
+  /* subtle time labels above the strip (00:00 · 00:05 · …) */
+  const lstep=[1,2,5,10,15,30,60].find(s=>rd/s<=6*state.qeZoom)||60;
+  const fmt00=t=>('0'+Math.floor(t/60)).slice(-2)+':'+('0'+Math.floor(t%60)).slice(-2);
+  for(let t=0;t<rd;t+=lstep){
+    const l=document.createElement('span'); l.className='qtick';
+    l.style.left=(qeFracToX(t/rd)*100)+'%'; l.textContent=fmt00(t);
+    el.appendChild(l);
+  }
   qePaintThumbs(el);
   if(state.qeSel!==null&&bandsRaw[state.qeSel]) qeFrame(el,its,bandsRaw[state.qeSel],rd);
   qeSyncUI(bandsRaw);
@@ -2009,11 +2047,32 @@ function openPanel(p){
   ['retakes','cuts','transcript','text','image','subtitles'].forEach(k=>$('pn-'+k).classList.toggle('hidden',k!==p));
 }
 document.querySelectorAll('.rail .rbtn').forEach(b=>b.onclick=()=>{
+  if(window._lpSkip){ window._lpSkip=false; return; }   /* long-press already handled */
   const mobile=window.innerWidth<=760;
   if(!mobile&&$('viewEditor').classList.contains('pcol')){ setPanelCol(false); openPanel(b.dataset.panel); return; }
   if(!mobile&&state.panel===b.dataset.panel){ setPanelCol(true); return; }   /* click active tab again = tuck the panel away */
   openPanel(b.dataset.panel);
 });
+/* long-press Retakes = jump straight to clip tools on the section under the stick */
+(function(){
+  const rb=document.querySelector('.rail .rbtn[data-panel="retakes"]'); if(!rb) return;
+  let lpT=null;
+  rb.addEventListener('pointerdown',()=>{
+    clearTimeout(lpT);
+    lpT=setTimeout(()=>{
+      window._lpSkip=true;
+      const rd=rawDur()||1, f=Math.min(1,player.time/rd);
+      const hit=qeLayout().find(i=>i.type==='keep'&&f>=i.s&&f<=i.e);
+      if(hit) { qeSelect(hit.band); toast('Clip tools — Split, Delete, or trim with the handles'); }
+    },500);
+  });
+  ['pointerup','pointerleave','pointercancel'].forEach(e=>rb.addEventListener(e,()=>clearTimeout(lpT)));
+})();
+/* mobile Done + Queue pills proxy the real buttons */
+if($('mDoneBtn')){
+  $('mDoneBtn').onclick=()=>{ const a=$('approveBtn'); if(a.classList.contains('hidden')){ toast('Process a video first'); return; } a.click(); };
+  $('mQueueBtn').onclick=()=>$('exportBtn').click();
+}
 
 /* collapsible left panel (desktop) */
 function setPanelCol(c){ $('viewEditor').classList.toggle('pcol',c); try{localStorage.setItem('chopPanelCol',c?'1':'0');}catch(e){} }
@@ -2073,10 +2132,11 @@ document.addEventListener('keydown',e=>{
     e.preventDefault(); $('playBtn').click();
   }
 });
-document.querySelectorAll('#modeTgl button').forEach(b=>{
-  b.onclick=()=>{ state.mode=b.dataset.m;
-    document.querySelectorAll('#modeTgl button').forEach(x=>x.classList.toggle('on',x===b));
-    renderStats(); };
+function syncModeUI(){
+  document.querySelectorAll('#modeTgl button,#vMode button').forEach(x=>x.classList.toggle('on',x.dataset.m===state.mode));
+}
+document.querySelectorAll('#modeTgl button,#vMode button').forEach(b=>{
+  b.onclick=()=>{ state.mode=b.dataset.m; syncModeUI(); renderStats(); };
 });
 $('scrub').addEventListener('input',function(){
   scrubbing=true;
@@ -2487,7 +2547,7 @@ function loadEditor(isDemo,payload,opts){
     state.scale=1;
     $('vstLbl').textContent=isDemo?'DEMO FOOTAGE · 9:16':'VIDEO NOT ON THIS DEVICE — DROP THE FILE ON THE DASHBOARD TO RECONNECT';
   }
-  document.querySelectorAll('#modeTgl button').forEach(b=>b.classList.toggle('on',b.dataset.m==='edited'));
+  state.mode='edited'; syncModeUI();
   syncPlayUI(); syncSettingUI();
   const name=isDemo?'demo-footage.mp4':(state.file?state.file.name:(currentJobName||'video'));
   if(!state.edits.find(e=>e.name===name)){
@@ -2630,6 +2690,11 @@ function syncApproveBtn(){
   btn.classList.toggle('inq',done);
   btn.innerHTML='<svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'+(done?'Queued':'Done');
   btn.title=done?'In Ready to export — click to keep editing':'Move this video to Ready to export';
+  const md=$('mDoneBtn');
+  if(md){
+    md.classList.toggle('inq',done);
+    md.innerHTML='<svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'+(done?'Queued':'Done');
+  }
 }
 $('approveBtn').onclick=()=>{
   const j=state.realAnalysis&&currentJobName&&jobByName(currentJobName); if(!j) return;
