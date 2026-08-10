@@ -874,8 +874,6 @@ input[type=range].vol{width:64px;flex:none}
     <button class="pcolbtn" id="panelCol" title="Collapse panel"><svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M15 5l-7 7 7 7"/></svg></button>
     <!-- SUBTITLES -->
     <div id="pn-subtitles" class="hidden soonwrap"><div class="soonmask"><div class="sooncard"><b>Coming soon</b><small>We’re building this — it’ll land in a future update.</small></div></div>
-      <div class="sp-head"><h2>Subtitles</h2></div>
-      <p class="sp-sub">Word-timed captions, burned into the export.</p>
       <div class="swrow"><div class="grow"><b>Show subtitles</b><small>Preview live on the player</small></div><div class="tgl" id="tglSubs"></div></div>
       <div class="swrow"><div class="grow"><b>Position</b><small>Where captions sit on the video</small></div>
         <div class="modetgl" id="capPos"><button data-v="bottom" class="on">Bottom</button><button data-v="top">Top</button></div>
@@ -888,22 +886,16 @@ input[type=range].vol{width:64px;flex:none}
 
     <!-- TRANSCRIPT -->
     <div id="pn-transcript" class="hidden">
-      <div class="sp-head"><h2>Transcript</h2></div>
-      <p class="tr-hint">Struck-through text is being cut. Click anything to restore it — click kept text to cut it manually. Retakes open the picker.</p>
       <div class="tr-flow" id="trFlow"></div>
     </div>
 
     <!-- RETAKES -->
     <div id="pn-retakes" class="hidden">
-      <div class="sp-head"><h2>Retakes</h2></div>
-      <p class="tr-hint">Matched by transcript similarity. <b>Nothing is cut until you choose.</b> Preview both, keep the one you like.</p>
       <div id="rkList"></div>
     </div>
 
     <!-- CUTS (auto cuts + the settings that drive them) -->
     <div id="pn-cuts" class="hidden">
-      <div class="sp-head"><h2>Cuts</h2></div>
-      <p class="sp-sub">Dead air and fillers, removed automatically. Tune how hard it trims.</p>
       <div class="stat-mini"><span id="msOrig">1:28</span><span>→</span><span id="msEdit">1:04</span><span class="sv" id="msSaved">−27%</span></div>
       <div class="ctl">
         <div class="ctl-top"><b>Remove silences over</b><span class="val" id="vSil">0.50s</span></div>
@@ -933,8 +925,6 @@ input[type=range].vol{width:64px;flex:none}
 
     <!-- TEXT -->
     <div id="pn-text" class="hidden soonwrap"><div class="soonmask"><div class="sooncard"><b>Coming soon</b><small>We’re building this — it’ll land in a future update.</small></div></div>
-      <div class="sp-head"><h2>Text</h2></div>
-      <p class="sp-sub">Overlay a headline on the video.</p>
       <div class="swrow"><div class="grow"><b>Show headline</b><small>Displays across the whole video</small></div><div class="tgl" id="tglText"></div></div>
       <div class="ctl" style="margin-top:14px">
         <div class="ctl-top"><b>Headline</b></div>
@@ -944,8 +934,6 @@ input[type=range].vol{width:64px;flex:none}
 
     <!-- IMAGE -->
     <div id="pn-image" class="hidden soonwrap"><div class="soonmask"><div class="sooncard"><b>Coming soon</b><small>We’re building this — it’ll land in a future update.</small></div></div>
-      <div class="sp-head"><h2>Image</h2></div>
-      <p class="sp-sub">Stamp a logo or product image on the video.</p>
       <div class="swrow"><div class="grow"><b>Show logo</b><small>Top-right corner</small></div><div class="tgl" id="tglLogo"></div></div>
       <p class="tr-hint" style="margin-top:14px">In the full build you upload a PNG here — it's stamped on the export by the render worker, same as BatchBot's overlay studio.</p>
     </div>
