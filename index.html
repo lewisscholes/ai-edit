@@ -1729,7 +1729,7 @@ async function qeEnsureStrip(){
 function qePaintThumbs(el){
   qeEnsureStrip();
   if(!_qeStrip) return;
-  requestAnimationFrame(()=>{
+  const paint=()=>{
     el.querySelectorAll('.kseg').forEach(d=>{
       const fs=parseFloat(d.dataset.fs), fe=parseFloat(d.dataset.fe);
       if(isNaN(fs)||isNaN(fe)||fe<=fs) return;
@@ -1739,7 +1739,9 @@ function qePaintThumbs(el){
       d.style.backgroundSize=full+'px 100%';
       d.style.backgroundPosition=(-fs*full)+'px 0';
     });
-  });
+  };
+  paint();                       /* synchronous — layout is already flushed */
+  requestAnimationFrame(paint);  /* and once more after any pending reflow */
 }
 /* TikTok white frame with ‹ › trim caps — layout frozen while dragging */
 function qeFrame(el,its,bRaw,rd){
@@ -1750,7 +1752,7 @@ function qeFrame(el,its,bRaw,rd){
   f.style.width='calc('+(it.w*100)+'% + 44px)';
   f.innerHTML='<div class="cap l"><svg viewBox="0 0 24 24"><path d="M14.5 6L9 12l5.5 6"/></svg></div>'+
               '<div class="cap r"><svg viewBox="0 0 24 24"><path d="M9.5 6L15 12l-5.5 6"/></svg></div>'+
-              '<span class="fdur">'+fmt1(bRaw.e-bRaw.s)+'s</span>';
+              '<span class="fdur">'+fmt1(bRaw.e-bRaw.s)+'</span>';
   el.appendChild(f);
   [['l','s'],['r','e']].forEach(([cls,key])=>{
     const cap=f.querySelector('.cap.'+cls);
@@ -1779,7 +1781,7 @@ function qeFrame(el,its,bRaw,rd){
           ov.style.left=(xr*100)+'%'; ov.style.width=(Math.max(0,it.x+it.w-xr)*100)+'%';
           f.style.width='calc('+((xr-it.x)*100)+'% + 44px)';        /* left edge stays put */
         }
-        chip.textContent=fmt1(cur.e-cur.s)+'s';
+        chip.textContent=fmt1(cur.e-cur.s);
       };
       cap.onpointermove=mv=>{ lastX=mv.clientX; if(!pend){ pend=true; requestAnimationFrame(apply); } };
       cap.onpointerup=()=>{
