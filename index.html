@@ -1855,7 +1855,15 @@ async function startEdit(isDemo){
   }
   const picked=queue.splice(0,queue.length); renderQueue();
   picked.forEach(q=>{
-    if(jobByName(q.file.name)) return;
+    const existing=jobByName(q.file.name);
+    if(existing){
+      /* re-upload of a known video: re-attach the fresh file (fixes lost blobs) */
+      existing.file=q.file; existing.url=q.url; existing._hydrated=true;
+      if(q.thumb&&q.thumb!=='err') existing.thumb=q.thumb;
+      if(!existing.payload) existing.status='queued';
+      dbPutJob(existing);
+      return;
+    }
     batch.push({name:q.file.name,file:q.file,url:q.url,thumb:q.thumb,status:'queued',payload:null,choices:null,manuals:null,settings:null,pending:0,_hydrated:true});
   });
   updateQueueBadge();
@@ -1934,7 +1942,7 @@ function loadEditor(isDemo,payload,opts){
   }
   document.querySelectorAll('#modeTgl button').forEach(b=>b.classList.toggle('on',b.dataset.m==='edited'));
   syncPlayUI(); syncSettingUI();
-  const name=isDemo?'demo-footage.mp4':state.file.name;
+  const name=isDemo?'demo-footage.mp4':(state.file?state.file.name:(currentJobName||'video'));
   if(!state.edits.find(e=>e.name===name)){
     state.edits.unshift({name,grad:GRADS[state.edits.length%GRADS.length]});
     renderEditsGrid();
