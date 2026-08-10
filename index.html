@@ -1675,6 +1675,7 @@ async function materialize(q){
     q.ready=true;
     renderQueue();
     firstFrame(q);
+    measureWidth(q.url).then(w=>{ if(w>0&&w<1080) toast(q.file.name+' came in at '+w+'p wide — iOS compressed it during import. For full quality, upload via the Files app or film in “Most Compatible” format.'); });
   }catch(e){ q.err='import failed'; renderQueue(); toast(q.file.name+': couldn’t import from your library — try again'); }
 }
 async function firstFrame(q){
@@ -2104,8 +2105,7 @@ async function exportJob(j,btn){
   const wasCurrent=currentJobName; saveCurrentJob();
   applyJobToState(j); currentJobName=j.name;
   await hydrateJob(j);
-  if(!j.vw) j.vw=await measureWidth(j.url);
-  const args=renderArgs(j.vw>0&&j.vw<1080), file=j.file;
+  const args=renderArgs(), file=j.file;
   if(btn){ btn.disabled=true; btn.textContent='0%'; }
   _rendering=true;
   try{
@@ -2544,7 +2544,7 @@ async function getFFmpeg(onLog){
   _ffmpeg=ff;
   return ff;
 }
-function renderArgs(upscale){
+function renderArgs(){
   const st=state.settings;
   const kept=keptClips();
   const fade=Math.min(0.2,st.overlapMs/1000/2)||0.03;
@@ -2552,10 +2552,7 @@ function renderArgs(upscale){
     '[0:v]trim=start='+c.start.toFixed(3)+':end='+c.end.toFixed(3)+',setpts=PTS-STARTPTS[v'+i+'];'+
     '[0:a]atrim=start='+c.start.toFixed(3)+':end='+c.end.toFixed(3)+',asetpts=PTS-STARTPTS,afade=t=in:d='+fade.toFixed(3)+',afade=t=out:st='+Math.max(0,c.end-c.start-fade).toFixed(3)+':d='+fade.toFixed(3)+'[a'+i+'];').join('');
   const chain=kept.map((_,i)=>'[v'+i+'][a'+i+']').join('');
-  /* upscale to at least 1080 wide (TikTok minimum) when the source is smaller —
-     e.g. iOS compresses library videos during the web hand-off. Plain scale only:
-     expression filters hang the wasm build. */
-  const fc=parts+chain+'concat=n='+kept.length+':v=1:a=1'+(upscale?'[vc][a];[vc]scale=1080:-2:flags=lanczos[v]':'[v][a]');
+  const fc=parts+chain+'concat=n='+kept.length+':v=1:a=1[v][a]';
   return ['-i','input.mp4','-filter_complex',fc,'-map','[v]','-map','[a]',
           '-c:v','libx264','-preset','ultrafast','-crf','17','-c:a','aac','-b:a','192k',
           '-movflags','+faststart','output.mp4'];
@@ -2593,9 +2590,7 @@ $('renderBtn').onclick=async()=>{
       const buf=new Uint8Array(await state.file.arrayBuffer());
       await ff.writeFile('input.mp4',buf);
       lbl.textContent='Chopping your video…'; bar.style.width='10%';
-      let vw=$('vid').videoWidth||0;
-      if(!vw) vw=await measureWidth(state.fileUrl);
-      await ff.exec(renderArgs(vw>0&&vw<1080));
+      await ff.exec(renderArgs());
       const o=await ff.readFile('output.mp4');
       await ff.deleteFile('input.mp4').catch(()=>{}); await ff.deleteFile('output.mp4').catch(()=>{});
       return o;
