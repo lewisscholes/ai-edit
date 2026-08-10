@@ -1430,11 +1430,52 @@ function redo(){ if(!state.future.length) return; state.past.push(snap()); apply
 function updUndoUI(){ $('undoBtn').disabled=!state.past.length; $('redoBtn').disabled=!state.future.length; }
 
 /* ---------------- player ------------------------------------------- */
+/* ---------- gapless preview: double-buffered video -----------------
+   A hidden second <video> is pre-seeked to the start of the next kept
+   clip; at each cut we swap elements instead of seeking, so playback
+   never stalls on decode. Falls back to a plain seek if not ready. */
+let actV=null, sbyV=null;
+function gvActive(){ return actV||$('vid'); }
+function gvInit(){
+  if(!actV) actV=$('vid');
+  if(!sbyV){
+    try{
+      sbyV=document.createElement('video');
+      sbyV.id='vid2'; sbyV.playsInline=true; sbyV.setAttribute('playsinline','');
+      sbyV.preload='auto'; sbyV.muted=true; sbyV.style.opacity='0'; sbyV.style.pointerEvents='none';
+      $('stage').insertBefore(sbyV,$('vstage'));
+    }catch(e){ sbyV=null; }
+  }
+}
+function gvPreload(t){
+  if(!state.useRealVideo||!sbyV||!sbyV.src||sbyV===actV) return;
+  const nc=cutIntervals().find(c=>c.s>t+0.01);
+  if(!nc) return;
+  const target=(nc.e+0.005)*state.scale;
+  if(Math.abs((sbyV._target==null?-9:sbyV._target)-target)>0.05){
+    sbyV._target=target;
+    try{ sbyV.currentTime=target; }catch(e){}
+  }
+}
+function gvSwap(nt){
+  try{
+    if(!state.useRealVideo||!sbyV||!sbyV.src||!sbyV._unlocked) return false;
+    const tgt=nt*state.scale;
+    if(sbyV.readyState<2||Math.abs(sbyV.currentTime-tgt)>0.12) return false;
+    const a=gvActive(), b=sbyV;
+    b.volume=a.volume; b.muted=(+$('vol').value===0);
+    const pr=b.play(); if(pr) pr.catch(()=>{});
+    a.pause(); a.muted=true;
+    b.style.opacity='1'; a.style.opacity='0'; b.style.pointerEvents=''; a.style.pointerEvents='none';
+    sbyV=a; actV=b; sbyV._target=null;
+    return true;
+  }catch(e){ return false; }
+}
 const player = {
-  get time(){ return state.useRealVideo ? $('vid').currentTime/state.scale : state.vt; },
-  set time(t){ if(state.useRealVideo) $('vid').currentTime=t*state.scale; else state.vt=t; },
-  play(){ state.playing=true; if(state.useRealVideo) $('vid').play().catch(()=>{}); syncPlayUI(); },
-  pause(){ state.playing=false; if(state.useRealVideo) $('vid').pause(); syncPlayUI(); }
+  get time(){ return state.useRealVideo ? gvActive().currentTime/state.scale : state.vt; },
+  set time(t){ if(state.useRealVideo) gvActive().currentTime=t*state.scale; else state.vt=t; },
+  play(){ state.playing=true; if(state.useRealVideo) gvActive().play().catch(()=>{}); syncPlayUI(); },
+  pause(){ state.playing=false; if(state.useRealVideo){ gvActive().pause(); if(sbyV&&sbyV!==actV) sbyV.pause(); } syncPlayUI(); }
 };
 function syncPlayUI(){
   $('playBtn').textContent=state.playing?'❚❚':'▶';
@@ -1447,10 +1488,11 @@ function loop(ts){
   const dt=lastTs===null?0:Math.min(0.1,(ts-lastTs)/1000); lastTs=ts;
   if(!state.useRealVideo&&state.playing) state.vt=Math.min(rawDur(),state.vt+dt);
   let t=player.time;
+  if(state.playing&&state.useRealVideo) gvPreload(t);   /* keep the standby video parked at the next clip */
   if(state.snippet){
     if(state.snippet.ctx){ /* skip cuts mid-preview so the splice is audible */
       const iv=cutAt(t);
-      if(iv&&iv.e<state.snippet.end){ player.time=iv.e+0.005; t=iv.e+0.005; flashCut(); }
+      if(iv&&iv.e<state.snippet.end){ const nt=iv.e+0.005; if(!gvSwap(nt)) player.time=nt; t=nt; flashCut(); }
     }
     if(t>=state.snippet.end){ player.pause(); state.snippet=null; state.rtPreview=null; syncPrevBtns(); }
   }
@@ -1458,7 +1500,7 @@ function loop(ts){
     const iv=cutAt(t);
     if(iv){
       const nt=iv.e+0.005;
-      if(nt<rawDur()-0.02){ player.time=nt; t=nt; flashCut(); }
+      if(nt<rawDur()-0.02){ if(!gvSwap(nt)) player.time=nt; t=nt; flashCut(); }
       else { player.pause(); }
     }
   }
@@ -2170,6 +2212,16 @@ $('tglLogo').onclick=function(){ state.showLogo=!state.showLogo; this.classList.
 
 /* ---------------- transport ---------------------------------------- */
 $('playBtn').onclick=()=>{
+  /* iOS: unlock the standby video for audible programmatic playback while we
+     still have the user gesture (one-time per load) */
+  if(sbyV&&sbyV.src&&!sbyV._unlocked){
+    try{
+      sbyV.muted=false; sbyV.volume=0;
+      const pr=sbyV.play();
+      if(pr) pr.then(()=>{ sbyV.pause(); sbyV.volume=1; sbyV.muted=true; sbyV._unlocked=true; }).catch(()=>{ sbyV.muted=true; sbyV.volume=1; sbyV._unlocked=true; });
+      else { sbyV.pause(); sbyV.volume=1; sbyV.muted=true; sbyV._unlocked=true; }
+    }catch(e){ try{sbyV.muted=true;sbyV.volume=1;}catch(e2){} sbyV._unlocked=true; }
+  }
   if(state.playing&&state.snippet){ state.snippet=null; state.rtPreview=null; syncPrevBtns(); }
   state.snippet=null;
   if(state.playing) player.pause();
@@ -2197,7 +2249,7 @@ $('scrub').addEventListener('input',function(){
   state.snippet=null; player.time=Math.max(0,Math.min(rawDur()-0.05,t)); paintTime(player.time);
 });
 $('scrub').addEventListener('change',()=>{ scrubbing=false; });
-$('vol').oninput=function(){ if(state.useRealVideo) $('vid').volume=+this.value;
+$('vol').oninput=function(){ if(state.useRealVideo){ gvActive().volume=+this.value; gvActive().muted=+this.value===0; }
   $('muteBtn').innerHTML=+this.value===0
     ?'<svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5"/></svg>'
     :'<svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.8a7.6 7.6 0 0 1 0 10.4"/></svg>'; };
@@ -2622,12 +2674,24 @@ function loadEditor(isDemo,payload,opts){
   state.manualCuts=[]; state.splits=[]; state.qeSel=null; state.qeGap=null; state.qeZoom=1.5;
   state.useRealVideo=!isDemo&&!!state.fileUrl;
   const vid=$('vid');
+  /* reset gapless roles: main element active + visible, standby hidden */
+  if(actV&&actV!==vid){ try{actV.pause();}catch(e){} }
+  actV=vid; vid.style.opacity=''; vid.style.pointerEvents=''; vid.muted=false;
   if(state.useRealVideo){
     if(/^https?:/.test(state.fileUrl)) vid.crossOrigin='anonymous'; else vid.removeAttribute('crossorigin');
     vid.src=state.fileUrl; vid.classList.remove('hidden'); $('vstage').classList.add('hidden');
+    gvInit();
+    if(sbyV){
+      try{
+        if(/^https?:/.test(state.fileUrl)) sbyV.crossOrigin='anonymous'; else sbyV.removeAttribute('crossorigin');
+        sbyV.muted=true; sbyV.style.opacity='0'; sbyV.style.pointerEvents='none'; sbyV._target=null; sbyV._unlocked=false;
+        sbyV.src=state.fileUrl;
+      }catch(e){}
+    }
     state.scale=1;
     vid.onloadedmetadata=()=>{ state.scale=state.realAnalysis?1:(vid.duration/DEMO_DUR||1); };
   } else {
+    if(sbyV){ try{ sbyV.pause(); sbyV.removeAttribute('src'); sbyV.style.opacity='0'; }catch(e){} }
     vid.removeAttribute('src'); vid.classList.add('hidden'); $('vstage').classList.remove('hidden');
     state.scale=1;
     $('vstLbl').textContent=isDemo?'DEMO FOOTAGE · 9:16':'VIDEO NOT ON THIS DEVICE — DROP THE FILE ON THE DASHBOARD TO RECONNECT';
