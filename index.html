@@ -376,6 +376,11 @@ header.full .hwrap{max-width:none}
 .exportrail:hover{background:var(--blue-dk)}
 /* --- settings panel --- */
 .spanel{background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;padding:20px 22px}
+#viewEditor.pcol{grid-template-columns:86px 0 1fr}
+#viewEditor.pcol .spanel{display:none}
+.pcolbtn{position:sticky;top:0;float:right;z-index:5;width:26px;height:26px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--mut);display:grid;place-items:center;margin:-6px -8px 0 8px;cursor:pointer}
+.pcolbtn:hover{background:var(--hovbg);color:var(--ink)}
+.exportrail.inq{background:var(--green-soft);color:var(--green);box-shadow:none}
 .sp-head{display:flex;align-items:flex-start;gap:8px;margin-bottom:4px}
 .sp-head h2{font-size:19px;margin:0;flex:1}
 .iconbtn{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;font-size:15px;color:var(--mut);border:1px solid transparent}
@@ -495,7 +500,14 @@ input[type=range].vol{width:64px;flex:none}
 .strip .ph2{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--ink);pointer-events:none;z-index:5}
 .strip .ph2::before{content:"";position:absolute;top:-2px;left:-4px;border:5px solid transparent;border-top-color:var(--ink)}
 /* takes flow */
-.flowwrap{flex:none;height:158px;background:#f3f6fa;background-image:radial-gradient(#cfd8e6 1px,transparent 1px);background-size:16px 16px;border-top:1px solid var(--line);overflow-x:auto;overflow-y:hidden;padding:20px 24px}
+.flowbar{flex:none;display:flex;align-items:center;gap:8px;background:var(--panel);border-top:1px solid var(--line);padding:7px 18px;font-size:12px;font-weight:700;color:var(--mut);cursor:pointer;user-select:none}
+.flowbar:hover{color:var(--ink)}
+.flowbar .chev{width:12px;height:12px;transition:transform .25s}
+.flowbar.open .chev{transform:rotate(90deg)}
+.flowbar .cnt{background:var(--blue-soft);color:var(--blue-dk);font-size:10.5px;font-weight:800;padding:1px 8px;border-radius:9px}
+.flowbar .hint{margin-left:auto;font-weight:600;font-size:11px;opacity:.8}
+.flowwrap{flex:none;height:0;background:#f3f6fa;background-image:radial-gradient(#cfd8e6 1px,transparent 1px);background-size:16px 16px;overflow:hidden;padding:0 24px;transition:height .3s ease,padding .3s ease}
+.flowwrap.open{height:158px;border-top:1px solid var(--line);overflow-x:auto;overflow-y:hidden;padding:20px 24px}
 .flowline{position:relative;display:flex;gap:26px;align-items:flex-start;min-width:max-content;padding:0 6px}
 .flowline::before{content:"";position:absolute;top:84px;left:0;right:0;height:2.5px;background:var(--blue);opacity:.55}
 .fcard{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:10px 13px;width:214px;flex:none;box-shadow:0 3px 10px rgba(16,19,25,.06)}
@@ -554,6 +566,9 @@ input[type=range].vol{width:64px;flex:none}
   .clipcard .cnum{width:14px;height:14px;font-size:8.5px;top:3px;left:4px}
   .clipcard .ctxt{display:none}
   .flowwrap{display:none}
+  .flowbar{display:none}
+  .pcolbtn{display:none}
+  #viewEditor.pcol .spanel{display:block} /* panel collapse is desktop-only */
   /* player bar third — a solid strip (no volume slider on phones) */
   .transport{order:4;position:static;transform:none;width:100%;max-width:none;border-radius:0;box-shadow:none;background:var(--panel);border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:8px 14px;gap:9px;flex:none}
   #vol,#muteBtn{display:none}
@@ -850,11 +865,13 @@ input[type=range].vol{width:64px;flex:none}
     <button class="rbtn soon" data-panel="image"><span class="sbdg">SOON</span><span class="ric"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4.5 17l4.5-4.5 3.5 3.5 3-3 4 4"/></svg></span>Image</button>
     <button class="rbtn soon" data-panel="subtitles"><span class="sbdg">SOON</span><span class="ric"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M7 12.2h4M13.5 12.2h3.5M7 15.2h2.2M11.5 15.2h5.5"/></svg></span>Subtitles</button>
     <div class="railspace"></div>
+    <button class="exportrail approve hidden" id="approveBtn" title="Move this video to Ready to export"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>Done</button>
     <button class="exportrail" id="exportBtn"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M12 4v10.5m0 0l-4-4m4 4l4-4M5 19.5h14"/></svg>Export</button>
   </div>
 
   <!-- settings panel -->
   <div class="spanel">
+    <button class="pcolbtn" id="panelCol" title="Collapse panel"><svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M15 5l-7 7 7 7"/></svg></button>
     <!-- SUBTITLES -->
     <div id="pn-subtitles" class="hidden soonwrap"><div class="soonmask"><div class="sooncard"><b>Coming soon</b><small>We’re building this — it’ll land in a future update.</small></div></div>
       <div class="sp-head"><h2>Subtitles</h2></div>
@@ -972,8 +989,9 @@ input[type=range].vol{width:64px;flex:none}
       <div class="strip" id="strip"><div class="ph2" id="ph2" style="left:0%"></div></div>
     </div>
 
-    <!-- takes flow -->
-    <div class="flowwrap"><div class="flowline" id="flowline"></div></div>
+    <!-- takes flow (collapsed by default — it mirrors the Retakes panel) -->
+    <div class="flowbar" id="flowBar"><svg class="ic chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>Takes<span class="cnt" id="flowCnt">–</span><span class="hint">same takes as the left panel — open for the flow view</span></div>
+    <div class="flowwrap" id="flowWrap"><div class="flowline" id="flowline"></div></div>
   </div>
 </div>
 
@@ -1389,7 +1407,7 @@ function renderRetakes(){
       prev.onclick=()=>previewRange(seg.start,seg.end,'rk'+idx+key,idx,key);
       const keep=document.createElement('button'); keep.className='keep';
       keep.textContent=p.choice===key?'✓ Keeping this':'Keep this take';
-      keep.onclick=()=>{ pushHist(); p.choice=key; clearRtManuals(idx); renderAll(); if(pendingPairs()===0) toast('All retakes reviewed — ready to export'); };
+      keep.onclick=()=>{ pushHist(); p.choice=key; clearRtManuals(idx); renderAll(); if(pendingPairs()===0) toast('All retakes reviewed — hit the green Done button when you’re happy'); };
       btns.appendChild(prev); btns.appendChild(keep);
       tk.appendChild(top); tk.appendChild(txt); tk.appendChild(btns);
       card.appendChild(tk);
@@ -1542,7 +1560,7 @@ function renderFlow(){
         ch.className='takechip'+(on?' sel':'')+(off?' off':'');
         ch.innerHTML='<span>'+label+'</span><span class="tdur">'+fmt1(seg.end-seg.start)+'</span>';
         ch.title='Click to keep this take · double-click to preview';
-        ch.onclick=()=>{ pushHist(); p.choice=key; clearRtManuals(s.pair); renderAll(); if(pendingPairs()===0) toast('All retakes reviewed'); };
+        ch.onclick=()=>{ pushHist(); p.choice=key; clearRtManuals(s.pair); renderAll(); if(pendingPairs()===0) toast('All retakes reviewed — hit Done when you’re happy'); };
         ch.ondblclick=()=>previewRange(seg.start,seg.end);
         card.appendChild(ch);
       });
@@ -1564,6 +1582,8 @@ function renderFlow(){
       el.appendChild(card);
     }
   }
+  const fc=$('flowCnt');
+  if(fc) fc.textContent=state.pairs.length+' retake'+(state.pairs.length===1?'':'s')+' · '+n+' line'+(n===1?'':'s');
 }
 
 function renderOverlays(){
@@ -1596,7 +1616,25 @@ function openPanel(p){
   document.querySelectorAll('.rail .rbtn').forEach(b=>b.classList.toggle('on',b.dataset.panel===p));
   ['retakes','cuts','transcript','text','image','subtitles'].forEach(k=>$('pn-'+k).classList.toggle('hidden',k!==p));
 }
-document.querySelectorAll('.rail .rbtn').forEach(b=>b.onclick=()=>openPanel(b.dataset.panel));
+document.querySelectorAll('.rail .rbtn').forEach(b=>b.onclick=()=>{
+  const mobile=window.innerWidth<=760;
+  if(!mobile&&$('viewEditor').classList.contains('pcol')){ setPanelCol(false); openPanel(b.dataset.panel); return; }
+  if(!mobile&&state.panel===b.dataset.panel){ setPanelCol(true); return; }   /* click active tab again = tuck the panel away */
+  openPanel(b.dataset.panel);
+});
+
+/* collapsible left panel (desktop) */
+function setPanelCol(c){ $('viewEditor').classList.toggle('pcol',c); try{localStorage.setItem('chopPanelCol',c?'1':'0');}catch(e){} }
+$('panelCol').onclick=()=>setPanelCol(true);
+try{ if(localStorage.getItem('chopPanelCol')==='1') setPanelCol(true); }catch(e){}
+
+/* collapsible takes flow — collapsed by default */
+$('flowBar').onclick=()=>{
+  const o=$('flowWrap').classList.toggle('open');
+  $('flowBar').classList.toggle('open',o);
+  try{localStorage.setItem('chopFlowOpen',o?'1':'0');}catch(e){}
+};
+try{ if(localStorage.getItem('chopFlowOpen')==='1'){ $('flowWrap').classList.add('open'); $('flowBar').classList.add('open'); } }catch(e){}
 
 /* ---------------- settings wiring ---------------------------------- */
 function syncSettingUI(){
@@ -1899,9 +1937,9 @@ function saveCurrentJob(){
   j.manuals=state.segments.map(s=>s.manual);
   j.settings={...state.settings};
   j.rawSec=rawDur(); j.editedSec=editedDur(); j.pending=pendingPairs();
-  /* once a reviewed video has every retake decided, it's ready to export */
-  if(j.status==='review'&&j.pending===0) j.status='approved';
-  else if(j.status==='approved'&&j.pending>0) j.status='review';
+  /* moving to Ready to export is now a manual step (green Done button) —
+     but undoing a retake decision always pulls the video back to review */
+  if(j.status==='approved'&&j.pending>0) j.status='review';
   dbPutJob(j);
 }
 async function hydrateJob(j){
@@ -2085,7 +2123,30 @@ function syncExportBtn(){
   btn.innerHTML=queueMode
     ?'<svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><rect x="3.5" y="4" width="5" height="16" rx="1.2"/><rect x="10" y="4" width="5" height="10" rx="1.2"/><rect x="16.5" y="4" width="5" height="13" rx="1.2"/></svg>Queue'
     :'<svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M12 4v10.5m0 0l-4-4m4 4l4-4M5 19.5h14"/></svg>Export';
+  syncApproveBtn();
 }
+function syncApproveBtn(){
+  const btn=$('approveBtn'); if(!btn) return;
+  const j=state.realAnalysis&&currentJobName&&jobByName(currentJobName);
+  if(!j||(j.status!=='review'&&j.status!=='approved')){ btn.classList.add('hidden'); return; }
+  btn.classList.remove('hidden');
+  const done=j.status==='approved';
+  btn.classList.toggle('inq',done);
+  btn.innerHTML='<svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'+(done?'Queued':'Done');
+  btn.title=done?'In Ready to export — click to keep editing':'Move this video to Ready to export';
+}
+$('approveBtn').onclick=()=>{
+  const j=state.realAnalysis&&currentJobName&&jobByName(currentJobName); if(!j) return;
+  if(j.status==='approved'){
+    j.status='review'; dbPutJob(j); toast('Back in review — keep editing');
+  }else{
+    const pend=pendingPairs();
+    if(pend>0){ openPanel('retakes'); toast(pend+' retake'+(pend>1?'s':'')+' still need a decision'); highlightPair(state.pairs.findIndex(p=>p.choice===null)); return; }
+    saveCurrentJob(); j.status='approved'; dbPutJob(j);
+    toast('Moved to Ready to export ✓');
+  }
+  updateQueueBadge(); renderKanban(); syncApproveBtn();
+};
 function kanbanCard(j){
   const d=document.createElement('div'); d.className='vcard';
   const th=document.createElement('div'); th.className='vthumb';
@@ -2141,7 +2202,7 @@ function renderKanban(){
   };
   fill($('colProc'),cols.proc,'Nothing processing — drop more videos on the dashboard');
   fill($('colRev'),cols.rev,'Nothing waiting for review');
-  fill($('colExp'),cols.exp,'Decide all retakes on a video to queue it here');
+  fill($('colExp'),cols.exp,'Press the green Done button in the editor to move a video here');
   fill($('colDone'),cols.done,'Exported videos land here so you never download twice');
   $('cntProc').textContent=cols.proc.length;
   $('cntRev').textContent=cols.rev.filter(j=>j.status==='review').length;
@@ -2590,7 +2651,7 @@ function ffmpegCmd(){
 $('exportBtn').onclick=()=>{
   if(batchMode()&&state.realAnalysis){
     /* bulk mode: bottom-left button opens the review queue.
-       A video moves to Ready to Export once its retakes are all decided. */
+       Videos move to Ready to Export only via the green Done button. */
     const pend=pendingPairs();
     openKanban();
     if(pend>0) toast(pend+' retake'+(pend>1?'s':'')+' on this video still need a decision');
