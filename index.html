@@ -1213,15 +1213,30 @@ async function extractViaWebAudio(file){
   for(let i=0;i<mono.length;i++){ const s=Math.max(-1,Math.min(1,mono[i])); pcm.setInt16(44+i*2,s<0?s*0x8000:s*0x7FFF,true); }
   return new Blob([pcm.buffer],{type:'audio/wav'});
 }
+/* remote error log — lets us see what went wrong on any device */
+function logErr(msg,ctx){
+  try{
+    if(sb&&authUser) sb.from('chop_client_logs').insert({user_id:authUser.id,msg:String(msg).slice(0,600),ctx:String(ctx||'').slice(0,200),ua:navigator.userAgent.slice(0,180)}).then(()=>{},()=>{});
+  }catch(e){}
+}
+window.addEventListener('error',e=>logErr(e.message+' @'+(e.filename||'').split('/').pop()+':'+e.lineno,'window.onerror'));
+window.addEventListener('unhandledrejection',e=>logErr((e.reason&&e.reason.message)||String(e.reason),'unhandledrejection'));
+
 const PIPELINE = {
   async upload(file){
     let blob=file, name=file.name;
     try{ const a=await extractAudio(file); blob=a.blob; name=name.replace(/\.[^.]+$/,'')+a.ext; }
-    catch(e){ /* last resort: upload the full video */ }
-    const p=await api({action:'presign',filename:name});
-    const put=await fetch(p.uploadUrl,{method:'PUT',body:blob});
-    if(!put.ok) throw new Error('Upload failed ('+put.status+')');
-    return p.key;
+    catch(e){ logErr((e&&e.message)||'audio extract failed','extractAudio:'+file.name); /* last resort: upload the full video */ }
+    let lastErr=null;
+    for(let att=0;att<2;att++){
+      try{
+        const p=await api({action:'presign',filename:name});
+        const put=await fetch(p.uploadUrl,{method:'PUT',body:blob});
+        if(!put.ok) throw new Error('Upload failed ('+put.status+')');
+        return p.key;
+      }catch(e){ lastErr=e; logErr((e&&e.message)||'upload failed','pipeline.upload attempt '+(att+1)+' '+name); await wait(1500); }
+    }
+    throw lastErr||new Error('Upload failed');
   },
   async transcribe(key){
     const p=await api({action:'process',key});
@@ -2326,6 +2341,7 @@ async function vidPump(){
     dbPutJob(j); renderKanban();
     toast(j.name+' synced — now watchable on your other devices ✓');
   }catch(e){
+    logErr((e&&e.message)||'sync upload failed','vidPump:'+j.name+' try'+((j._vidTries||0)+1));
     j.syncPct=null;
     j._vidTries=(j._vidTries||0)+1;
     if(j._vidTries<4){ setTimeout(()=>{ j._vidQd=0; cloudUploadVideo(j); },15000); }  /* auto-retry */
@@ -2473,7 +2489,7 @@ async function processJobBg(j){
     const jobId=await PIPELINE.transcribe(key);
     j.payload=await PIPELINE.analyze(jobId);
     j.status='review'; jobStats(j); registerJob(j); dbPutJob(j); cloudUploadVideo(j);
-  }catch(e){ j.status='error'; j.err=(e&&e.message)||'failed'; toast(j.name+': '+j.err); }
+  }catch(e){ j.status='error'; j.err=(e&&e.message)||'failed'; toast(j.name+': '+j.err); logErr(j.err,'processJobBg:'+j.name); }
   renderKanban(); updateQueueBadge();
 }
 async function runBatch(){
@@ -2515,7 +2531,7 @@ async function startEdit(isDemo){
   try{
     first.payload=await runPipelineOnce('Editing '+first.name+(batch.filter(b=>b.status==='queued').length?' (more processing in background)…':'…'),false,first.file);
     first.status='review'; jobStats(first); registerJob(first); dbPutJob(first); cloudUploadVideo(first);
-  }catch(e){ first.status='error'; first.err=(e&&e.message)||'failed'; toast(first.name+': '+first.err); showView('home'); runBatch(); return; }
+  }catch(e){ first.status='error'; first.err=(e&&e.message)||'failed'; toast(first.name+': '+first.err); logErr(first.err,'runBatch:'+first.name); showView('home'); runBatch(); return; }
   openJob(first);
   runBatch();
 }
