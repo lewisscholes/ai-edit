@@ -2127,11 +2127,30 @@ function applyJobToState(j){
 }
 async function exportJob(j,btn){
   if(!j.file){ toast(j.name+': the video file isn’t stored on this device — re-upload it, then export'); return; }
-  if(j.file.size>1400*1024*1024){ toast(j.name+' is too large for in-browser export (engine limit ~1.4 GB). Tip: film in 1080p instead of 4K — or the server renderer, coming soon, will handle it.'); return; }
+
   if(_rendering){ toast('Another export is already running — one at a time'); return; }
   const wasCurrent=currentJobName; saveCurrentJob();
   applyJobToState(j); currentJobName=j.name;
   await hydrateJob(j);
+  if(!j.vw) j.vw=await measureWidth(j.url);
+  const needServer=(j.file.size>1400*1024*1024)||(j.vw>0&&j.vw!==1080);
+  if(needServer){
+    if(_rendering){ toast('Another export is already running — one at a time'); return; }
+    _rendering=true;
+    const wasCur=currentJobName; saveCurrentJob(); applyJobToState(j); currentJobName=j.name;
+    const kept=keptClips().map(c=>({s:+c.start.toFixed(3),e:+c.end.toFixed(3)}));
+    const fade=Math.min(0.2,state.settings.overlapMs/1000/2)||0.03;
+    try{
+      await serverRender(j.file,j.name,kept,fade,t=>{ if(btn) btn.textContent=t; });
+      j.status='exported'; dbPutJob(j);
+      toast(j.name+' exported in 1080p');
+    }catch(e){ toast(j.name+': '+((e&&e.message)||'HD render failed — try again')); if(btn){btn.disabled=false;btn.textContent='Export';} }
+    _rendering=false;
+    const back=wasCur&&jobByName(wasCur);
+    if(back&&back.payload){ applyJobToState(back); currentJobName=back.name; }
+    renderKanban(); updateQueueBadge();
+    return;
+  }
   const args=renderArgs(), file=j.file;
   if(btn){ btn.disabled=true; btn.textContent='0%'; }
   _rendering=true;
@@ -2599,15 +2618,48 @@ async function measureWidth(url){
     setTimeout(()=>done(v.videoWidth),4000);
   });
 }
+const RENDER_URL='https://lewisscholes--chop-render-api.modal.run/render';
+const RENDER_KEY='chop-render-x7k2m9';
+async function serverRender(file,name,keptList,fade,progress){
+  progress&&progress('Uploading…');
+  const p=await api({action:'presign',filename:name});
+  const put=await fetch(p.uploadUrl,{method:'PUT',body:file});
+  if(!put.ok) throw new Error('upload failed ('+put.status+')');
+  const g=await api({action:'presign_get',key:p.key});
+  progress&&progress('Rendering in 1080p…');
+  const res=await fetch(RENDER_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:RENDER_KEY,url:g.url,kept:keptList,fade})});
+  if(!res.ok) throw new Error('HD render failed: '+(await res.text()).slice(0,120));
+  const blob=await res.blob();
+  if(!blob.size) throw new Error('empty render');
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=name.replace(/\.[^.]+$/,'')+'-chopped.mp4'; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),30000);
+}
 let _rendering=false;
 $('renderBtn').onclick=async()=>{
   if(_rendering) return;
   if(!state.file){ toast('Demo footage can’t be rendered — drop a real video first'); return; }
-  if(state.file.size>1400*1024*1024){ toast('Files over ~1.4 GB can’t be rendered in-browser (engine limit). Film in 1080p, or wait for the server renderer.'); return; }
+
   _rendering=true;
   const bar=$('renderBar'), lbl=$('renderLbl'), btn=$('renderBtn');
   $('renderProg').classList.remove('hidden');
   btn.disabled=true; btn.textContent='Chopping…';
+  /* 4K / non-1080 sources render on the server → always 1080p out */
+  let srcW=$('vid').videoWidth||0;
+  if(!srcW) srcW=await measureWidth(state.fileUrl);
+  if((state.file.size>1400*1024*1024)||(srcW>0&&srcW!==1080)){
+    try{
+      const kept=keptClips().map(c=>({s:+c.start.toFixed(3),e:+c.end.toFixed(3)}));
+      const fade=Math.min(0.2,state.settings.overlapMs/1000/2)||0.03;
+      bar.style.width='20%';
+      await serverRender(state.file,state.file.name,kept,fade,t=>{ lbl.textContent=t; bar.style.width=t.indexOf('Render')===0?'60%':'25%'; });
+      bar.style.width='100%'; lbl.textContent='Done — 1080p video in your downloads folder.';
+      toast('Chopped video downloaded in 1080p');
+    }catch(e){ lbl.textContent=(e&&e.message)||'HD render failed — try again'; toast('That didn’t work — try again'); }
+    _rendering=false; btn.disabled=false; btn.textContent='Download chopped video';
+    return;
+  }
   try{
     lbl.textContent='Warming up (first time takes a moment)…'; bar.style.width='4%';
     const out=await withFFmpeg(async()=>{
