@@ -612,28 +612,28 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
   .rail>.udwrap .iconbtn{width:38px;height:38px;border-radius:50%;background:rgba(10,12,18,.5);color:#fff;border:none;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
   /* toolbar: scrollable row of icon squares below the timeline — fixed height
      so swapping to Split/Delete never shifts the layout */
-  .rail{order:4;flex:none;height:82px;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:none;border-bottom:none;padding:8px 12px;gap:8px;align-items:center;background:#0d0f14;zoom:1}
+  .rail{order:4;flex:none;height:82px;flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:none;border-bottom:none;padding:8px 12px;gap:8px;align-items:center;background:var(--panel);zoom:1}
   .rail::-webkit-scrollbar{display:none}
-  .rail .rbtn{flex:none;width:64px;min-width:64px;height:62px;padding:0;background:#171a21;border:1px solid #262a33;border-radius:14px;color:#cfd6e2;font-size:10px;gap:4px;justify-content:center}
-  .rail .rbtn.on{background:#1c2634;border-color:#2f5cb8;color:#8fb1ff}
+  .rail .rbtn{flex:none;width:64px;min-width:64px;height:62px;padding:0;background:var(--soft2);border:1px solid var(--line);border-radius:14px;color:var(--mut);font-size:10px;gap:4px;justify-content:center}
+  .rail .rbtn.on{background:var(--blue-soft);border-color:var(--blue);color:var(--blue-dk)}
   .rail .rbtn .sbdg{display:none}
   .rail .rbtn .ric svg.ic{width:19px;height:19px}
   .railspace{display:none}
   .rail .exportrail{display:none} /* Done + Queue live in the action row below */
-  .mctxbar .qtool{background:#171a21;border-color:#262a33;color:#fff}
-  .mctxbar .qtool.del{color:#ff7d9d}
-  .mctxbar .qtool.res{color:#3ad39c}
-  .mctxbar .qdur{color:#8a93a5}
-  .mctxbar .qx{border-color:#262a33;color:#8a93a5}
+  .mctxbar .qtool{background:var(--soft2);border-color:var(--line);color:var(--ink)}
+  .mctxbar .qtool.del{color:var(--rose)}
+  .mctxbar .qtool.res{color:var(--green)}
+  .mctxbar .qdur{color:var(--mut)}
+  .mctxbar .qx{border-color:var(--line);color:var(--mut)}
   /* persistent Done + Queue pills */
-  .mactions{display:flex;order:5;gap:10px;background:#0d0f14;padding:2px 14px 12px;border-bottom:1px solid #1e222a}
+  .mactions{display:flex;order:5;gap:10px;background:var(--panel);padding:2px 14px 12px;border-bottom:1px solid var(--line)}
   .mact{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:16px;padding:13px 0;font-size:14.5px;font-weight:800}
-  .mact.done{background:#fff;color:#101319}
+  .mact.done{background:var(--ink);color:var(--bg)}
   .mact.done.inq{background:var(--green-soft);color:var(--green)}
-  .mact.q{background:#171a21;color:#fff;border:1px solid #262a33}
+  .mact.q{background:var(--soft2);color:var(--ink);border:1px solid var(--line)}
   /* editable timeline sits right under the play bar, with thumb space below
      so scrubbing doesn't catch the toolbar */
-  .stripwrap{order:3;padding:0 10px 0;flex:none;background:#0d0f14;border:none}
+  .stripwrap{order:3;padding:0 10px 0;flex:none;background:var(--panel);border:none}
   #qeHdr{display:none} /* no header text on mobile — just the timeline */
   .tlzone{margin:20px 0 0}
   .tlwrap{padding-bottom:14px} /* thumb space — still part of the scrub surface */
@@ -653,12 +653,11 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
   .mctxbar .qx{flex:none;width:32px;height:32px;border:1.5px solid var(--line);border-radius:10px;display:grid;place-items:center;color:var(--mut)}
   /* desktop-only ctx row hides on mobile (tools live in the toolbar here) */
   body.qesel #qeCtx{display:none}
-  /* player bar directly under the video — dark, minimal (mode toggle lives on the video now) */
-  .transport{order:2;position:static;transform:none;width:100%;max-width:none;border-radius:0;box-shadow:none;background:#0d0f14;border-top:none;border-bottom:none;padding:8px 14px;gap:9px;flex:none;zoom:.88;color:#fff}
+  /* player bar directly under the video — minimal, follows the app theme */
+  .transport{order:2;position:static;transform:none;width:100%;max-width:none;border-radius:0;box-shadow:none;background:var(--panel);border-top:none;border-bottom:none;padding:8px 14px;gap:9px;flex:none;zoom:.88;color:var(--ink)}
   .transport .modetgl{display:none}
-  .transport .ttot{color:#8a93a5}
-  .transport .tico{color:#cfd6e2}
-  .playbtn{background:#1a1d24}
+  .transport .ttot{color:var(--mut)}
+  .transport .tico{color:var(--mut)}
   #vol,#muteBtn{display:none}
   .stage{box-shadow:0 4px 16px rgba(0,0,0,.22)} /* kill the heavy black glow bleeding onto the toolbar */
   .playbtn{width:32px;height:32px;font-size:12px}
@@ -687,7 +686,7 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
 <body>
 <script>try{
   var t=localStorage.getItem('chopTheme');
-  var d=(t==='dark'||(t===null&&window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches));
+  var d=(t!=='light'); /* dark by default — light only if the user chose it */
   if(d) document.documentElement.classList.add('dark');
   document.documentElement.style.background=d?'#0e1014':'#f6f8fb';
 }catch(e){}</script>
@@ -1864,7 +1863,9 @@ function qeSplit(){
   if(t<=b.s+0.05||t>=b.e-0.05){ toast('Drag the playhead inside the selected section, then split'); return; }
   pushHist();
   state.splits.push(t);
-  state.qeSel=null;
+  /* TikTok behaviour: the split stays visible and the RIGHT clip stays selected */
+  const nb=qeBands().findIndex(x=>Math.abs(x.s-t)<0.06);
+  state.qeSel=nb>=0?nb:null;
   renderAll(); saveCurrentJob();
 }
 function qeDelete(){
@@ -2289,11 +2290,11 @@ async function vidPump(){
   try{
     const p=await api({action:'presign',filename:'sync-'+j.name});
     const put=await fetch(p.uploadUrl,{method:'PUT',body:j.file});
-    if(put.ok){ j.videoKey=p.key; dbPutJob(j); }
-    else j._vidQd=0;
+    if(put.ok){ j.videoKey=p.key; dbPutJob(j); toast(j.name+' synced — now watchable on your other devices ✓'); }
+    else { j._vidQd=0; }
   }catch(e){ j._vidQd=0; }
   _vidBusy=false;
-  vidPump();
+  if(_vidQ.length) vidPump();
 }
 function cloudPutJob(j,ts){
   if(!sb||!authUser||!j.payload||j.status==='error') return;
@@ -2356,8 +2357,11 @@ function cloudSyncStats(){
 }
 function cloudSyncCredits(){
   if(!userProfile) return;
-  if(typeof userProfile.credits==='number'&&userProfile.credits!==null) creditsSet(userProfile.credits,true);
-  else if(sb&&authUser) sb.from('chop_profiles').update({credits:creditsGet()}).eq('id',authUser.id).then(()=>{},()=>{});
+  if(typeof userProfile.credits==='number'&&userProfile.credits!==null){ creditsSet(userProfile.credits,true); return; }
+  /* cloud has no value yet: only push if THIS device has an explicit balance —
+     a fresh device must never overwrite the account with the 200 default */
+  let loc=null; try{ loc=localStorage.getItem('chopCredits'); }catch(e){}
+  if(loc!==null&&sb&&authUser) sb.from('chop_profiles').update({credits:Math.max(0,parseInt(loc,10)||0)}).eq('id',authUser.id).then(()=>{},()=>{});
 }
 
 async function restoreJobs(){
@@ -2503,6 +2507,13 @@ async function hydrateJob(j){
 }
 async function openJob(j){
   if(!j.payload){ toast(j.name+' is still processing'); return; }
+  if(!j.file&&!j.videoKey&&sb&&authUser){
+    /* the other device may have finished syncing since this page loaded */
+    try{
+      const {data}=await sb.from('chop_jobs').select('data').eq('user_id',authUser.id).eq('name',j.name).maybeSingle();
+      if(data&&data.data&&data.data.videoKey){ j.videoKey=data.data.videoKey; dbWrite(j,j._ts||Date.now()); }
+    }catch(e){}
+  }
   if(!j.file&&!j.url&&j.videoKey){
     /* video was uploaded on another device — stream it from cloud storage */
     try{ const g=await api({action:'presign_get',key:j.videoKey}); j.url=g.url; j._remote=true; }catch(e){}
@@ -3405,10 +3416,9 @@ $('renderBtn').onclick=async()=>{
       :'<svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M20 13.5A8 8 0 0 1 10.5 4a8 8 0 1 0 9.5 9.5z"/></svg> Dark mode';
     try{localStorage.setItem('chopTheme',dark?'dark':'light');}catch(e){}
   }
-  /* resolve exactly like the pre-load script: stored choice first, else follow the OS */
+  /* resolve exactly like the pre-load script: dark by default, light only when chosen */
   let saved=null; try{saved=localStorage.getItem('chopTheme');}catch(e){}
-  const wantDark=saved!==null?saved==='dark':(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches);
-  setTheme(!!wantDark);
+  setTheme(saved!=='light');
   $('pmTheme').onclick=()=>setTheme(!document.documentElement.classList.contains('dark'));
   $('profBtn').onclick=e=>{ e.stopPropagation(); $('pMenu').classList.toggle('hidden'); };
   document.addEventListener('click',e=>{ if(!e.target.closest('.prof')) $('pMenu').classList.add('hidden'); });
@@ -3467,14 +3477,29 @@ $('renderBtn').onclick=async()=>{
   placeTransport();
   window.addEventListener('resize',placeTransport);
   window._restoredP=restoreJobs();
-  /* mobile: scrolling the panel shrinks the video; scrolling back to top expands it */
+  /* mobile: scrolling the panel shrinks the video. Expanding back needs a firm
+     extra pull past the top (no touchy bounce), and a short panel (one retake)
+     can still be pulled up to shrink the video. */
   const spEl=document.querySelector('.spanel');
   spEl.addEventListener('scroll',()=>{
     if(window.innerWidth>760||$('viewEditor').classList.contains('hidden')) return;
-    const y=spEl.scrollTop;
-    if(y>50) document.body.classList.add('stagecompact');
-    else if(y<8) document.body.classList.remove('stagecompact');
+    if(spEl.scrollTop>50) document.body.classList.add('stagecompact');
   },{passive:true});
+  let spY0=null,spTop0=false;
+  spEl.addEventListener('touchstart',e=>{
+    if(window.innerWidth>760) return;
+    spY0=e.touches[0].clientY;
+    spTop0=spEl.scrollTop<=0;
+  },{passive:true});
+  spEl.addEventListener('touchmove',e=>{
+    if(window.innerWidth>760||spY0===null) return;
+    const dy=e.touches[0].clientY-spY0;
+    /* firm pull DOWN past the top → expand the video */
+    if(spTop0&&spEl.scrollTop<=0&&dy>90) { document.body.classList.remove('stagecompact'); spY0=null; return; }
+    /* pull UP works even when the panel is too short to scroll (single retake) */
+    if(dy<-60&&spEl.scrollHeight<=spEl.clientHeight+8){ document.body.classList.add('stagecompact'); spY0=null; }
+  },{passive:true});
+  spEl.addEventListener('touchend',()=>{ spY0=null; },{passive:true});
   initAuth();
   document.querySelectorAll('.pack .buy').forEach(b=>{
     b.onclick=()=>toast('Checkout coming soon — payments aren’t live yet');
