@@ -586,6 +586,8 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
 .fcard .fbadge{margin-left:auto;font-size:9px;font-weight:800;letter-spacing:.04em;padding:2px 7px;border-radius:7px;background:var(--rose-soft);color:var(--rose);flex:none}
 .fcard.decided .fbadge{background:var(--green-soft);color:var(--green)}
 .kwhen{display:block;color:var(--mut);font-size:10px;margin-top:3px;font-weight:600}
+.rkhead .maybe{background:#fff4dd;color:#b45309;font-size:9.5px;font-weight:800;padding:2px 7px;border-radius:8px;margin-left:4px}
+.rkfoot .notrt{color:var(--green);font-weight:800}
 .expprog{position:fixed;right:16px;bottom:84px;z-index:70;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:12px 16px;box-shadow:0 12px 34px rgba(0,0,0,.28);display:flex;flex-direction:column;gap:3px;font-size:12.5px;max-width:280px}
 .expprog b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .expprog span{color:var(--mut);font-weight:700;font-variant-numeric:tabular-nums}
@@ -755,6 +757,7 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
   <div class="authcard">
     <h2 id="psetupTitle">Set up your profile</h2>
     <p class="authsub" id="psetupSub">This is how you'll show up on Chop.</p>
+    <div class="field hidden" id="pEmailRow"><label>Account email</label><input type="email" id="pEmail" disabled style="opacity:.7"></div>
     <div class="field"><label>Your name</label><input type="text" id="pName" placeholder="Creator name" maxlength="40"></div>
     <div class="field">
       <label>Profile picture</label>
@@ -1559,8 +1562,9 @@ function renderRetakes(){
     if(!a||!b){ if(p.choice===null) p.choice='both'; return; } /* malformed pair: keep everything, never crash */
     const card=document.createElement('div');
     card.className='rk '+(p.choice===null?'pending':'done'); card.id='rk-'+idx;
-    const status=p.choice===null?'Needs decision':p.choice==='both'?'Keeping both':'Keeping Take '+(p.choice==='a'?'1':'2');
-    card.innerHTML='<div class="rkhead">Retake '+(idx+1)+' · '+Math.round(p.sim*100)+'% match <span class="status">'+status+'</span></div>';
+    const status=p.choice===null?'Needs decision':p.choice==='both'?(p.weak?'Dismissed':'Keeping both'):'Keeping Take '+(p.choice==='a'?'1':'2');
+    card.innerHTML='<div class="rkhead">'+(p.weak?'Possible retake':'Retake '+(idx+1))+' · '+Math.round(p.sim*100)+'% match'
+      +(p.weak?' <span class="maybe">CHECK</span>':'')+' <span class="status">'+status+'</span></div>';
     [['a',a,'Take 1 · first attempt'],['b',b,'Take 2 · final attempt']].forEach(([key,seg,label])=>{
       const tk=document.createElement('div'); tk.className='take';
       if(p.choice===key) tk.classList.add('chosen');
@@ -1580,6 +1584,11 @@ function renderRetakes(){
       card.appendChild(tk);
     });
     const foot=document.createElement('div'); foot.className='rkfoot';
+    if(p.weak&&p.choice===null){
+      const nr=document.createElement('button'); nr.className='notrt'; nr.textContent='✕ Not a retake';
+      nr.onclick=()=>{ pushHist(); p.choice='both'; clearRtManuals(idx); renderAll(); toast('Dismissed — keeping everything'); };
+      foot.appendChild(nr);
+    }
     const both=document.createElement('button'); both.textContent='Keep both';
     both.onclick=()=>{ pushHist(); p.choice='both'; clearRtManuals(idx); renderAll(); };
     foot.appendChild(both);
@@ -2113,7 +2122,8 @@ document.querySelectorAll('.rail .rbtn').forEach(b=>b.onclick=()=>{
 /* mobile Done + Queue pills proxy the real buttons */
 if($('mDoneBtn')){
   $('mDoneBtn').onclick=()=>{ const a=$('approveBtn'); if(a.classList.contains('hidden')){ toast('Process a video first'); return; } a.click(); };
-  $('mQueueBtn').onclick=()=>$('exportBtn').click();
+  /* Queue pill ALWAYS opens the queue — never the export modal */
+  $('mQueueBtn').onclick=()=>{ player.pause(); saveCurrentJob(); updateQueueBadge(); openKanban(); };
 }
 
 /* collapsible left panel (desktop) */
@@ -2605,7 +2615,7 @@ function loadEditor(isDemo,payload,opts){
   const isReal=!isDemo&&payload&&payload.segments;
   state.realAnalysis=!!isReal;
   state.segments=isReal?payload.segments:payload;
-  state.pairs=isReal?(payload.pairs||[]).map(p=>({choice:null,sim:p.sim||0})):[{choice:null,sim:.91},{choice:null,sim:.87},{choice:null,sim:.89}];
+  state.pairs=isReal?(payload.pairs||[]).map(p=>({choice:null,sim:p.sim||0,weak:!!p.weak})):[{choice:null,sim:.91},{choice:null,sim:.87},{choice:null,sim:.89}];
   state.settings={...cutDefaults()};
   state.mode='edited'; state.snippet=null; state.vt=0; state.playing=false;
   state.past=[]; state.future=[]; updUndoUI();
@@ -2840,6 +2850,18 @@ function epDone(name,blob){
   setTimeout(()=>{ el.classList.add('hidden'); const s=el.querySelector('.epshare'); s&&s.remove(); },shared?45000:6000);
 }
 function epFail(){ const el=$('expProg'); clearInterval(_epTimer); if(el) el.classList.add('hidden'); }
+/* exports auto-retry before ever showing a failure */
+async function withRetry(fn,tries,name){
+  let last=null;
+  for(let i=0;i<tries;i++){
+    try{ return await fn(); }
+    catch(e){
+      last=e; logErr((e&&e.message)||'export fail','exportRetry '+name+' try'+(i+1));
+      if(i<tries-1){ const n=$('epName'); if(n) n.textContent='Retrying '+name+'…'; await wait(2500); }
+    }
+  }
+  throw last;
+}
 function dlBlob(blob,name){
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob);
@@ -2938,7 +2960,7 @@ async function exportJob(j,btn){
     if(btn){ btn.disabled=true; }
     epShow(j.name,20+Math.round((j.editedSec||30)*0.6));
     try{
-      const blob=await serverRender(null,j.name,kept,fade,t=>{ if(btn) btn.textContent=t; },j.videoKey);
+      const blob=await withRetry(()=>serverRender(null,j.name,kept,fade,t=>{ if(btn) btn.textContent=t; },j.videoKey),3,j.name);
       dlBlob(blob,j.name); epDone(j.name,blob);
       j.status='exported'; dbPutJob(j);
       toast(j.name+' exported in 1080p');
@@ -2965,7 +2987,7 @@ async function exportJob(j,btn){
     const fade=Math.min(0.2,state.settings.overlapMs/1000/2)||0.03;
     epShow(j.name,20+Math.round((j.editedSec||30)*0.6));
     try{
-      const blob=await serverRender(j.file,j.name,kept,fade,t=>{ if(btn) btn.textContent=t; },j.videoKey||null);
+      const blob=await withRetry(()=>serverRender(j.file,j.name,kept,fade,t=>{ if(btn) btn.textContent=t; },j.videoKey||null),3,j.name);
       dlBlob(blob,j.name); epDone(j.name,blob);
       j.status='exported'; dbPutJob(j);
       toast(j.name+' exported in 1080p');
@@ -2982,7 +3004,7 @@ async function exportJob(j,btn){
   epShow(j.name,Math.round((j.editedSec||30)*0.5)+6);
   const _t0=Date.now();
   try{
-    const out=await withFFmpeg(async()=>{
+    const out=await withRetry(()=>withFFmpeg(async()=>{
       const ff=await getFFmpeg();
       ff.on('progress',({progress})=>{
         const p=Math.max(0,Math.min(1,progress));
@@ -2994,7 +3016,7 @@ async function exportJob(j,btn){
       const o=await ff.readFile('output.mp4');
       await ff.deleteFile('input.mp4').catch(()=>{}); await ff.deleteFile('output.mp4').catch(()=>{});
       return o;
-    });
+    }),2,j.name);
     if(!out||!out.length) throw new Error('no output');
     const blob=new Blob([out.buffer],{type:'video/mp4'});
     dlBlob(blob,j.name); epDone(j.name,blob);
@@ -3237,6 +3259,9 @@ function initPsetup(){
   $('psetupSub').textContent="This is how you'll show up on Chop.";
   $('pSave').textContent='Start chopping';
   $('psetupBilling').classList.add('hidden');
+  /* show the account email (read-only) once signed in */
+  if(authUser&&authUser.email){ $('pEmail').value=authUser.email; $('pEmailRow').classList.remove('hidden'); }
+  else $('pEmailRow').classList.add('hidden');
   const g=$('avGrid'); g.innerHTML='';
   _avUpload=null;
   _avSel=(userProfile&&userProfile.avatar)||null;
