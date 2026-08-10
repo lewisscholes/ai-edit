@@ -1367,6 +1367,7 @@ function renderRetakes(){
   state.pairs.forEach((p,idx)=>{
     const a=state.segments.find(s=>s.retake==='a'&&s.pair===idx);
     const b=state.segments.find(s=>s.retake==='b'&&s.pair===idx);
+    if(!a||!b){ if(p.choice===null) p.choice='both'; return; } /* malformed pair: keep everything, never crash */
     const card=document.createElement('div');
     card.className='rk '+(p.choice===null?'pending':'done'); card.id='rk-'+idx;
     const status=p.choice===null?'Needs decision':p.choice==='both'?'Keeping both':'Keeping Take '+(p.choice==='a'?'1':'2');
@@ -1523,6 +1524,7 @@ function renderFlow(){
       const p=state.pairs[s.pair];
       const a=state.segments.find(x=>x.retake==='a'&&x.pair===s.pair);
       const b=state.segments.find(x=>x.retake==='b'&&x.pair===s.pair);
+      if(!p||!a||!b){ if(p&&p.choice===null) p.choice='both'; continue; }
       n++;
       const card=document.createElement('div');
       card.className='fcard retake'+(p.choice!==null?' decided':'');
