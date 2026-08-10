@@ -472,7 +472,7 @@ header.full .hwrap{max-width:none}
 .caption.top{bottom:auto;top:9%}
 .textoverlay{position:absolute;left:7%;right:7%;top:6%;text-align:center;color:#fff;font-weight:800;font-size:16px;text-shadow:0 2px 6px rgba(0,0,0,.8);pointer-events:none}
 .logooverlay{position:absolute;top:4%;right:5%;width:17%;pointer-events:none;border-radius:8px}
-.sidestack{display:none;position:absolute;right:10px;top:50%;transform:translateY(-50%);z-index:30;flex-direction:column;gap:14px;align-items:center}
+.sidestack{display:none;position:absolute;right:10px;top:58px;z-index:30;flex-direction:column;gap:13px;align-items:center}
 .sic2{position:relative;display:flex;flex-direction:column;align-items:center;gap:3px;color:#fff}
 .sic2 .cir{width:40px;height:40px;border-radius:50%;background:rgba(10,12,18,.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);display:grid;place-items:center}
 .sic2 small{font-size:8.5px;font-weight:800;color:#e6ebf4;text-shadow:0 1px 3px rgba(0,0,0,.8);letter-spacing:.03em}
@@ -517,16 +517,19 @@ input[type=range].vol{width:64px;flex:none}
 .qtool:hover{border-color:var(--blue);color:var(--blue-dk);background:var(--hovbg)}
 .qtool.del{color:var(--rose)}
 .qtool.del:hover{border-color:var(--rose);background:var(--rose-soft);color:var(--rose)}
-.tlwrap{overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.tlzone{position:relative;margin:9px 0 4px}
+.tlwrap{overflow-x:scroll;overflow-y:hidden;scrollbar-width:none;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .tlwrap::-webkit-scrollbar{display:none}
-.track{position:relative;height:56px;margin:9px 0 4px;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;min-width:100%}
+.qestrip{position:relative;height:56px}
 .kseg{position:absolute;top:0;bottom:0;cursor:pointer;overflow:hidden;border-radius:8px;background:linear-gradient(160deg,#3c4454,#262b35);background-repeat:no-repeat;will-change:left,width}
 .kseg.sel{box-shadow:inset 0 0 0 2.5px #fff}
 .gapc{position:absolute;top:6px;bottom:6px;cursor:pointer;background:var(--rose);border-radius:5px;will-change:left,width}
 .gapc::after{content:"✂";position:absolute;inset:0;display:grid;place-items:center;color:#fff;font-size:9.5px}
 .splitmark{position:absolute;top:6px;bottom:6px;width:2px;margin-left:-1px;background:rgba(255,255,255,.8);z-index:3;pointer-events:none;border-radius:2px}
-.track .ph2{position:absolute;top:-6px;bottom:-3px;width:3px;background:#fff;pointer-events:none;z-index:6;box-shadow:0 0 0 1px rgba(0,0,0,.25),0 2px 8px rgba(0,0,0,.4);border-radius:3px;will-change:left}
-.qbub{position:absolute;bottom:calc(100% - 4px);transform:translateX(-50%);width:30px;height:42px;border-radius:7px;border:2px solid #fff;box-shadow:0 5px 16px rgba(0,0,0,.35);z-index:7;pointer-events:none;background:#20242c center/cover no-repeat}
+/* centre-locked stick (TikTok): the strip moves under it, it never moves */
+.qestick{position:absolute;left:50%;top:-6px;bottom:-3px;width:3px;margin-left:-1.5px;background:#fff;pointer-events:none;z-index:6;box-shadow:0 0 0 1px rgba(0,0,0,.25),0 2px 8px rgba(0,0,0,.4);border-radius:3px}
+.qbub{display:none;position:absolute;left:50%;bottom:calc(100% + 4px);transform:translateX(-50%);width:30px;height:42px;border-radius:7px;border:2px solid #fff;box-shadow:0 5px 16px rgba(0,0,0,.35);z-index:7;pointer-events:none;background:#20242c center/cover no-repeat}
+.qbub.show{display:block}
 /* TikTok selection frame */
 .qframe{position:absolute;top:-7px;bottom:-7px;z-index:5;pointer-events:none;border-radius:13px;box-shadow:0 4px 16px rgba(0,0,0,.25);will-change:left,width}
 .qframe::before{content:"";position:absolute;inset:0;border-radius:13px;border:3px solid #fff}
@@ -596,8 +599,8 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
   header.full{display:none}
   #viewEditor{display:flex;flex-direction:column;height:100vh;height:100dvh;position:relative}
   .rcol{display:contents}
-  .stagewrap{order:1;height:330px;min-height:0;flex:none;padding:8px;transition:height .35s ease}
-  body.stagecompact .stagewrap{height:200px}
+  .stagewrap{order:1;height:50vh;height:50dvh;min-height:0;flex:none;padding:8px;transition:height .35s ease}
+  body.stagecompact .stagewrap{height:24vh;height:24dvh}
   .sidestack{display:flex}
   body.stagecompact .sidestack{display:none}
   .backrail{position:absolute;top:10px;left:10px;z-index:35;width:38px;height:38px;border-radius:50%;background:rgba(10,12,18,.5);color:#fff;border:none;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);padding:0;margin:0;display:grid;place-items:center;font-size:16px}
@@ -612,7 +615,7 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
   .exportrail{width:auto;padding:9px 15px;flex-direction:row;gap:6px;font-size:12.5px;margin-right:2px}
   /* editable timeline gets its own dedicated row below the toolbar */
   .stripwrap{order:4;padding:6px 10px 8px;flex:none}
-  .track{height:58px}
+  .qestrip{height:58px}
   .cap{width:30px}
   .qehdr{min-height:26px;margin-bottom:4px}
   .flowwrap{display:none}
@@ -1022,11 +1025,11 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
              src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 48'%3E%3Crect width='120' height='48' rx='10' fill='%231a6dff'/%3E%3Ctext x='60' y='31' font-family='Arial' font-size='17' font-weight='800' fill='white' text-anchor='middle'%3EBRAND%3C/text%3E%3C/svg%3E">
         <div class="caption" id="caption"></div>
         <div class="cutflash" id="cutflash">CUT SKIPPED</div>
-        <div class="sidestack">
-          <button class="sic2" data-p="text"><span class="soon2">SOON</span><span class="cir"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M5.5 7V4.5h13V7M12 4.5V19.5M9 19.5h6"/></svg></span><small>Text</small></button>
-          <button class="sic2" data-p="image"><span class="soon2">SOON</span><span class="cir"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4.5 17l4.5-4.5 3.5 3.5 3-3 4 4"/></svg></span><small>Image</small></button>
-          <button class="sic2" data-p="subtitles"><span class="soon2">SOON</span><span class="cir"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M7 12.2h4M13.5 12.2h3.5M7 15.2h2.2M11.5 15.2h5.5"/></svg></span><small>Subs</small></button>
-        </div>
+      </div>
+      <div class="sidestack">
+        <button class="sic2" data-p="text"><span class="soon2">SOON</span><span class="cir"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M5.5 7V4.5h13V7M12 4.5V19.5M9 19.5h6"/></svg></span><small>Text</small></button>
+        <button class="sic2" data-p="image"><span class="soon2">SOON</span><span class="cir"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><rect x="3.5" y="5" width="17" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M4.5 17l4.5-4.5 3.5 3.5 3-3 4 4"/></svg></span><small>Image</small></button>
+        <button class="sic2" data-p="subtitles"><span class="soon2">SOON</span><span class="cir"><svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M7 12.2h4M13.5 12.2h3.5M7 15.2h2.2M11.5 15.2h5.5"/></svg></span><small>Subs</small></button>
       </div>
       <div class="transport">
         <button class="playbtn" id="playBtn">▶</button>
@@ -1058,7 +1061,11 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
         <span class="qstat" id="qeSelDur"></span>
         <button class="zbtn" id="qeCloseBtn" title="Deselect">✕</button>
       </div>
-      <div class="tlwrap" id="qeWrap"><div class="track" id="qeTrack"><div class="ph2" id="ph2" style="left:0%"></div><div class="qbub hidden" id="qeBub"></div></div></div>
+      <div class="tlzone">
+        <div class="tlwrap" id="qeWrap"><div class="qestrip" id="qeStrip"></div></div>
+        <div class="qestick" id="ph2"></div>
+        <div class="qbub" id="qeBub"></div>
+      </div>
     </div>
 
     <!-- takes flow (collapsed by default — it mirrors the Retakes panel) -->
@@ -1249,7 +1256,7 @@ const state = {
   mode:'edited', playing:false, vt:0, snippet:null, rtPreview:null,
   edits:[], panel:'edit',
   past:[], future:[],
-  manualCuts:[], splits:[], qeSel:null, qeGap:null, qeZoom:1
+  manualCuts:[], splits:[], qeSel:null, qeGap:null, qeZoom:1.5
 };
 
 /* ---------------- helpers ------------------------------------------ */
@@ -1412,22 +1419,18 @@ function paintTime(t){
   }
   const rdv=rawDur()||1;
   const phx=qeFracToX(Math.min(1,t/rdv));
-  $('ph2').style.left='calc('+(phx*100)+'% - 1.5px)';
-  const bub=$('qeBub');
-  if(bub){
-    if(_qeStrip&&_qeStrip.n){
-      bub.classList.remove('hidden');
-      bub.style.left=(phx*100)+'%';
-      const fi=Math.min(_qeStrip.n-1,Math.floor(t/rdv*_qeStrip.n));
-      bub.style.backgroundImage='url('+_qeStrip.url+')';
-      bub.style.backgroundSize=(_qeStrip.n*30)+'px 100%';
-      bub.style.backgroundPosition=(-fi*30)+'px 0';
-    } else bub.classList.add('hidden');
+  /* stick is centre-locked — the strip scrolls under it */
+  const w=$('qeWrap'), stp=$('qeStrip');
+  if(w&&stp&&!window._qePanning){
+    const target=Math.round(phx*stp.offsetWidth);
+    if(Math.abs(w.scrollLeft-target)>1) w.scrollLeft=target;
   }
-  if(state.playing&&state.qeZoom>1){
-    const w=$('qeWrap'), tk=$('qeTrack');
-    if(w&&tk){ const px=phx*tk.offsetWidth;
-      if(px<w.scrollLeft+16||px>w.scrollLeft+w.clientWidth-16) w.scrollLeft=px-w.clientWidth/2; }
+  const bub=$('qeBub');
+  if(bub&&_qeStrip&&_qeStrip.n){
+    const fi=Math.min(_qeStrip.n-1,Math.floor(t/rdv*_qeStrip.n));
+    bub.style.backgroundImage='url('+_qeStrip.url+')';
+    bub.style.backgroundSize=(_qeStrip.n*30)+'px 100%';
+    bub.style.backgroundPosition=(-fi*30)+'px 0';
   }
   const seg=segAt(t);
   const cap=$('caption');
@@ -1572,6 +1575,7 @@ async function captureThumb(t){
   if(!_thumbVid){
     _thumbVid=document.createElement('video');
     _thumbVid.muted=true; _thumbVid.playsInline=true; _thumbVid.setAttribute('playsinline','');
+    if(/^https?:/.test(state.fileUrl)) _thumbVid.crossOrigin='anonymous'; /* cloud-streamed video: keep canvas untainted */
     _thumbVid.preload='auto'; _thumbVid.src=state.fileUrl;
     await new Promise((res,rej)=>{ _thumbVid.onloadedmetadata=res; _thumbVid.onerror=rej; setTimeout(rej,8000); });
     try{ await _thumbVid.play(); _thumbVid.pause(); }catch(e){} /* iOS decode nudge */
@@ -1666,11 +1670,12 @@ function qeXToFrac(x){
   return Math.min(1,Math.max(0,x));
 }
 function renderStrip(){
-  const el=$('qeTrack'); if(!el) return;
+  const el=$('qeStrip'); if(!el) return;
   const rd=rawDur()||1;
-  el.style.width=Math.round(state.qeZoom*100)+'%';
-  const keepEls=[$('ph2'),$('qeBub')];
-  [...el.children].forEach(n=>{ if(!keepEls.includes(n)) n.remove(); });
+  const wrap=$('qeWrap'); const wrapW=(wrap&&wrap.clientWidth)||600;
+  el.style.width=Math.round(wrapW*state.qeZoom)+'px';
+  el.style.marginLeft=el.style.marginRight=Math.round(wrapW/2)+'px';
+  el.innerHTML='';
   const bandsRaw=qeBands();
   if(state.qeSel!==null&&state.qeSel>=bandsRaw.length) state.qeSel=null;
   const its=qeLayout();
@@ -1691,7 +1696,6 @@ function renderStrip(){
       g.style.left=(it.x*100)+'%'; g.style.width=(it.w*100)+'%';
       g.title=fmt1((it.e-it.s)*rd)+' cut — tap, then Restore';
       const ivRaw={s:it.s*rd,e:it.e*rd};
-      g.onpointerdown=ev=>ev.stopPropagation();
       g.onclick=ev=>{ ev.stopPropagation(); qeSelectGap(on?null:ivRaw); };
       el.appendChild(g);
       prevKeep=false;
@@ -1829,43 +1833,53 @@ function qeDelete(){
 }
 function qeZoomSet(z){
   state.qeZoom=Math.min(8,Math.max(1,z));
-  renderStrip();
-  const w=$('qeWrap'), tk=$('qeTrack');
-  if(w&&tk) w.scrollLeft=qeFracToX(player.time/(rawDur()||1))*tk.offsetWidth - w.clientWidth/2;
+  renderStrip(); /* renderStrip → paintTime recentres the strip under the stick */
 }
-/* drag = scrub · tap = select · pinch (or ⌘/Ctrl+scroll) = zoom */
+/* TikTok navigation: drag the STRIP to move through the video (stick stays
+   centre-locked) · tap = select · pinch (or ⌘/Ctrl+scroll) = zoom */
 (function(){
-  const el=$('qeTrack'); if(!el) return;
+  const el=$('qeWrap'); if(!el) return;
   const pts=new Map(); let pinchD=0,pinchZ=1;
   let zoomPend=false,zoomVal=1;
   const zoomTo=z=>{ zoomVal=z; if(zoomPend)return; zoomPend=true;
     requestAnimationFrame(()=>{ zoomPend=false; qeZoomSet(zoomVal); }); };
+  let bubT=null;
+  function bubShow(){ const b=$('qeBub'); if(b&&_qeStrip){ b.classList.add('show'); clearTimeout(bubT); bubT=setTimeout(()=>b.classList.remove('show'),500); } }
   el.onpointerdown=ev=>{
     if(ev.target.closest('.cap')) return;
     el.setPointerCapture(ev.pointerId);
     pts.set(ev.pointerId,ev.clientX);
     if(pts.size===2){ const v=[...pts.values()]; pinchD=Math.abs(v[0]-v[1]); pinchZ=state.qeZoom; return; }
-    const x0=ev.clientX; let moved=false;
-    const pos=e2=>{ const r=el.getBoundingClientRect(); return qeXToFrac(Math.min(1,Math.max(0,(e2.clientX-r.left)/r.width)))*(rawDur()||1); };
+    const x0=ev.clientX, sl0=el.scrollLeft; let moved=false;
+    window._qePanning=true;
     state.snippet=null; state.rtPreview=null;
-    player.time=pos(ev); paintTime(player.time);
     el.onpointermove=mv=>{
       pts.set(mv.pointerId,mv.clientX);
       if(pts.size===2){ const v=[...pts.values()]; const d=Math.abs(v[0]-v[1]);
         if(pinchD>10) zoomTo(pinchZ*d/pinchD);
         return; }
-      if(Math.abs(mv.clientX-x0)>5) moved=true;
-      player.time=pos(mv); paintTime(player.time); };
+      const dx=mv.clientX-x0;
+      if(Math.abs(dx)>5) moved=true;
+      if(!moved) return;
+      const stp=$('qeStrip'); const sw=stp.offsetWidth||1;
+      const sl=Math.min(sw,Math.max(0,sl0-dx));
+      el.scrollLeft=sl;
+      const t=qeXToFrac(sl/sw)*(rawDur()||1);
+      player.time=t; bubShow(); paintTime(t);
+    };
     el.onpointerup=up=>{
       pts.delete(up.pointerId);
       if(pts.size<2) pinchD=0;
       if(pts.size>0) return;
       el.onpointermove=null;
+      window._qePanning=false;
       if(!moved){
         const t=document.elementFromPoint(up.clientX,up.clientY);
         const ks=t&&t.closest?t.closest('.kseg'):null;
-        if(ks){ const i=+ks.dataset.band; qeSelect(state.qeSel===i?null:i); }
+        const gp=t&&t.closest?t.closest('.gapc'):null;
+        if(ks&&!gp){ const i=+ks.dataset.band; qeSelect(state.qeSel===i?null:i); }
       }
+      paintTime(player.time);
     };
     el.onpointercancel=el.onpointerup;
   };
@@ -2154,7 +2168,7 @@ let _idb=null;
 function idb(){ return _idb||(_idb=new Promise((res,rej)=>{ try{ const r=indexedDB.open('chop',1); r.onupgradeneeded=()=>r.result.createObjectStore('jobs',{keyPath:'name'}); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }catch(e){rej(e);} })); }
 async function dbWrite(j,ts){
   try{ const db=await idb(); db.transaction('jobs','readwrite').objectStore('jobs')
-    .put({name:j.name,status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,settings:j.settings||null,manualCuts:j.manualCuts||null,splits:j.splits||null,thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,blob:(j.file&&j.file.size<=800*1024*1024)?j.file:null,ts});
+    .put({name:j.name,status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,settings:j.settings||null,manualCuts:j.manualCuts||null,splits:j.splits||null,videoKey:j.videoKey||null,thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,blob:(j.file&&j.file.size<=800*1024*1024)?j.file:null,ts});
   }catch(e){}
 }
 async function dbPutJob(j){
@@ -2168,7 +2182,26 @@ async function dbAllJobs(){ try{ const db=await idb(); return await new Promise(
 /* ---------------- cloud sync (account-wide jobs/credits/stats) ------ */
 const _cloudQ={};
 function cloudStrip(j){
-  return {status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,settings:j.settings||null,manualCuts:j.manualCuts||null,splits:j.splits||null,thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,rawSec:j.rawSec||0,editedSec:j.editedSec||0};
+  return {status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,settings:j.settings||null,manualCuts:j.manualCuts||null,splits:j.splits||null,thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,rawSec:j.rawSec||0,editedSec:j.editedSec||0,videoKey:j.videoKey||null};
+}
+/* background upload of the full video so other devices can stream it */
+const _vidQ=[]; let _vidBusy=false;
+function cloudUploadVideo(j){
+  if(!j||!j.file||j.videoKey||j._vidQd||!authUser) return;
+  j._vidQd=1; _vidQ.push(j); vidPump();
+}
+async function vidPump(){
+  if(_vidBusy) return;
+  const j=_vidQ.shift(); if(!j) return;
+  _vidBusy=true;
+  try{
+    const p=await api({action:'presign',filename:'sync-'+j.name});
+    const put=await fetch(p.uploadUrl,{method:'PUT',body:j.file});
+    if(put.ok){ j.videoKey=p.key; dbPutJob(j); }
+    else j._vidQd=0;
+  }catch(e){ j._vidQd=0; }
+  _vidBusy=false;
+  vidPump();
 }
 function cloudPutJob(j,ts){
   if(!sb||!authUser||!j.payload||j.status==='error') return;
@@ -2191,7 +2224,7 @@ async function cloudSyncJobs(){
       const local=jobByName(r.name);
       if(!local){
         const st=(d.status==='processing'||d.status==='queued')?'review':(d.status||'review');
-        const j={name:r.name,file:null,url:null,thumb:d.thumb,status:st,payload:d.payload,choices:d.choices,manuals:d.manuals,settings:d.settings,manualCuts:d.manualCuts||null,splits:d.splits||null,pending:0,_ts:r.ts||0};
+        const j={name:r.name,file:null,url:null,thumb:d.thumb,status:st,payload:d.payload,choices:d.choices,manuals:d.manuals,settings:d.settings,manualCuts:d.manualCuts||null,splits:d.splits||null,videoKey:d.videoKey||null,pending:0,_ts:r.ts||0};
         jobStats(j); batch.push(j); changed++;
         if(!state.edits.find(e=>e.name===j.name)) state.edits.push({name:j.name,grad:GRADS[state.edits.length%GRADS.length]});
         dbWrite(j,r.ts||0);
@@ -2200,15 +2233,17 @@ async function cloudSyncJobs(){
         local.choices=d.choices; local.manuals=d.manuals;
         if(d.settings) local.settings=d.settings;
         local.manualCuts=d.manualCuts||null; local.splits=d.splits||null;
+        if(d.videoKey&&!local.videoKey) local.videoKey=d.videoKey;
         if(d.thumb&&(!local.thumb||local.thumb==='err')) local.thumb=d.thumb;
         local._ts=r.ts; jobStats(local); changed++;
         dbWrite(local,r.ts);
-      }
+      } else if(r.data&&r.data.videoKey&&!local.videoKey){ local.videoKey=r.data.videoKey; dbWrite(local,local._ts||r.ts); }
     });
     batch.forEach(j=>{
       if(!j.payload||j.status==='error') return;
       const c=cloud[j.name];
       if(!c||(j._ts||0)>(c.ts||0)) cloudPutJob(j,j._ts||Date.now());
+      cloudUploadVideo(j); /* make the footage itself available on other devices */
     });
     if(changed){ renderEditsGrid(); renderKanban(); updateQueueBadge(); if($('viewHome')&&!$('viewHome').classList.contains('hidden')) renderHomeStats(); }
   }catch(e){}
@@ -2242,7 +2277,7 @@ async function restoreJobs(){
     let file=null,url=null;
     try{ if(r.blob){ file=new File([r.blob],r.name,{type:r.blob.type||'video/mp4'}); url=URL.createObjectURL(file); } }catch(e){}
     const st=(r.status==='processing'||r.status==='queued')?'review':r.status;
-    const j={name:r.name,file,url,thumb:r.thumb,status:st,payload:r.payload,choices:r.choices,manuals:r.manuals,settings:r.settings,manualCuts:r.manualCuts||null,splits:r.splits||null,pending:0,_ts:r.ts||0};
+    const j={name:r.name,file,url,thumb:r.thumb,status:st,payload:r.payload,choices:r.choices,manuals:r.manuals,settings:r.settings,manualCuts:r.manualCuts||null,splits:r.splits||null,videoKey:r.videoKey||null,pending:0,_ts:r.ts||0};
     jobStats(j); batch.push(j); n++;
     if(!state.edits.find(e=>e.name===j.name)) state.edits.push({name:j.name,grad:GRADS[state.edits.length%GRADS.length]});
   });
@@ -2302,7 +2337,7 @@ async function processJobBg(j){
     const key=await PIPELINE.upload(j.file);
     const jobId=await PIPELINE.transcribe(key);
     j.payload=await PIPELINE.analyze(jobId);
-    j.status='review'; jobStats(j); registerJob(j); dbPutJob(j);
+    j.status='review'; jobStats(j); registerJob(j); dbPutJob(j); cloudUploadVideo(j);
   }catch(e){ j.status='error'; j.err=(e&&e.message)||'failed'; toast(j.name+': '+j.err); }
   renderKanban(); updateQueueBadge();
 }
@@ -2344,7 +2379,7 @@ async function startEdit(isDemo){
   first.status='processing'; renderKanban();
   try{
     first.payload=await runPipelineOnce('Editing '+first.name+(batch.filter(b=>b.status==='queued').length?' (more processing in background)…':'…'),false,first.file);
-    first.status='review'; jobStats(first); registerJob(first); dbPutJob(first);
+    first.status='review'; jobStats(first); registerJob(first); dbPutJob(first); cloudUploadVideo(first);
   }catch(e){ first.status='error'; first.err=(e&&e.message)||'failed'; toast(first.name+': '+first.err); showView('home'); runBatch(); return; }
   openJob(first);
   runBatch();
@@ -2376,7 +2411,11 @@ async function hydrateJob(j){
 }
 async function openJob(j){
   if(!j.payload){ toast(j.name+' is still processing'); return; }
-  if(!j.file) toast(j.name+': video preview unavailable on this device — cuts and retakes still editable');
+  if(!j.file&&!j.url&&j.videoKey){
+    /* video was uploaded on another device — stream it from cloud storage */
+    try{ const g=await api({action:'presign_get',key:j.videoKey}); j.url=g.url; j._remote=true; }catch(e){}
+  }
+  if(!j.file&&!j.url) toast(j.name+': video preview unavailable on this device — cuts and retakes still editable');
   await hydrateJob(j);
   saveCurrentJob();
   currentJobName=j.name;
@@ -2404,7 +2443,7 @@ function loadEditor(isDemo,payload,opts){
   state.settings={...cutDefaults()};
   state.mode='edited'; state.snippet=null; state.vt=0; state.playing=false;
   state.past=[]; state.future=[]; updUndoUI();
-  state.manualCuts=[]; state.splits=[]; state.qeSel=null; state.qeGap=null; state.qeZoom=1;
+  state.manualCuts=[]; state.splits=[]; state.qeSel=null; state.qeGap=null; state.qeZoom=1.5;
   state.useRealVideo=!isDemo&&!!state.fileUrl;
   const vid=$('vid');
   if(state.useRealVideo){
@@ -2655,6 +2694,25 @@ function applyJobToState(j){
   if(j.settings) state.settings={...j.settings};
 }
 async function exportJob(j,btn){
+  if(!j.file&&j.videoKey){
+    /* video lives in cloud storage — render server-side straight from there */
+    if(_rendering){ toast('Another export is already running — one at a time'); return; }
+    _rendering=true;
+    const wasCur=currentJobName; saveCurrentJob(); applyJobToState(j); currentJobName=j.name;
+    const kept=keptClips().map(c=>({s:+c.start.toFixed(3),e:+c.end.toFixed(3)}));
+    const fade=Math.min(0.2,state.settings.overlapMs/1000/2)||0.03;
+    if(btn){ btn.disabled=true; }
+    try{
+      await serverRender(null,j.name,kept,fade,t=>{ if(btn) btn.textContent=t; },j.videoKey);
+      j.status='exported'; dbPutJob(j);
+      toast(j.name+' exported in 1080p');
+    }catch(e){ toast(j.name+': '+((e&&e.message)||'render failed — try again')); if(btn){btn.disabled=false;btn.textContent='Export';} }
+    _rendering=false;
+    const back=wasCur&&jobByName(wasCur);
+    if(back&&back.payload){ applyJobToState(back); currentJobName=back.name; }
+    renderKanban(); updateQueueBadge();
+    return;
+  }
   if(!j.file){ toast(j.name+': the video file isn’t stored on this device — re-upload it, then export'); return; }
 
   if(_rendering){ toast('Another export is already running — one at a time'); return; }
@@ -2670,7 +2728,7 @@ async function exportJob(j,btn){
     const kept=keptClips().map(c=>({s:+c.start.toFixed(3),e:+c.end.toFixed(3)}));
     const fade=Math.min(0.2,state.settings.overlapMs/1000/2)||0.03;
     try{
-      await serverRender(j.file,j.name,kept,fade,t=>{ if(btn) btn.textContent=t; });
+      await serverRender(j.file,j.name,kept,fade,t=>{ if(btn) btn.textContent=t; },j.videoKey||null);
       j.status='exported'; dbPutJob(j);
       toast(j.name+' exported in 1080p');
     }catch(e){ toast(j.name+': '+((e&&e.message)||'HD render failed — try again')); if(btn){btn.disabled=false;btn.textContent='Export';} }
@@ -3152,12 +3210,16 @@ async function measureWidth(url){
 }
 const RENDER_URL='https://lewisscholes--chop-render-api.modal.run/render';
 const RENDER_KEY='chop-render-x7k2m9';
-async function serverRender(file,name,keptList,fade,progress){
-  progress&&progress('Uploading…');
-  const p=await api({action:'presign',filename:name});
-  const put=await fetch(p.uploadUrl,{method:'PUT',body:file});
-  if(!put.ok) throw new Error('upload failed ('+put.status+')');
-  const g=await api({action:'presign_get',key:p.key});
+async function serverRender(file,name,keptList,fade,progress,existingKey){
+  let key=existingKey;
+  if(!key){
+    progress&&progress('Uploading…');
+    const p=await api({action:'presign',filename:name});
+    const put=await fetch(p.uploadUrl,{method:'PUT',body:file});
+    if(!put.ok) throw new Error('upload failed ('+put.status+')');
+    key=p.key;
+  }
+  const g=await api({action:'presign_get',key});
   progress&&progress('Rendering in 1080p…');
   const res=await fetch(RENDER_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({secret:RENDER_KEY,url:g.url,kept:keptList,fade})});
   if(!res.ok) throw new Error('HD render failed: '+(await res.text()).slice(0,120));
