@@ -668,7 +668,7 @@ input[type=range].vol{width:64px;flex:none}
     <div class="cloud"><svg class="ic" viewBox="0 0 24 24" style="width:26px;height:26px;color:var(--blue)"><path d="M7 18.5a4.5 4.5 0 1 1 .9-8.9A5.5 5.5 0 0 1 18.6 11 3.8 3.8 0 0 1 18 18.5H7z"/><path d="M12 15.8v-5m0 0L9.4 13.4M12 10.8l2.6 2.6"/></svg></div>
     <h3>Drop your videos here to edit</h3>
     <p>or <span class="browse">click to browse</span></p>
-    <p>MP4 or MOV · up to 1 GB each</p>
+    <p>MP4 or MOV · up to 2 GB each (1 GB on mobile)</p>
     <div class="filetag" id="filetag"><span id="filetagTxt"></span></div>
   </div>
   <input type="file" id="fileInput" accept="video/mp4,video/quicktime,video/*" class="hidden" multiple>
@@ -1669,7 +1669,8 @@ function addFiles(list){
   const added=[];
   for(const f of list){
     if(!/\.(mp4|mov)$/i.test(f.name)&&!/video/.test(f.type)){ toast(f.name+' isn’t an MP4 or MOV — skipped'); continue; }
-    if(f.size>1024*1024*1024){ toast(f.name+' is over 1 GB — skipped'); continue; }
+    const maxGB=window.innerWidth<=760?1:2;
+    if(f.size>maxGB*1024*1024*1024){ toast(f.name+' is over '+maxGB+' GB — skipped'+(maxGB===1?' (bigger files work on desktop)':'')); continue; }
     if(queue.find(q=>q.file.name===f.name&&q.file.size===f.size)) continue;
     const q={file:f,url:null,thumb:null,ready:false,err:null};
     queue.push(q); added.push(q);
@@ -1681,6 +1682,16 @@ function addFiles(list){
    in NOW so thumbnails, analysis and upload all work on real data */
 async function materialize(q){
   try{
+    if(q.file.size>800*1024*1024){
+      /* too big to copy through memory — verify it's readable and use it directly */
+      const probe=await q.file.slice(0,65536).arrayBuffer();
+      if(!probe||!probe.byteLength) throw new Error('empty');
+      q.url=URL.createObjectURL(q.file);
+      q.ready=true;
+      renderQueue(); firstFrame(q);
+      measureWidth(q.url).then(w=>{ if(w>0&&w<1080) toast(q.file.name+' came in at '+w+'p wide — iOS compressed it during import. For full quality, upload via the Files app or film in “Most Compatible” format.'); });
+      return;
+    }
     const buf=await q.file.arrayBuffer();
     if(!buf||!buf.byteLength) throw new Error('empty');
     const blob=new Blob([buf],{type:q.file.type||'video/mp4'});
@@ -1746,7 +1757,7 @@ function idb(){ return _idb||(_idb=new Promise((res,rej)=>{ try{ const r=indexed
 async function dbPutJob(j){
   if(!j||!j.payload||j.status==='error') return;
   try{ const db=await idb(); db.transaction('jobs','readwrite').objectStore('jobs')
-    .put({name:j.name,status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,settings:j.settings||null,thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,blob:j.file||null,ts:Date.now()});
+    .put({name:j.name,status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,settings:j.settings||null,thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,blob:(j.file&&j.file.size<=800*1024*1024)?j.file:null,ts:Date.now()});
   }catch(e){}
 }
 async function dbAllJobs(){ try{ const db=await idb(); return await new Promise(res=>{ const rq=db.transaction('jobs').objectStore('jobs').getAll(); rq.onsuccess=()=>res(rq.result||[]); rq.onerror=()=>res([]); }); }catch(e){ return []; } }
@@ -1872,6 +1883,7 @@ function saveCurrentJob(){
 }
 async function hydrateJob(j){
   if(j._hydrated||!j.file) return;
+  if(j.file.size>800*1024*1024){ if(!j.url) j.url=URL.createObjectURL(j.file); j._hydrated=true; return; }
   try{
     const buf=await j.file.arrayBuffer();
     j.file=new File([buf],j.name,{type:j.file.type||'video/mp4'});
@@ -2115,6 +2127,7 @@ function applyJobToState(j){
 }
 async function exportJob(j,btn){
   if(!j.file){ toast(j.name+': the video file isn’t stored on this device — re-upload it, then export'); return; }
+  if(j.file.size>1400*1024*1024){ toast(j.name+' is too large for in-browser export (engine limit ~1.4 GB). Tip: film in 1080p instead of 4K — or the server renderer, coming soon, will handle it.'); return; }
   if(_rendering){ toast('Another export is already running — one at a time'); return; }
   const wasCurrent=currentJobName; saveCurrentJob();
   applyJobToState(j); currentJobName=j.name;
@@ -2590,7 +2603,7 @@ let _rendering=false;
 $('renderBtn').onclick=async()=>{
   if(_rendering) return;
   if(!state.file){ toast('Demo footage can’t be rendered — drop a real video first'); return; }
-  if(state.file.size>500*1024*1024){ toast('Files over 500 MB can’t be rendered in-browser yet'); return; }
+  if(state.file.size>1400*1024*1024){ toast('Files over ~1.4 GB can’t be rendered in-browser (engine limit). Film in 1080p, or wait for the server renderer.'); return; }
   _rendering=true;
   const bar=$('renderBar'), lbl=$('renderLbl'), btn=$('renderBtn');
   $('renderProg').classList.remove('hidden');
