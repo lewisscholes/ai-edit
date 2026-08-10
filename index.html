@@ -637,8 +637,8 @@ input[type=range].vol{width:64px;flex:none}
 <!-- ============ PROFILE SETUP ============ -->
 <div class="authwrap hidden" id="viewPsetup">
   <div class="authcard">
-    <h2>Set up your profile</h2>
-    <p class="authsub">This is how you'll show up on Chop.</p>
+    <h2 id="psetupTitle">Set up your profile</h2>
+    <p class="authsub" id="psetupSub">This is how you'll show up on Chop.</p>
     <div class="field"><label>Your name</label><input type="text" id="pName" placeholder="Creator name" maxlength="40"></div>
     <div class="field">
       <label>Profile picture</label>
@@ -648,6 +648,7 @@ input[type=range].vol{width:64px;flex:none}
     <div class="field"><label>TikTok handle</label><input type="text" id="pTikTok" placeholder="@bestshopfinds" maxlength="40"></div>
     <button class="abtn" id="pSave">Start chopping</button>
     <div class="aerr" id="pErr"></div>
+    <button class="pitem hidden" id="psetupBilling" style="justify-content:center;margin-top:10px;color:var(--blue);font-weight:800"><svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/></svg> Manage billing &amp; credits</button>
   </div>
 </div>
 
@@ -746,7 +747,7 @@ input[type=range].vol{width:64px;flex:none}
     <p class="lsub">These become your defaults for every new video. You can still tweak any single video in the editor.</p>
     <div class="ctl">
       <div class="ctl-top"><b>Remove silences over</b><span class="val" id="lbSilV">0.40s</span></div>
-      <input type="range" id="lbSil" min="0.1" max="2" step="0.05" value="0.4">
+      <input type="range" id="lbSil" min="0.01" max="2" step="0.01" value="0.4">
       <small>Any pause longer than this is cut automatically.</small>
     </div>
     <div class="swrow"><div class="grow"><b>Remove filler words</b><small>um, uh, hmm…</small></div><div class="tgl on" id="lbFill"></div></div>
@@ -885,7 +886,7 @@ input[type=range].vol{width:64px;flex:none}
       <div class="stat-mini"><span id="msOrig">1:28</span><span>→</span><span id="msEdit">1:04</span><span class="sv" id="msSaved">−27%</span></div>
       <div class="ctl">
         <div class="ctl-top"><b>Remove silences over</b><span class="val" id="vSil">0.50s</span></div>
-        <input type="range" id="sSil" min="0.1" max="2" step="0.05" value="0.4">
+        <input type="range" id="sSil" min="0.01" max="2" step="0.01" value="0.4">
         <small>Any pause longer than this is cut automatically. Lower removes more dead air.</small>
       </div>
       <div class="swrow"><div class="grow"><b>Remove filler words</b><small>um, uh, hmm…</small></div><div class="tgl on" id="tglFill"></div></div>
@@ -1151,7 +1152,7 @@ const state = {
   settings:{ overlapMs:250, startPadMs:40, endPadMs:-40, minSil:0.4, fillers:true, soft:false },
   subtitles:false, capPos:'bottom', capSize:15,
   showText:false, textStr:'POV: this gadget actually works', showLogo:false,
-  mode:'edited', playing:false, vt:0, snippet:null,
+  mode:'edited', playing:false, vt:0, snippet:null, rtPreview:null,
   edits:[], panel:'edit',
   past:[], future:[]
 };
@@ -1165,6 +1166,7 @@ function toast(msg){ const el=$('toast'); el.textContent=msg; el.classList.add('
 function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function isCut(seg){
+  if(state.rtPreview&&seg.retake&&seg.pair===state.rtPreview.pair) return seg.retake!==state.rtPreview.take;
   if(seg.manual!==null) return seg.manual;
   if(seg.retake){
     const p=state.pairs[seg.pair];
@@ -1267,7 +1269,13 @@ function loop(ts){
   const dt=lastTs===null?0:Math.min(0.1,(ts-lastTs)/1000); lastTs=ts;
   if(!state.useRealVideo&&state.playing) state.vt=Math.min(rawDur(),state.vt+dt);
   let t=player.time;
-  if(state.snippet){ if(t>=state.snippet.end){ player.pause(); state.snippet=null; syncPrevBtns(); } }
+  if(state.snippet){
+    if(state.snippet.ctx){ /* skip cuts mid-preview so the splice is audible */
+      const iv=cutAt(t);
+      if(iv&&iv.e<state.snippet.end){ player.time=iv.e+0.005; t=iv.e+0.005; flashCut(); }
+    }
+    if(t>=state.snippet.end){ player.pause(); state.snippet=null; state.rtPreview=null; syncPrevBtns(); }
+  }
   else if(state.playing&&state.mode==='edited'){
     const iv=cutAt(t);
     if(iv){
@@ -1372,8 +1380,8 @@ function renderRetakes(){
       const txt=document.createElement('p'); txt.textContent='“'+seg.text+'”';
       const btns=document.createElement('div'); btns.className='tk-btns';
       const prev=document.createElement('button'); prev.className='prev'; prev.textContent='▶';
-      prev.title='Preview this take'; prev.dataset.key='rk'+idx+key;
-      prev.onclick=()=>previewRange(seg.start,seg.end,'rk'+idx+key);
+      prev.title='Preview this take in context'; prev.dataset.key='rk'+idx+key;
+      prev.onclick=()=>previewRange(seg.start,seg.end,'rk'+idx+key,idx,key);
       const keep=document.createElement('button'); keep.className='keep';
       keep.textContent=p.choice===key?'✓ Keeping this':'Keep this take';
       keep.onclick=()=>{ pushHist(); p.choice=key; clearRtManuals(idx); renderAll(); if(pendingPairs()===0) toast('All retakes reviewed — ready to export'); };
@@ -1561,9 +1569,14 @@ function renderOverlays(){
   cap.style.fontSize=state.capSize+'px';
 }
 
-function previewRange(start,end,key){
-  if(state.playing&&state.snippet&&state.snippet.key===key){ player.pause(); state.snippet=null; syncPrevBtns(); return; }
-  state.snippet={end,key}; player.time=start; player.play(); syncPrevBtns();
+function previewRange(start,end,key,pairIdx,takeKey){
+  if(state.playing&&state.snippet&&state.snippet.key===key){ player.pause(); state.snippet=null; state.rtPreview=null; syncPrevBtns(); return; }
+  /* preview in context: pretend this take is the chosen one, then keep playing
+     through the edited timeline for ~2s so you hear how the cut lands */
+  if(pairIdx!==undefined){ state.rtPreview={pair:pairIdx,take:takeKey}; }
+  const extEnd=(pairIdx!==undefined)?Math.min(rawDur(),editedToRaw(rawToEdited(end)+2.0)):end;
+  state.snippet={end:extEnd,key,ctx:pairIdx!==undefined};
+  player.time=start; player.play(); syncPrevBtns();
 }
 function syncPrevBtns(){
   document.querySelectorAll('.tk-btns .prev').forEach(b=>{
@@ -1610,6 +1623,7 @@ $('tglLogo').onclick=function(){ state.showLogo=!state.showLogo; this.classList.
 
 /* ---------------- transport ---------------------------------------- */
 $('playBtn').onclick=()=>{
+  if(state.playing&&state.snippet){ state.snippet=null; state.rtPreview=null; syncPrevBtns(); }
   state.snippet=null;
   if(state.playing) player.pause();
   else {
@@ -2140,7 +2154,7 @@ async function exportAllReady(){
 const PRESETS={
   relaxed:{label:'Relaxed',desc:'Keeps natural pauses. Silences over 0.7s, hard fillers only.',v:{minSil:0.7,fillers:true,soft:false,overlapMs:300,startPadMs:60,endPadMs:0}},
   balanced:{label:'Balanced',desc:'The Chop standard. Silences over 0.4s, fillers removed.',v:{minSil:0.4,fillers:true,soft:false,overlapMs:250,startPadMs:40,endPadMs:-40}},
-  snappy:{label:'Snappy',desc:'TikTok-tight. Silences over 0.2s, all fillers, tight clip ends.',v:{minSil:0.2,fillers:true,soft:true,overlapMs:200,startPadMs:0,endPadMs:-120}},
+  snappy:{label:'Snappy',desc:'TikTok-tight. Silences over 0.05s, all fillers, tight clip ends.',v:{minSil:0.05,fillers:true,soft:true,overlapMs:150,startPadMs:0,endPadMs:-140}},
   custom:{label:'Custom',desc:'Your own recipe, saved from the sliders below.',v:null}
 };
 function cutDefaults(){
@@ -2355,6 +2369,10 @@ async function authGo(){
   $('authGo').disabled=false;
 }
 function initPsetup(){
+  $('psetupTitle').textContent='Set up your profile';
+  $('psetupSub').textContent="This is how you'll show up on Chop.";
+  $('pSave').textContent='Start chopping';
+  $('psetupBilling').classList.add('hidden');
   const g=$('avGrid'); g.innerHTML='';
   _avUpload=null;
   _avSel=(userProfile&&userProfile.avatar)||null;
@@ -2405,7 +2423,7 @@ async function saveProfile(){
     if(isNew&&localStorage.getItem('chopCredits')===null) creditsSet(3); /* 3 free videos for new creators */
     syncHeaderProfile(); renderCredits();
     showView('home');
-    toast('Welcome to Chop, '+name.split(' ')[0]+' — happy chopping');
+    toast(isNew?('Welcome to Chop, '+name.split(' ')[0]+' — happy chopping'):'Profile updated');
   }catch(e){ $('pErr').textContent=(e&&e.message)||'Couldn’t save — try again.'; }
   $('pSave').disabled=false;
 }
@@ -2639,8 +2657,9 @@ $('renderBtn').onclick=async()=>{
   $('profBtn').onclick=e=>{ e.stopPropagation(); $('pMenu').classList.toggle('hidden'); };
   document.addEventListener('click',e=>{ if(!e.target.closest('.prof')) $('pMenu').classList.add('hidden'); });
   $('pmBilling').onclick=()=>{ $('pMenu').classList.add('hidden'); renderCredits(); showView('billing'); };
-  $('pmSettings').onclick=()=>{ $('pMenu').classList.add('hidden'); toast('Settings coming soon'); };
+  $('pmSettings').onclick=()=>{ $('pMenu').classList.add('hidden'); if(!authUser){ showView('auth'); return; } initPsetup(); $('psetupTitle').textContent='Your profile'; $('psetupSub').textContent='Update your details any time.'; $('pSave').textContent='Save changes'; $('psetupBilling').classList.remove('hidden'); showView('psetup'); };
   $('billBack').onclick=()=>showView('home');
+  $('psetupBilling').onclick=()=>{ renderCredits(); showView('billing'); };
   /* credit slider: £1/credit standard; 50+ → 85p; 100+ → 75p; −5p per extra 50; floor 60p */
   function perCredit(n){
     if(n<50) return 1.00;
