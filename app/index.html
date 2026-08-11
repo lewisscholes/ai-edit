@@ -2425,22 +2425,130 @@ const STEPS=[
 /* =============== batch / review queue machinery =================== */
 const batch=[]; /* jobs: {name,file,url,thumb,status,payload,rawSec,editedSec,pending,choices,manuals,settings,err} */
 /* ---- persistence: jobs (incl. the video file itself) survive refreshes ---- */
+/* v1 stored the whole video blob inline in the jobs record, so every cut rewrote
+   the entire file. v2 splits them: `jobs` holds small metadata (debounced), `media`
+   holds the video file (written once, at import/hydration). */
+const IDB_VER=2, MEDIA_MAX=800*1024*1024;
 let _idb=null;
-function idb(){ return _idb||(_idb=new Promise((res,rej)=>{ try{ const r=indexedDB.open('chop',1); r.onupgradeneeded=()=>r.result.createObjectStore('jobs',{keyPath:'name'}); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }catch(e){rej(e);} })); }
-async function dbWrite(j,ts){
-  try{ const db=await idb(); db.transaction('jobs','readwrite').objectStore('jobs')
-    .put({name:j.name,status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,settings:j.settings||null,manualCuts:j.manualCuts||null,splits:j.splits||null,videoKey:j.videoKey||null,statusAt:j.statusAt||null,thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,blob:(j.file&&j.file.size<=800*1024*1024)?j.file:null,ts});
-  }catch(e){}
+function idb(){
+  return _idb||(_idb=new Promise((res,rej)=>{
+    try{
+      const r=indexedDB.open('chop',IDB_VER);
+      r.onupgradeneeded=()=>{
+        const db=r.result;
+        if(!db.objectStoreNames.contains('jobs')) db.createObjectStore('jobs',{keyPath:'name'});
+        if(!db.objectStoreNames.contains('media')) db.createObjectStore('media',{keyPath:'name'});
+      };
+      r.onsuccess=()=>res(r.result);
+      r.onerror=()=>rej(r.error||new Error('idb open failed'));
+      r.onblocked=()=>rej(new Error('idb blocked by another tab'));
+    }catch(e){ rej(e); }
+  }));
 }
-async function dbPutJob(j){
+/* one promise-wrapped transaction; resolves only once the tx actually commits */
+function idbTx(store,mode,fn){
+  return idb().then(db=>new Promise((res,rej)=>{
+    let rq=null;
+    const tx=db.transaction(store,mode);
+    tx.oncomplete=()=>res(rq?rq.result:undefined);
+    tx.onerror=()=>rej(tx.error||new Error('idb tx failed'));
+    tx.onabort=()=>rej(tx.error||new Error('idb tx aborted'));
+    try{ rq=fn(tx.objectStore(store)); }catch(e){ try{tx.abort();}catch(_){} rej(e); }
+  }));
+}
+/* ---- instrumentation: window.chopDbStats() ---- */
+const _dbStats={metaWrites:0,metaCoalesced:0,mediaWrites:0,mediaSkipped:0,migrated:0,failures:0,lastMetaBytes:0};
+window.chopDbStats=()=>Object.assign({},_dbStats);
+function metaRecord(j,ts){
+  return {name:j.name,status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,
+          settings:j.settings||null,manualCuts:j.manualCuts||null,splits:j.splits||null,
+          videoKey:j.videoKey||null,statusAt:j.statusAt||null,
+          thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,ts};
+}
+/* ---- metadata: debounced, tiny, never carries the video ---- */
+const _metaQ={}; const META_DEBOUNCE=450;
+function dbWriteMeta(j,opts){
   if(!j||!j.payload||j.status==='error') return;
-  if(j.status!==j._lastSt){ j.statusAt=Date.now(); j._lastSt=j.status; }
+  const e=_metaQ[j.name]||(_metaQ[j.name]={t:null});
+  e.j=j; e.ts=j._ts||Date.now();
+  if(opts&&opts.now){ dbFlushMeta(j.name); return; }
+  if(e.t){ _dbStats.metaCoalesced++; return; }
+  e.t=setTimeout(()=>dbFlushMeta(j.name),META_DEBOUNCE);
+}
+function dbFlushMeta(name){
+  const names=name?[name]:Object.keys(_metaQ);
+  return Promise.all(names.map(async nm=>{
+    const e=_metaQ[nm]; if(!e||!e.j) return;
+    clearTimeout(e.t); delete _metaQ[nm];
+    const rec=metaRecord(e.j,e.ts);
+    try{
+      await idbTx('jobs','readwrite',st=>st.put(rec));
+      _dbStats.metaWrites++;
+      e.j._metaFails=0;
+      /* sample the record size rather than stringifying on every write */
+      if(_dbStats.metaWrites%5===1){ try{ _dbStats.lastMetaBytes=JSON.stringify(rec).length; }catch(_){} }
+    }catch(err){
+      _dbStats.failures++;
+      e.j._metaFails=(e.j._metaFails||0)+1;
+      /* only shout once it is genuinely persistent, not on a transient blip */
+      if(e.j._metaFails===3||e.j._metaFails===15)
+        logErr('meta write failed x'+e.j._metaFails+': '+((err&&err.message)||err),'idb.meta:'+nm);
+    }
+  }));
+}
+/* ---- media: the video file, written once ---- */
+async function dbPutMedia(name,file){
+  if(!name||!file) return false;
+  if(file.size>MEDIA_MAX){ _dbStats.mediaSkipped++; return false; }
+  try{
+    await idbTx('media','readwrite',st=>st.put({name,file,size:file.size,type:file.type||'video/mp4',ts:Date.now()}));
+    _dbStats.mediaWrites++;
+    return true;
+  }catch(err){
+    _dbStats.failures++;
+    const msg=(err&&err.message)||String(err);
+    logErr('media write failed ('+Math.round((file.size||0)/1048576)+'MB): '+msg,'idb.media:'+name);
+    const quota=/quota|storage|full|exceeded/i.test(((err&&err.name)||'')+' '+msg);
+    toast(quota
+      ? 'Your device is out of storage — this video still works in this session, but it won’t survive a refresh here.'
+      : 'Couldn’t save this video on the device — it still works in this session, but local recovery may be limited.');
+    return false;
+  }
+}
+async function dbGetMedia(name){
+  try{ const r=await idbTx('media','readonly',st=>st.get(name)); return (r&&r.file)||null; }
+  catch(e){ _dbStats.failures++; return null; }
+}
+/* write the file exactly once per job */
+async function dbSaveMediaOnce(j){
+  if(!j||!j.file||j._mediaSaved) return;
+  j._mediaSaved=1;
+  const ok=await dbPutMedia(j.name,j.file);
+  if(!ok) j._mediaSaved=0;   /* leave the door open for a later attempt */
+}
+async function dbPutJob(j,opts){
+  if(!j||!j.payload||j.status==='error') return;
+  const statusChanged=(j.status!==j._lastSt);
+  if(statusChanged){ j.statusAt=Date.now(); j._lastSt=j.status; }
   const ts=Date.now(); j._ts=ts;
-  dbWrite(j,ts);
+  /* status changes are worth an immediate write; ordinary edits are debounced */
+  dbWriteMeta(j,{now:statusChanged||(opts&&opts.now)});
   cloudPutJob(j,ts);
 }
-async function dbDelJob(name){ try{ const db=await idb(); db.transaction('jobs','readwrite').objectStore('jobs').delete(name); }catch(e){} }
-async function dbAllJobs(){ try{ const db=await idb(); return await new Promise(res=>{ const rq=db.transaction('jobs').objectStore('jobs').getAll(); rq.onsuccess=()=>res(rq.result||[]); rq.onerror=()=>res([]); }); }catch(e){ return []; } }
+async function dbDelJob(name){
+  const e=_metaQ[name]; if(e){ clearTimeout(e.t); delete _metaQ[name]; }
+  try{ await idbTx('jobs','readwrite',st=>st.delete(name)); }catch(err){ _dbStats.failures++; logErr('meta delete failed: '+((err&&err.message)||err),'idb.del:'+name); }
+  try{ await idbTx('media','readwrite',st=>st.delete(name)); }catch(err){ _dbStats.failures++; logErr('media delete failed: '+((err&&err.message)||err),'idb.del:'+name); }
+}
+async function dbAllJobs(){ try{ return await idbTx('jobs','readonly',st=>st.getAll())||[]; }catch(e){ _dbStats.failures++; return []; } }
+/* a v1 record still carrying its blob: only drop it once the media copy is safe */
+async function dbStripLegacyBlob(r){
+  try{ const rec=Object.assign({},r); delete rec.blob; await idbTx('jobs','readwrite',st=>st.put(rec)); }
+  catch(err){ _dbStats.failures++; }
+}
+/* iOS can freeze a backgrounded PWA without warning — get pending metadata out first */
+window.addEventListener('pagehide',()=>{ dbFlushMeta(); });
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) dbFlushMeta(); });
 /* ---------------- cloud sync (account-wide jobs/credits/stats) ------ */
 const _cloudQ={};
 function cloudStrip(j){
@@ -2509,7 +2617,7 @@ async function cloudSyncJobs(){
         j._lastSt=j.status;
         jobStats(j); batch.push(j); changed++;
         if(!state.edits.find(e=>e.name===j.name)) state.edits.push({name:j.name,grad:GRADS[state.edits.length%GRADS.length]});
-        dbWrite(j,r.ts||0);
+        j._ts=r.ts||0; dbWriteMeta(j);
       } else if((r.ts||0)>(local._ts||0)){
         local.status=d.status||local.status;
         local.choices=d.choices; local.manuals=d.manuals;
@@ -2518,8 +2626,8 @@ async function cloudSyncJobs(){
         if(d.videoKey&&!local.videoKey) local.videoKey=d.videoKey;
         if(d.thumb&&(!local.thumb||local.thumb==='err')) local.thumb=d.thumb;
         local._ts=r.ts; jobStats(local); changed++;
-        dbWrite(local,r.ts);
-      } else if(r.data&&r.data.videoKey&&!local.videoKey){ local.videoKey=r.data.videoKey; dbWrite(local,local._ts||r.ts); }
+        local._ts=r.ts; dbWriteMeta(local);
+      } else if(r.data&&r.data.videoKey&&!local.videoKey){ local.videoKey=r.data.videoKey; dbWriteMeta(local); }
     });
     batch.forEach(j=>{
       if(!j.payload||j.status==='error') return;
@@ -2557,16 +2665,29 @@ async function restoreJobs(){
   const rows=await dbAllJobs();
   rows.sort((a,b)=>(a.ts||0)-(b.ts||0));
   let n=0;
-  rows.forEach(r=>{
-    if(!r.payload||jobByName(r.name)) return;
-    let file=null,url=null;
-    try{ if(r.blob){ file=new File([r.blob],r.name,{type:r.blob.type||'video/mp4'}); url=URL.createObjectURL(file); } }catch(e){}
+  for(const r of rows){
+    if(!r.payload||jobByName(r.name)) continue;
+    let file=null,url=null,saved=0;
+    /* v2 first */
+    file=await dbGetMedia(r.name);
+    if(file) saved=1;
+    /* v1 fallback: the blob is still inline. Copy it across, and only strip the
+       original AFTER the media record is confirmed written — an interrupted
+       migration simply leaves the legacy blob in place and retries next time. */
+    if(!file&&r.blob){
+      try{ file=new File([r.blob],r.name,{type:r.blob.type||'video/mp4'}); }catch(e){ file=r.blob; }
+      if(file){
+        const ok=await dbPutMedia(r.name,file);
+        if(ok){ saved=1; _dbStats.migrated++; await dbStripLegacyBlob(r); }
+      }
+    }
+    try{ if(file) url=URL.createObjectURL(file); }catch(e){}
     const st=(r.status==='processing'||r.status==='queued')?'review':r.status;
-    const j={name:r.name,file,url,thumb:r.thumb,status:st,payload:r.payload,choices:r.choices,manuals:r.manuals,settings:r.settings,manualCuts:r.manualCuts||null,splits:r.splits||null,videoKey:r.videoKey||null,statusAt:r.statusAt||null,pending:0,_ts:r.ts||0};
+    const j={name:r.name,file,url,thumb:r.thumb,status:st,payload:r.payload,choices:r.choices,manuals:r.manuals,settings:r.settings,manualCuts:r.manualCuts||null,splits:r.splits||null,videoKey:r.videoKey||null,statusAt:r.statusAt||null,pending:0,_ts:r.ts||0,_mediaSaved:saved};
     j._lastSt=j.status;
     jobStats(j); batch.push(j); n++;
     if(!state.edits.find(e=>e.name===j.name)) state.edits.push({name:j.name,grad:GRADS[state.edits.length%GRADS.length]});
-  });
+  }
   if(n){ renderEditsGrid(); renderKanban(); updateQueueBadge(); }
 }
 let currentJobName=null, batchRunning=false;
@@ -2623,7 +2744,7 @@ async function processJobBg(j){
     const key=await PIPELINE.upload(j.file);
     const jobId=await PIPELINE.transcribe(key);
     j.payload=await PIPELINE.analyze(jobId);
-    j.status='review'; jobStats(j); registerJob(j); dbPutJob(j); cloudUploadVideo(j);
+    j.status='review'; jobStats(j); registerJob(j); dbSaveMediaOnce(j); dbPutJob(j); cloudUploadVideo(j);
   }catch(e){ j.status='error'; j.err=(e&&e.message)||'failed'; toast(j.name+': '+j.err); logErr(j.err,'processJobBg:'+j.name); }
   renderKanban(); updateQueueBadge();
 }
@@ -2665,7 +2786,7 @@ async function startEdit(isDemo){
   first.status='processing'; renderKanban();
   try{
     first.payload=await runPipelineOnce('Editing '+first.name+(batch.filter(b=>b.status==='queued').length?' (more processing in background)…':'…'),false,first.file);
-    first.status='review'; jobStats(first); registerJob(first); dbPutJob(first); cloudUploadVideo(first);
+    first.status='review'; jobStats(first); registerJob(first); dbSaveMediaOnce(first); dbPutJob(first); cloudUploadVideo(first);
   }catch(e){ first.status='error'; first.err=(e&&e.message)||'failed'; toast(first.name+': '+first.err); logErr(first.err,'runBatch:'+first.name); showView('home'); runBatch(); return; }
   openJob(first);
   runBatch();
@@ -2693,6 +2814,7 @@ async function hydrateJob(j){
     if(j.url){ try{URL.revokeObjectURL(j.url);}catch(e){} }
     j.url=URL.createObjectURL(j.file);
     j._hydrated=true;
+    j._mediaSaved=0; dbSaveMediaOnce(j);   /* store the hydrated copy once */
   }catch(e){}
 }
 async function openJob(j){
@@ -2701,7 +2823,7 @@ async function openJob(j){
     /* the other device may have finished syncing since this page loaded */
     try{
       const {data}=await sb.from('chop_jobs').select('data').eq('user_id',authUser.id).eq('name',j.name).maybeSingle();
-      if(data&&data.data&&data.data.videoKey){ j.videoKey=data.data.videoKey; dbWrite(j,j._ts||Date.now()); }
+      if(data&&data.data&&data.data.videoKey){ j.videoKey=data.data.videoKey; dbWriteMeta(j,{now:true}); }
     }catch(e){}
   }
   if(!j.file&&!j.url&&j.videoKey){
@@ -2711,6 +2833,7 @@ async function openJob(j){
   if(!j.file&&!j.url) toast(j.name+': video preview unavailable on this device — cuts and retakes still editable');
   await hydrateJob(j);
   saveCurrentJob();
+  dbFlushMeta();   /* commit the project we are leaving */
   currentJobName=j.name;
   state.file=j.file; state.fileUrl=j.url; resetThumbs();
   loadEditor(false,j.payload);
@@ -3076,6 +3199,7 @@ function applyJobToState(j){
   if(j.settings) state.settings={...j.settings};
 }
 async function exportJob(j,btn){
+  dbFlushMeta();   /* nothing pending when an export starts */
   if(!j.file&&j.videoKey){
     /* video lives in cloud storage — render server-side straight from there */
     if(_rendering){ toast('Another export is already running — one at a time'); return; }
