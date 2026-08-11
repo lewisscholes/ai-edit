@@ -3,288 +3,269 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Chop — auto-edit your talking-head videos</title>
-<meta name="description" content="Drop in raw footage. Chop removes dead air, filler words and retakes automatically — you approve every cut, then export a ready-to-post MP4.">
-<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="%231a6dff"/><stop offset="1" stop-color="%237c3aed"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(%23g)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="white"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="white" opacity=".55"/></svg>'>
+<title>Chop — Don't edit, just film.</title>
 <style>
-:root{--bg:#f6f8fb;--card:#fff;--ink:#101319;--mut:#66707f;--line:#e4e8ef;--blue:#1a6dff;--blue-dk:#0d4fc4;--blue-soft:#eaf1ff;--violet:#7c3aed;--green:#0e9f6e;--green-soft:#e2f7ee;--soft2:#eef1f6}
+:root{--bg:#08090c;--srf:#0f1117;--srf2:#141821;--ln:#1d2230;--ln2:#2a3142;--tx:#e9edf5;--mu:#8b93a5;--blue:#3b82f6;--vio:#8b5cf6;--grn:#34d399;--rose:#fb7185}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+body{margin:0;background:var(--bg);color:var(--tx);font:15.5px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;-webkit-font-smoothing:antialiased;
+ background-image:linear-gradient(var(--ln) 1px,transparent 1px),linear-gradient(90deg,var(--ln) 1px,transparent 1px);background-size:64px 64px;background-position:-1px -1px}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;background:radial-gradient(70% 50% at 50% -8%,rgba(59,130,246,.16),transparent 70%),radial-gradient(50% 40% at 90% 20%,rgba(139,92,246,.12),transparent 70%),linear-gradient(180deg,transparent 0 40%,var(--bg) 92%)}
 a{text-decoration:none;color:inherit}
-.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
-svg.ic{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+em{font-family:Georgia,serif;font-style:italic;font-weight:500;background:linear-gradient(92deg,#60a5fa,#a78bfa);-webkit-background-clip:text;background-clip:text;color:transparent}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px;position:relative;z-index:2}
+.eyeb{font:700 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.16em;color:var(--mu);text-transform:uppercase}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:700;font-size:14.5px;border-radius:10px;padding:12px 22px;transition:.18s;border:1px solid transparent}
+.btn.w{background:#fff;color:#08090c}
+.btn.w:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(255,255,255,.14)}
+.btn.gh{border-color:var(--ln2);color:var(--tx);background:rgba(255,255,255,.02)}
+.btn.gh:hover{border-color:#3d4658;background:rgba(255,255,255,.05)}
+.btn.bl{background:linear-gradient(135deg,var(--blue),var(--vio));color:#fff;box-shadow:0 8px 28px rgba(59,130,246,.35)}
+.btn.big{padding:15px 30px;font-size:16px;border-radius:12px}
+.rv{opacity:0;transform:translateY(22px);transition:opacity .7s,transform .7s}.rv.in{opacity:1;transform:none}
 
-/* nav */
-nav{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.85);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
-.nwrap{max-width:1120px;margin:0 auto;padding:13px 24px;display:flex;align-items:center;gap:12px}
-.logo{display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px}
-.logo svg{width:30px;height:30px}
-.nspace{flex:1}
-.btn{display:inline-flex;align-items:center;gap:8px;font-weight:800;border-radius:12px;padding:11px 22px;transition:.15s;cursor:pointer;border:none;font-size:14.5px}
-.btn.prim{background:var(--blue);color:#fff;box-shadow:0 6px 18px rgba(26,109,255,.28)}
-.btn.prim:hover{background:var(--blue-dk)}
-.btn.ghost{border:1.5px solid var(--line);background:var(--card)}
-.btn.ghost:hover{border-color:var(--blue);color:var(--blue-dk)}
-.btn.big{padding:15px 30px;font-size:16px;border-radius:14px}
+nav{position:sticky;top:0;z-index:60;backdrop-filter:blur(14px);background:rgba(8,9,12,.72);border-bottom:1px solid var(--ln)}
+.nw{max-width:1080px;margin:0 auto;padding:12px 24px;display:flex;align-items:center;gap:16px}
+.lg{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16.5px}
+.lg svg{width:26px;height:26px}
+.nsp{flex:1}
+.nl{font-size:13.5px;font-weight:600;color:var(--mu)}.nl:hover{color:var(--tx)}
 
-/* hero */
-.hero{padding:76px 0 30px;text-align:center;position:relative;overflow:hidden}
-.hero::before{content:"";position:absolute;top:-300px;left:50%;transform:translateX(-50%);width:900px;height:600px;background:radial-gradient(closest-side,rgba(26,109,255,.14),transparent);pointer-events:none}
-.pill{display:inline-flex;align-items:center;gap:8px;background:var(--blue-soft);color:var(--blue-dk);font-weight:800;font-size:12.5px;padding:6px 16px;border-radius:20px;margin-bottom:22px}
-.pill .dot{width:8px;height:8px;border-radius:50%;background:var(--green);animation:blink 1.6s infinite}
+.hero{padding:84px 0 0;text-align:center}
+h1{font-size:clamp(46px,7.4vw,86px);line-height:1.02;letter-spacing:-.035em;font-weight:800;margin:20px 0 20px}
+.sub{color:var(--mu);font-size:18px;max-width:520px;margin:0 auto 30px}
+.cta{display:flex;gap:11px;justify-content:center;flex-wrap:wrap}
+.note{color:#6d7688;font-size:12.5px;margin-top:16px;font-family:ui-monospace,Menlo,monospace}
+
+.stage{position:relative;margin:56px auto 0;display:flex;justify-content:center;align-items:flex-end;gap:0}
+.stage::after{content:"";position:absolute;left:50%;bottom:-40px;width:640px;max-width:100%;height:300px;transform:translateX(-50%);background:radial-gradient(closest-side,rgba(59,130,246,.22),transparent 72%);pointer-events:none}
+.phone{position:relative;z-index:2;width:290px;background:#0b0d12;border-radius:36px;padding:9px;border:1px solid #262c3a;box-shadow:0 40px 90px rgba(0,0,0,.7)}
+.scr{background:#0b0d12;border-radius:28px;overflow:hidden;display:flex;flex-direction:column;font-size:11px}
+.pv{position:relative;background:#0d1016;display:grid;place-items:center;padding:9px 9px 7px}
+.pf{position:relative;width:100%;aspect-ratio:9/15;border-radius:14px;overflow:hidden;background:#131824}
+.pf img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.pmode{position:absolute;top:9px;left:50%;transform:translateX(-50%);display:flex;background:rgba(8,9,12,.6);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.16);border-radius:13px;padding:2px;font-size:9px;font-weight:800}
+.pmode span{padding:3px 10px;border-radius:11px;color:rgba(255,255,255,.65)}
+.pmode .on{background:#fff;color:#0b0d12}
+.pbar{display:flex;align-items:center;gap:7px;padding:8px 11px;color:#8b93a5;font-size:9.5px;font-weight:700;border-top:1px solid #171c26}
+.pbar .pp{width:19px;height:19px;border-radius:50%;background:var(--blue);color:#fff;display:grid;place-items:center;font-size:8px}
+.pbar .tr{flex:1;height:3px;background:#232936;border-radius:2px;position:relative}
+.pbar .tr i{position:absolute;left:22%;top:-3.5px;width:10px;height:10px;border-radius:50%;background:#fff}
+.ptl{position:relative;display:flex;gap:3px;padding:11px 11px 9px;background:#0d1016}
+.ptl i{height:36px;border-radius:7px;background:linear-gradient(160deg,#333c50,#212734);flex:2}
+.ptl i.cut{flex:.6;background:repeating-linear-gradient(135deg,rgba(251,113,133,.55) 0 5px,rgba(251,113,133,.12) 5px 10px)}
+.ptl i.sel{flex:2.4;background:linear-gradient(160deg,#2c3f66,#1c2740);outline:2px solid rgba(122,162,255,.85);outline-offset:-1px}
+.pstick{position:absolute;left:47%;top:6px;bottom:5px;width:2px;background:#fff;border-radius:2px}
+.ptools{display:flex;gap:5px;padding:7px 11px 11px;background:#0d1016;overflow:hidden}
+.ptools .t{flex:none;width:41px;height:41px;border-radius:11px;background:#151a24;border:1px solid #232936;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:6.5px;font-weight:800;color:#8b93a5}
+.ptools .t.on{background:#16233c;border-color:#2f5cb8;color:#8fb1ff}
+.ptools .t b{font-size:12px;font-weight:600}
+.pcard{margin:0 11px 12px;background:#12161f;border:1px solid #1f2532;border-radius:12px;padding:9px 11px}
+.pcard .h{display:flex;align-items:center;font-size:8.5px;font-weight:800;margin-bottom:5px}
+.pcard .h .st{margin-left:auto;background:#0f2a20;color:#34d399;padding:2px 7px;border-radius:7px;font-size:7px}
+.pcard .b{font-size:8px;color:#8b93a5;line-height:1.55}
+.pcard .b s{color:#5b6472}
+
+.marq{margin-top:70px;border-top:1px solid var(--ln);border-bottom:1px solid var(--ln);background:rgba(15,17,23,.7);padding:14px 0;overflow:hidden;white-space:nowrap;position:relative;z-index:2}
+.mt{display:inline-block;animation:scroll 28s linear infinite}
+.mt span{display:inline-flex;gap:7px;margin:0 24px;font:700 12.5px ui-monospace,Menlo,monospace;color:var(--mu);letter-spacing:.02em}
+.mt .r{color:var(--rose)}.mt .g{color:var(--grn)}.mt .b{color:#7ea6ff}
+@keyframes scroll{to{transform:translateX(-50%)}}
+
+.sect{padding:104px 0;position:relative;z-index:2}
+h2{font-size:clamp(30px,4.6vw,48px);line-height:1.08;letter-spacing:-.03em;font-weight:800;margin:14px 0 14px}
+.lead{color:var(--mu);font-size:16.5px;max-width:540px}
+.ctr{text-align:center}.ctr .lead{margin:0 auto}
+
+.card{background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.012));border:1px solid var(--ln);border-radius:20px;padding:24px}
+.demo{display:grid;grid-template-columns:1fr 54px 1fr;align-items:center;margin-top:44px}
+.dh{display:flex;align-items:center;font:700 10.5px ui-monospace,Menlo,monospace;letter-spacing:.14em;color:var(--mu);margin-bottom:13px}
+.dh .tm{margin-left:auto;font-size:13px;color:var(--tx)}
+.dl{font-size:14px;line-height:2;color:#b9c1d1}
+.cut{background:rgba(251,113,133,.13);color:#fb7185;border-radius:5px;padding:1px 6px;font-weight:600;white-space:nowrap;display:inline-block;animation:cutaway 7s infinite}
+.cut.d2{animation-delay:.6s}.cut.d3{animation-delay:1.2s}.cut.d4{animation-delay:1.8s}.cut.d5{animation-delay:2.4s}
+@keyframes cutaway{0%,18%{opacity:1}26%,60%{opacity:1;text-decoration:line-through;text-decoration-thickness:2px}70%,88%{opacity:.12}96%,100%{opacity:1}}
+.arrow{width:38px;height:38px;margin:0 auto;display:grid;place-items:center;border-radius:50%;background:linear-gradient(135deg,var(--blue),var(--vio));color:#fff;font-weight:800;animation:pulse 2.4s infinite}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.09)}}
+.card.out{border-color:rgba(59,130,246,.5)}
+.card.out .dl{color:var(--tx);font-weight:500}
+.badge{display:inline-flex;gap:7px;background:rgba(52,211,153,.12);color:var(--grn);font-weight:700;font-size:12px;padding:5px 11px;border-radius:9px;margin-top:13px}
+.mini{display:flex;gap:3px;height:24px;margin-top:13px}
+.mini i{flex:1;border-radius:5px;background:linear-gradient(160deg,#333c50,#212734)}
+.mini i.g{flex:0 0 7px;background:var(--rose);animation:blink 2.2s infinite}
 @keyframes blink{50%{opacity:.35}}
-h1{font-size:clamp(34px,5.4vw,58px);line-height:1.08;margin:0 auto 18px;max-width:760px;letter-spacing:-.02em}
-h1 .grad{background:linear-gradient(90deg,var(--blue),var(--violet));-webkit-background-clip:text;background-clip:text;color:transparent}
-.sub{color:var(--mut);font-size:18px;max-width:620px;margin:0 auto 30px}
-.cta-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:10px}
-.cta-note{color:var(--mut);font-size:13px;font-weight:600}
 
-/* hero app frame */
-.appframe{max-width:880px;margin:46px auto 0;background:var(--card);border:1px solid var(--line);border-radius:20px 20px 0 0;box-shadow:0 30px 80px rgba(16,19,25,.14);overflow:hidden;text-align:left}
-.af-bar{display:flex;align-items:center;gap:10px;padding:12px 18px;border-bottom:1px solid var(--line)}
-.af-bar .dots i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
-.af-logo{display:flex;align-items:center;gap:8px;font-weight:800;font-size:13.5px;margin-left:6px}
-.af-logo svg{width:20px;height:20px}
-.af-sp{flex:1}
-.af-chip{background:var(--blue-soft);color:var(--blue-dk);font-weight:700;font-size:11px;padding:4px 10px;border-radius:14px}
-.af-body{padding:26px 30px 34px}
-.af-h{font-size:20px;font-weight:800;margin:0 0 2px}
-.af-sub{color:var(--mut);font-size:12.5px;margin:0 0 18px}
-.af-cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
-.af-card{border:1px solid var(--line);border-radius:13px;padding:14px 16px}
-.af-card .n{font-size:24px;font-weight:800;color:var(--blue)}
-.af-card .l{font-size:11.5px;font-weight:700;margin-top:4px}
-.af-card.heroic{background:linear-gradient(135deg,#1a6dff,#4e8dff);border:none;color:#fff}
-.af-card.heroic .n{color:#fff}
-.af-drop{border:2px dashed #c9d3e2;border-radius:14px;text-align:center;padding:26px}
-.af-drop b{font-size:14.5px}
-.af-drop p{color:var(--mut);font-size:11.5px;margin:4px 0 0}
-@media(max-width:680px){.af-cards{grid-template-columns:repeat(2,1fr)}}
+.feats{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:46px}
+.feat{background:var(--srf);border:1px solid var(--ln);border-radius:20px;padding:24px;display:flex;flex-direction:column;gap:14px;transition:.2s}
+.feat:hover{border-color:var(--ln2);transform:translateY(-3px)}
+.feat .n{font:700 11px ui-monospace,Menlo,monospace;color:var(--blue);letter-spacing:.14em}
+.feat h3{font-size:19px;margin:0;letter-spacing:-.01em}
+.feat p{color:var(--mu);font-size:14px;margin:0}
+.viz{background:#0b0d12;border:1px solid var(--ln);border-radius:14px;padding:16px;min-height:132px;display:flex;flex-direction:column;justify-content:center;gap:9px}
+.vl{display:flex;justify-content:space-between;font:700 10px ui-monospace,Menlo,monospace;color:var(--mu);letter-spacing:.1em}
+.vl b{color:var(--grn)}
+.vtl{display:flex;gap:4px;height:40px}
+.vtl i{flex:3;border-radius:7px;background:linear-gradient(160deg,#333c50,#212734)}
+.vtl i.g{flex:2;background:repeating-linear-gradient(135deg,rgba(251,113,133,.5) 0 5px,rgba(251,113,133,.12) 5px 10px);animation:collapse 5s infinite}
+.vtl i.g.d2{animation-delay:.4s}.vtl i.g.d3{animation-delay:.8s}
+@keyframes collapse{0%,25%{flex:2;opacity:1}45%,80%{flex:.02;opacity:.5}95%,100%{flex:2;opacity:1}}
+.take{background:#141922;border:1px solid #232a38;border-radius:10px;padding:9px 12px;font-size:12px;font-weight:600;color:#c3cbdb;display:flex;align-items:center;gap:9px}
+.take .len{margin-left:auto;font-size:10.5px;color:var(--mu)}
+.take.pick{border-color:var(--blue);animation:glow 3.6s infinite}
+@keyframes glow{0%,100%{background:#141922}45%,70%{background:rgba(59,130,246,.16)}}
+.take .ai{background:var(--grn);color:#04241a;font-size:9px;font-weight:800;padding:2px 7px;border-radius:7px}
+.vqe{position:relative;height:48px;border-radius:10px;background:linear-gradient(160deg,#333c50,#212734)}
+.vqe .fr{position:absolute;top:-5px;bottom:-5px;left:16%;width:46%;border:3px solid #fff;border-radius:10px;animation:trim 4.5s infinite ease-in-out}
+@keyframes trim{0%,100%{left:16%;width:46%}50%{left:26%;width:30%}}
+.vqe .cp{position:absolute;top:0;bottom:0;width:14px;background:#fff;display:grid;place-items:center;color:#111;font-weight:800;font-size:10px}
+.vqe .cp.l{left:-3px;border-radius:8px 0 0 8px}.vqe .cp.r{right:-3px;border-radius:0 8px 8px 0}
+.vqe .sk{position:absolute;left:52%;top:-10px;bottom:-10px;width:3px;background:#fff;border-radius:3px}
 
-/* steps */
-.sect{padding:84px 0}
-.sect.alt{background:var(--card);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
-.eyebrow{text-align:center;color:var(--blue);font-weight:800;font-size:12.5px;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px}
-h2{text-align:center;font-size:clamp(26px,3.6vw,38px);margin:0 auto 12px;letter-spacing:-.01em;max-width:640px}
-.sect-sub{text-align:center;color:var(--mut);max-width:560px;margin:0 auto 48px;font-size:16px}
-.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
-@media(max-width:900px){.steps{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:560px){.steps{grid-template-columns:1fr}}
-.step{background:var(--bg);border:1px solid var(--line);border-radius:18px;padding:26px 24px;position:relative}
-.sect:not(.alt) .step{background:var(--card)}
-.step .num{position:absolute;top:22px;right:22px;font-size:13px;font-weight:800;color:#c3ccda}
-.step .sic{width:46px;height:46px;border-radius:13px;background:var(--blue-soft);color:var(--blue);display:grid;place-items:center;margin-bottom:16px}
-.step b{font-size:16.5px;display:block;margin-bottom:6px}
-.step p{color:var(--mut);font-size:13.5px;margin:0}
+.prices{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;max-width:900px;margin:46px auto 0}
+.price{background:var(--srf);border:1px solid var(--ln);border-radius:18px;padding:26px;text-align:center;transition:.2s}
+.price:hover{transform:translateY(-4px);border-color:var(--ln2)}
+.price.mid{border-color:rgba(59,130,246,.6);background:linear-gradient(180deg,rgba(59,130,246,.09),var(--srf));position:relative}
+.price.mid::before{content:"MOST POPULAR";position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,var(--blue),var(--vio));color:#fff;font:800 9.5px ui-monospace,Menlo,monospace;letter-spacing:.12em;padding:4px 12px;border-radius:9px}
+.price .nm{font:700 11px ui-monospace,Menlo,monospace;letter-spacing:.14em;color:var(--mu)}
+.price .amt{font-size:42px;font-weight:800;margin:9px 0 2px;letter-spacing:-.03em}
+.price .amt small{font-size:14px;color:var(--mu);font-weight:700}
+.price .per{color:var(--mu);font-size:12.5px;margin-bottom:16px}
+.price ul{list-style:none;padding:0;margin:0 0 20px;color:var(--mu);font-size:13px;line-height:1.95}
+.pnote{text-align:center;color:var(--mu);font-size:13px;margin-top:22px}
+.pnote b{color:var(--tx)}
 
-/* retakes highlight */
-.moat{display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:center;margin-top:70px}
-@media(max-width:860px){.moat{grid-template-columns:1fr}}
-.moat h3{font-size:26px;margin:0 0 12px;letter-spacing:-.01em}
-.moat p{color:var(--mut);font-size:15.5px;margin:0 0 16px}
-.moat ul{margin:0;padding:0;list-style:none}
-.moat li{display:flex;gap:10px;align-items:flex-start;margin-bottom:11px;font-size:14.5px}
-.moat li svg{color:var(--green);margin-top:3px}
-.takespanel{background:#14161c;border-radius:20px;padding:26px;color:#e9edf5;box-shadow:0 24px 60px rgba(16,19,25,.25)}
-.tp-h{font-size:13px;font-weight:800;letter-spacing:.06em;color:#8a93a5;margin-bottom:14px}
-.tcard{background:#1d212b;border:1px solid #2a303c;border-radius:14px;padding:14px 16px;margin-bottom:12px}
-.tcard .tt{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;margin-bottom:10px}
-.tcard .sim{margin-left:auto;background:rgba(26,109,255,.2);color:#a5c0ff;font-size:10.5px;font-weight:800;padding:2px 9px;border-radius:10px}
-.take{display:flex;align-items:center;justify-content:space-between;border:1.5px solid #3d7ffb;border-radius:10px;padding:9px 13px;font-size:12.5px;font-weight:700;margin-bottom:8px;color:#cdd6e4}
-.take.sel{background:var(--blue);border-color:var(--blue);color:#fff}
-.take .len{font-size:11px;color:inherit;opacity:.75}
-.tp-note{font-size:11.5px;color:#8a93a5;text-align:center;margin-top:4px}
+.faq{max-width:660px;margin:36px auto 0}
+details{background:var(--srf);border:1px solid var(--ln);border-radius:13px;padding:16px 20px;margin-bottom:10px}
+summary{font-weight:700;font-size:15px;cursor:pointer;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";float:right;color:var(--mu)}
+details[open] summary::after{content:"−"}
+details p{color:var(--mu);font-size:14px;margin:11px 0 0}
 
-/* pricing */
-.trial{max-width:680px;margin:0 auto 40px;background:linear-gradient(135deg,#1a6dff,#7c3aed);border-radius:22px;padding:36px;color:#fff;text-align:center;box-shadow:0 20px 50px rgba(26,109,255,.3)}
-.trial h3{font-size:26px;margin:0 0 8px}
-.trial p{opacity:.9;margin:0 0 22px;font-size:15.5px}
-.trial .btn{background:#fff;color:var(--blue-dk)}
-.trial .btn:hover{transform:translateY(-1px)}
-.packs{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;max-width:980px;margin:0 auto}
-.pack{background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:26px 22px;text-align:center;position:relative;transition:.15s}
-.pack:hover{transform:translateY(-3px);box-shadow:0 12px 26px rgba(16,19,25,.09)}
-.pack.pop{border-color:var(--blue);box-shadow:0 10px 26px rgba(26,109,255,.15)}
-.pack .tag{position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:var(--blue);color:#fff;font-size:11px;font-weight:800;padding:3px 12px;border-radius:12px;white-space:nowrap}
-.pack .creds{font-size:32px;font-weight:800;color:var(--blue)}
-.pack .creds small{font-size:14px}
-.pack .name{font-weight:700;margin-top:2px}
-.pack .price{font-size:22px;font-weight:800;margin-top:10px}
-.pack .per{color:var(--mut);font-size:12.5px;margin-top:2px}
-.pack .save{display:inline-block;margin-top:8px;background:var(--green-soft);color:var(--green);font-size:11.5px;font-weight:800;padding:3px 10px;border-radius:12px;visibility:hidden}
-.pack .save.show{visibility:visible}
-.slidecard{background:var(--card);border:1.5px solid var(--line);border-radius:18px;padding:28px 30px;max-width:560px;margin:0 auto}
-.slidecard h3{margin:0 0 2px;font-size:17px;text-align:left}
-.ssub{color:var(--mut);font-size:13px;margin:0 0 8px}
-.cr-big{font-size:42px;font-weight:800;color:var(--blue);margin:10px 0;text-align:center;font-variant-numeric:tabular-nums}
-.cr-big small{font-size:17px;color:var(--mut);font-weight:700}
-.slidecard input[type=range]{-webkit-appearance:none;width:100%;height:4px;border-radius:4px;background:#dbe2ec;outline:none}
-.slidecard input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:#fff;border:2.5px solid var(--blue);cursor:pointer;box-shadow:0 1px 4px rgba(16,19,25,.2)}
-.tiers{display:flex;justify-content:space-between;margin-top:7px;font-size:10.5px;color:var(--mut);font-weight:700}
-.cr-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:20px}
-.cr-stat{background:var(--soft2);border-radius:12px;padding:12px 14px;text-align:center}
-.cr-stat small{display:block;color:var(--mut);font-size:11px;font-weight:700;margin-bottom:3px}
-.cr-stat b{font-size:19px;font-variant-numeric:tabular-nums}
-.pricing-note{text-align:center;color:var(--mut);font-size:12.5px;margin-top:22px}
+.offer{border:1px solid rgba(59,130,246,.4);border-radius:26px;padding:52px 36px;text-align:center;background:linear-gradient(180deg,rgba(59,130,246,.13),rgba(139,92,246,.07));position:relative;overflow:hidden}
+.offer p{color:var(--mu);max-width:460px;margin:0 auto 24px;font-size:15.5px}
+.claims{display:inline-flex;align-items:center;gap:10px;background:rgba(255,255,255,.05);border:1px solid var(--ln2);border-radius:11px;padding:8px 15px;font:700 12px ui-monospace,Menlo,monospace;margin-top:18px}
+.claims .bar{width:130px;height:6px;background:rgba(255,255,255,.1);border-radius:4px;overflow:hidden}
+.claims .bar i{display:block;height:100%;width:37%;background:linear-gradient(90deg,var(--blue),var(--vio));animation:fill 2s ease forwards}
+@keyframes fill{from{width:0}}
 
-/* footer */
-footer{border-top:1px solid var(--line);padding:34px 0;text-align:center;color:var(--mut);font-size:13px}
-footer .logo{justify-content:center;margin-bottom:8px}
+footer{border-top:1px solid var(--ln);padding:32px 0;color:var(--mu);font-size:13px;position:relative;z-index:2}
+.fw{max-width:1080px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+
+@media(max-width:900px){.feats{grid-template-columns:1fr}.demo{grid-template-columns:1fr}.arrow{transform:rotate(90deg);margin:14px auto}.prices{grid-template-columns:1fr}}
+@media(max-width:640px){
+ body{background-size:44px 44px}
+ .nw{padding:11px 16px}.nl{display:none}.wrap{padding:0 18px}
+ .hero{padding:52px 0 0}
+ h1{font-size:clamp(42px,13vw,56px)}
+ .sub{font-size:16.5px;margin-bottom:26px}
+ .cta{flex-direction:column;gap:10px}.cta .btn{width:100%}
+ .stage{margin-top:40px}
+ .phone{width:min(74vw,252px);border-radius:32px}
+ .stage::after{bottom:-20px;height:220px}
+ .marq{margin-top:46px;padding:11px 0}.mt span{margin:0 15px;font-size:11.5px}
+ .sect{padding:64px 0}
+ h2{font-size:clamp(28px,8.4vw,36px)}
+ .lead{font-size:15px}
+ .card{padding:18px}.dl{font-size:13px;line-height:1.95}
+ .feats{gap:14px;margin-top:32px}.feat{padding:20px}
+ .price{padding:22px}.price .amt{font-size:36px}
+ .offer{padding:36px 20px;border-radius:20px}.offer .btn{width:100%}
+ .claims{width:100%;justify-content:center}
+}
 </style>
 </head>
 <body>
+<nav><div class="nw">
+ <a class="lg" href="#"><svg viewBox="0 0 64 64"><defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g1)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="#fff"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="#fff" opacity=".55"/></svg>Chop</a>
+ <span class="nsp"></span>
+ <a class="nl" href="#feat">Features</a><a class="nl" href="#price">Pricing</a><a class="nl" href="#faq">FAQ</a>
+ <a class="btn w" href="https://lewisscholes.github.io/ai-edit/">Start chopping</a>
+</div></nav>
 
-<nav>
-  <div class="nwrap">
-    <a class="logo" href="#"><svg viewBox="0 0 64 64"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1a6dff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#lg)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="#fff"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="#fff" opacity=".55"/></svg>Chop</a>
-    <div class="nspace"></div>
-    <a class="btn ghost" href="#pricing">Pricing</a>
-    <a class="btn prim" href="https://lewisscholes.github.io/ai-edit/">Open the app</a>
-  </div>
-</nav>
+<section class="hero"><div class="wrap">
+ <div class="eyeb rv">Built for TikTok Shop affiliates</div>
+ <h1 class="rv">Don't edit,<br><em>just film.</em></h1>
+ <p class="sub rv">Chop cuts the dead air, filler words and messed-up takes out of your talking-head videos — automatically. Film once, review in seconds, post everywhere.</p>
+ <div class="cta rv"><a class="btn bl big" href="https://lewisscholes.github.io/ai-edit/">Chop your first video free</a><a class="btn gh big" href="#feat">See how it works</a></div>
+ <div class="note rv">3 free videos · no card · works on your phone</div>
 
-<!-- ============ HERO ============ -->
-<header class="hero">
-  <div class="wrap">
-    <div class="pill"><span class="dot"></span>Creators are chopping right now</div>
-    <h1>Raw video in.<br><span class="grad">Ready-to-post</span> video out.</h1>
-    <p class="sub">Chop cuts the dead air, filler words and retakes out of your talking-head videos automatically. You approve every cut — then export and post.</p>
-    <div class="cta-row">
-      <a class="btn prim big" href="https://lewisscholes.github.io/ai-edit/">Start chopping free</a>
-      <a class="btn ghost big" href="#how">See how it works</a>
-    </div>
-    <div class="cta-note">3 free videos · no card needed · nothing to install</div>
+ <div class="stage rv"><div class="phone"><div class="scr">
+  <div class="pv"><div class="pf"><img src="hero-still.jpg" alt=""><div class="pmode"><span>Raw</span><span class="on">Edited</span></div></div></div>
+  <div class="pbar"><span class="pp">▶</span>0:00<span class="tr"><i></i></span>0:14</div>
+  <div class="ptl"><i></i><i class="cut"></i><i class="sel"></i><i></i><i class="cut"></i><i></i><span class="pstick"></span></div>
+  <div class="ptools"><span class="t on"><b>🎬</b>Retakes</span><span class="t"><b>✂</b>Cuts</span><span class="t"><b>📄</b>Script</span><span class="t"><b>T</b>Text</span><span class="t"><b>🖼</b>Image</span><span class="t"><b>💬</b>Caps</span></div>
+  <div class="pcard"><div class="h">Retake 1 · 88% match<span class="st">Keeping Take 2</span></div><div class="b">Take 1 · first attempt · 3.0s<br><s>"Forty seven percent off this viral Medicube black…"</s></div></div>
+ </div></div></div>
+</div>
 
-    <div class="appframe">
-      <div class="af-bar">
-        <span class="dots"><i style="background:#ff5f57"></i><i style="background:#febc2e"></i><i style="background:#28c840"></i></span>
-        <span class="af-logo"><svg viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="url(#lg)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="#fff"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="#fff" opacity=".55"/></svg>Chop</span>
-        <span class="af-sp"></span>
-        <span class="af-chip">⌁ 184 credits</span>
-      </div>
-      <div class="af-body">
-        <div class="af-h">Dashboard</div>
-        <p class="af-sub">An overview of how your chopping is going.</p>
-        <div class="af-cards">
-          <div class="af-card heroic"><div class="n">37m</div><div class="l">Time saved editing</div></div>
-          <div class="af-card"><div class="n">6</div><div class="l">Videos edited</div></div>
-          <div class="af-card"><div class="n">$19</div><div class="l">Saved vs. manual</div></div>
-          <div class="af-card"><div class="n">3</div><div class="l">Day streak</div></div>
-        </div>
-        <div class="af-drop"><b>Drop your videos here to edit</b><p>MP4 or MOV · bulk uploads welcome · up to 2 GB each</p></div>
-      </div>
-    </div>
-  </div>
-</header>
-
-<!-- ============ HOW IT WORKS ============ -->
-<section class="sect alt" id="how">
-  <div class="wrap">
-    <div class="eyebrow">How it works</div>
-    <h2>From camera roll to posted in four steps</h2>
-    <p class="sect-sub">No timeline scrubbing. No cutting clips by hand. Chop does the tedious part and leaves you the decisions.</p>
-    <div class="steps">
-      <div class="step"><span class="num">01</span>
-        <div class="sic"><svg class="ic"><path d="M7 18.5a4.5 4.5 0 1 1 .9-8.9A5.5 5.5 0 0 1 18.6 11 3.8 3.8 0 0 1 18 18.5H7z"/><path d="M12 15.8v-5m0 0L9.4 13.4M12 10.8l2.6 2.6"/></svg></div>
-        <b>Upload your videos</b>
-        <p>Drop one video or fifty. Your footage stays on your device — only a tiny audio track is analysed, so even big files start in seconds.</p>
-      </div>
-      <div class="step"><span class="num">02</span>
-        <div class="sic"><svg class="ic"><circle cx="6" cy="6.5" r="2.4"/><circle cx="6" cy="17.5" r="2.4"/><path d="M8 8.1L19.5 19M8 15.9L19.5 5"/></svg></div>
-        <b>Auto-edit in seconds</b>
-        <p>Dead air, awkward pauses and every "um" are found and cut automatically. Tune how tight you want it with live sliders — or save your style once in the Cut Lab.</p>
-      </div>
-      <div class="step"><span class="num">03</span>
-        <div class="sic"><svg class="ic"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M3 9.5h18M7.2 4.5l2 5M12 4.5l2 5M16.8 4.5l2 5"/></svg></div>
-        <b>Pick your best takes</b>
-        <p>Said the same line three times? Chop pairs the takes side by side. Preview both, tap the keeper, done. Nothing is ever deleted without you.</p>
-      </div>
-      <div class="step"><span class="num">04</span>
-        <div class="sic"><svg class="ic"><path d="M12 4v10.5m0 0l-4-4m4 4l4-4M5 19.5h14"/></svg></div>
-        <b>Export &amp; post</b>
-        <p>One click renders a clean MP4 with smooth audio joins — right on your device. Download and post straight to TikTok, Reels or Shorts.</p>
-      </div>
-    </div>
-
-    <!-- retakes deep dive -->
-    <div class="moat">
-      <div>
-        <div class="eyebrow" style="text-align:left">The bit nobody else gets right</div>
-        <h3>Retakes are never cut behind your back</h3>
-        <p>Other auto-editors silently keep your last take — and get it wrong embarrassingly often. Chop shows you every matched take, side by side, and export stays locked until you've chosen.</p>
-        <ul>
-          <li><svg class="ic" style="width:16px;height:16px"><path d="M4.5 12.5l5 5L19.5 7"/></svg>Takes matched by what you actually said, not guesswork</li>
-          <li><svg class="ic" style="width:16px;height:16px"><path d="M4.5 12.5l5 5L19.5 7"/></svg>Preview each take with one tap</li>
-          <li><svg class="ic" style="width:16px;height:16px"><path d="M4.5 12.5l5 5L19.5 7"/></svg>Keep either — or both — it's your call</li>
-        </ul>
-      </div>
-      <div class="takespanel">
-        <div class="tp-h">RETAKES · 2 TO REVIEW</div>
-        <div class="tcard">
-          <div class="tt">"The first thing you notice is the build quality…"<span class="sim">92% match</span></div>
-          <div class="take"><span>Take 1 — stumbled</span><span class="len">3.8s</span></div>
-          <div class="take sel"><span>✓ Take 2 — clean</span><span class="len">4.7s</span></div>
-        </div>
-        <div class="tcard">
-          <div class="tt">"If you want one, the link is in my bio…"<span class="sim">89% match</span></div>
-          <div class="take"><span>Take 1 — wait, is the link up?</span><span class="len">4.7s</span></div>
-          <div class="take sel"><span>✓ Take 2 — clean</span><span class="len">4.8s</span></div>
-        </div>
-        <div class="tp-note">Export unlocks when every retake has your decision</div>
-      </div>
-    </div>
-  </div>
+<div class="marq"><div class="mt">
+ <span class="r">✂ um removed</span><span class="r">✂ 2.4s silence cut</span><span class="g">✓ retake matched</span><span class="b">▶ 1080p export</span><span class="r">✂ uhh removed</span><span class="g">✓ AI picked the better take</span><span class="r">✂ 1.8s pause cut</span><span class="b">▶ posted to TikTok</span>
+ <span class="r">✂ um removed</span><span class="r">✂ 2.4s silence cut</span><span class="g">✓ retake matched</span><span class="b">▶ 1080p export</span><span class="r">✂ uhh removed</span><span class="g">✓ AI picked the better take</span><span class="r">✂ 1.8s pause cut</span><span class="b">▶ posted to TikTok</span>
+</div></div>
 </section>
 
-<!-- ============ PRICING ============ -->
-<section class="sect" id="pricing">
-  <div class="wrap">
-    <div class="eyebrow">Pricing</div>
-    <h2>Try it free. Pay per video after.</h2>
-    <p class="sect-sub">One credit chops one video, any length up to 10 minutes. Credits never expire.</p>
+<section class="sect"><div class="wrap">
+ <div class="ctr rv"><div class="eyeb">The transform</div><h2>Watch a video <em>chop itself.</em></h2><p class="lead">One upload in, one clean cut out — no timeline scrubbing, no scissor work.</p></div>
+ <div class="demo rv">
+  <div class="card"><div class="dh">Raw footage<span class="tm">1:42</span></div>
+   <div class="dl">Okay so <span class="cut">um</span> this is the gadget everyone's talking about <span class="cut d2">··· 2.4s pause</span> it literally peels <span class="cut d3">wait let me start again</span> it literally peels everything in seconds <span class="cut d4">uhh</span> and it's on offer right now <span class="cut d5">··· 1.8s pause</span> so grab it from my showcase.</div></div>
+  <div class="arrow">→</div>
+  <div class="card out"><div class="dh">Chopped<span class="tm">0:58</span></div>
+   <div class="dl">This is the gadget everyone's talking about — it literally peels everything in seconds, and it's on offer right now, so grab it from my showcase.</div>
+   <span class="badge">✓ 44 seconds of dead weight removed</span>
+   <div class="mini"><i></i><i class="g"></i><i></i><i></i><i class="g"></i><i></i><i class="g"></i><i></i></div></div>
+ </div>
+</div></section>
 
-    <div class="trial">
-      <h3>Your first 3 videos are free</h3>
-      <p>Sign up and get 3 credits on us — no card, no subscription, no catch. See what Chop does to your own footage.</p>
-      <a class="btn big" href="https://lewisscholes.github.io/ai-edit/">Claim your free credits</a>
-    </div>
+<section class="sect" id="feat" style="padding-top:20px"><div class="wrap">
+ <div class="ctr rv"><div class="eyeb">What it does</div><h2>More videos posted.<br><em>Zero evenings lost.</em></h2><p class="lead">The three things that used to eat your editing time — handled.</p></div>
+ <div class="feats">
+  <div class="feat rv"><span class="n">01 / ONE UPLOAD</span><h3>Dead air, gone before you've made a brew</h3><p>Drop in raw footage and Chop strips every awkward pause and filler word automatically. You just watch the runtime fall.</p>
+   <div class="viz"><div class="vl"><span>YOUR TIMELINE</span><b>−38%</b></div><div class="vtl"><i></i><i class="g"></i><i></i><i class="g d2"></i><i></i><i class="g d3"></i><i></i></div><div class="vl"><span>1:42</span><span>0:58</span></div></div></div>
+  <div class="feat rv"><span class="n">02 / THE CHOP DIFFERENCE</span><h3>Retakes reviewed in seconds, not minutes</h3><p>Said the line three times? Chop lines every version up side by side and suggests the keeper. Nothing is ever cut without you.</p>
+   <div class="viz"><div class="vl"><span>RETAKE 1 · 96% MATCH</span></div><div class="take">"It's the pink numbers. How many…"<span class="len">3.4s</span></div><div class="take pick">"It's the pink numbers."<span class="ai">AI PICK</span><span class="len">1.8s</span></div></div></div>
+  <div class="feat rv"><span class="n">03 / QUICK EDIT</span><h3>Director's cut, in your thumbs</h3><p>A TikTok-style timeline with frame-perfect control: pinch to zoom, split, trim and snap cuts to the exact frame. The final say is always yours.</p>
+   <div class="viz"><div class="vl"><span>QUICK EDIT</span><b>frame-perfect</b></div><div class="vqe"><div class="sk"></div><div class="fr"><div class="cp l">‹</div><div class="cp r">›</div></div></div><div class="vl"><span>pinch · split · trim · snap</span></div></div></div>
+ </div>
+</div></section>
 
-    <div class="slidecard">
-      <h3>How many videos will you chop?</h3>
-      <p class="ssub">One credit chops one video. The more you buy, the less each costs.</p>
-      <div class="cr-big"><span id="crN">50</span><small> credits</small></div>
-      <input type="range" id="crSlider" min="5" max="300" step="5" value="50">
-      <div class="tiers"><span>£1.00</span><span>85p</span><span>75p</span><span>70p</span><span>65p</span><span>60p</span></div>
-      <div class="cr-stats">
-        <div class="cr-stat"><small>Per video</small><b id="crPer">85p</b></div>
-        <div class="cr-stat"><small>Total</small><b id="crTotal">£42.50</b></div>
-        <div class="cr-stat"><small>You save</small><b id="crSave" style="color:var(--green)">£7.50</b></div>
-      </div>
-      <a class="btn prim big" id="crBuy" style="display:block;text-align:center;margin-top:18px" href="https://lewisscholes.github.io/ai-edit/">Start with 3 free videos</a>
-    </div>
+<section class="sect" id="price"><div class="wrap">
+ <div class="ctr rv"><div class="eyeb">Pricing</div><h2>One credit. <em>One video.</em></h2><p class="lead">No subscriptions, no tiers to decode. Buy credits, chop videos. The more you buy, the cheaper each one gets.</p></div>
+ <div class="prices rv">
+  <div class="price"><div class="nm">STARTER</div><div class="amt">£1<small>/video</small></div><div class="per">under 50 credits</div><ul><li>Everything included</li><li>1080p exports</li><li>Works on your phone</li></ul><a class="btn gh" style="width:100%" href="https://lewisscholes.github.io/ai-edit/">Get credits</a></div>
+  <div class="price mid"><div class="nm">CREATOR</div><div class="amt">85p<small>/video</small></div><div class="per">50+ credits</div><ul><li>Everything included</li><li>Bulk upload queue</li><li>Cross-device sync</li></ul><a class="btn bl" style="width:100%" href="https://lewisscholes.github.io/ai-edit/">Get credits</a></div>
+  <div class="price"><div class="nm">PRO</div><div class="amt">75p<small>/video</small></div><div class="per">100+ credits · drops to 60p</div><ul><li>Everything included</li><li>Best rate per video</li><li>For daily posters</li></ul><a class="btn gh" style="width:100%" href="https://lewisscholes.github.io/ai-edit/">Get credits</a></div>
+ </div>
+ <div class="pnote rv">Every new account starts with <b>3 free videos</b>. Credits never expire.</div>
+</div></section>
 
-    <p class="pricing-note">VAT included · Payments powered by Stripe · Credits never expire</p>
-  </div>
-</section>
+<section class="sect" id="faq" style="padding-top:0"><div class="wrap">
+ <div class="ctr rv"><h2>Quick <em>questions.</em></h2></div>
+ <div class="faq rv">
+  <details><summary>Will it mess with my cuts?</summary><p>No — nothing is ever removed without you. Retakes are always shown side by side for you to pick, every cut is visible on the timeline, and one tap restores anything.</p></details>
+  <details><summary>Does it work on my phone?</summary><p>Yes — Chop is built phone-first. Film, upload, review and export straight from the TikTok-style editor, then save direct to your camera roll.</p></details>
+  <details><summary>What footage does it work best on?</summary><p>Talking-head content — product reviews, hauls, storytimes, UGC. If you're speaking to camera, Chop understands it.</p></details>
+  <details><summary>How long does it take?</summary><p>About 15 seconds of processing per minute of footage. Most creators go from raw file to posted video in under two minutes.</p></details>
+ </div>
+</div></section>
 
-<footer>
-  <div class="logo"><svg viewBox="0 0 64 64" style="width:26px;height:26px"><rect width="64" height="64" rx="16" fill="url(#lg)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="#fff"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="#fff" opacity=".55"/></svg>Chop</div>
-  Auto-cut talking-head videos · © 2026 Chop
-</footer>
+<section class="sect" style="padding-top:0"><div class="wrap"><div class="offer rv">
+ <div class="eyeb" style="color:#7ea6ff">Launch offer</div>
+ <h2>First 100 affiliates get<br><em>10 free credits.</em></h2>
+ <p>That's 10 videos chopped, on us — on top of your 3 free trial videos. Claim it, sign up, and the credits land in your account automatically.</p>
+ <a class="btn w big" href="https://lewisscholes.github.io/ai-edit/?offer=first100">Claim my 10 free credits</a>
+ <div class="claims"><span>37 / 100 claimed</span><span class="bar"><i></i></span></div>
+</div></div></section>
+
+<footer><div class="fw">
+ <span style="display:flex;align-items:center;gap:8px;font-weight:800;color:var(--tx)"><svg width="19" height="19" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#3b82f6"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="#fff"/></svg>Chop</span>
+ <span>© Chop 2026</span><span style="flex:1"></span><a href="https://lewisscholes.github.io/ai-edit/">Sign in</a><a href="#price">Pricing</a><a href="mailto:hello@chop.app">Support</a>
+</div></footer>
 
 <script>
-function perCredit(n){ if(n<50) return 1.00; if(n<100) return 0.85; return Math.max(0.60,0.75-0.05*Math.floor((n-100)/50)); }
-const gbp=v=>'£'+(Math.round(v*100)/100).toFixed(2);
-const S=document.getElementById('crSlider');
-function crRender(){
-  const n=+S.value, per=perCredit(n), total=n*per, save=n-total;
-  document.getElementById('crN').textContent=n;
-  document.getElementById('crPer').textContent=per<1?Math.round(per*100)+'p':gbp(per);
-  document.getElementById('crTotal').textContent=gbp(total);
-  document.getElementById('crSave').textContent=save>0?gbp(save):'—';
-}
-S.addEventListener('input',crRender); crRender();
+const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.12});
+document.querySelectorAll('.rv').forEach(el=>io.observe(el));
 </script>
 </body>
 </html>
