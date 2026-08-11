@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Chop — Don't edit, just film.</title>
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <style>
 :root{--bg:#08090c;--srf:#0f1117;--srf2:#141821;--ln:#1d2230;--ln2:#2a3142;--tx:#e9edf5;--mu:#8b93a5;--blue:#3b82f6;--vio:#8b5cf6;--grn:#34d399;--rose:#fb7185}
 *{box-sizing:border-box}
@@ -31,13 +33,15 @@ nav{position:sticky;top:0;z-index:60;backdrop-filter:blur(14px);background:rgba(
 .nsp{flex:1}
 .nl{font-size:13.5px;font-weight:600;color:var(--mu)}.nl:hover{color:var(--tx)}
 
-.hero{padding:84px 0 0;text-align:center}
+.hero{padding:76px 0 0}
+.hero>.wrap{display:grid;grid-template-columns:1.04fr .96fr;gap:44px;align-items:center}
+.hcopy{text-align:left}
 h1{font-size:clamp(46px,7.4vw,86px);line-height:1.02;letter-spacing:-.035em;font-weight:800;margin:20px 0 20px}
-.sub{color:var(--mu);font-size:18px;max-width:520px;margin:0 auto 30px}
-.cta{display:flex;gap:11px;justify-content:center;flex-wrap:wrap}
+.sub{color:var(--mu);font-size:18px;max-width:480px;margin:0 0 30px}
+.cta{display:flex;gap:11px;flex-wrap:wrap}
 .note{color:#6d7688;font-size:12.5px;margin-top:16px;font-family:ui-monospace,Menlo,monospace}
 
-.stage{position:relative;margin:56px auto 0;display:flex;justify-content:center;align-items:flex-end;gap:0}
+.stage{position:relative;margin:0;display:flex;justify-content:center;align-items:center}
 .stage::after{content:"";position:absolute;left:50%;bottom:-40px;width:640px;max-width:100%;height:300px;transform:translateX(-50%);background:radial-gradient(closest-side,rgba(59,130,246,.22),transparent 72%);pointer-events:none}
 .phone{position:relative;z-index:2;width:290px;background:#0b0d12;border-radius:36px;padding:9px;border:1px solid #262c3a;box-shadow:0 40px 90px rgba(0,0,0,.7)}
 .scr{background:#0b0d12;border-radius:28px;overflow:hidden;display:flex;flex-direction:column;font-size:11px}
@@ -152,6 +156,14 @@ details p{color:var(--mu);font-size:14px;margin:11px 0 0}
 footer{border-top:1px solid var(--ln);padding:32px 0;color:var(--mu);font-size:13px;position:relative;z-index:2}
 .fw{max-width:1080px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 
+@media(min-width:1001px){.hero{padding:58px 0 0}.phone{width:268px}.stage::after{bottom:0;height:260px}}
+@media(max-width:1000px){
+ .hero>.wrap{grid-template-columns:1fr;gap:0}
+ .hcopy{text-align:center}
+ .sub{margin:0 auto 30px}
+ .cta{justify-content:center}
+ .stage{margin-top:50px}
+}
 @media(max-width:900px){.feats{grid-template-columns:1fr}.demo{grid-template-columns:1fr}.arrow{transform:rotate(90deg);margin:14px auto}.prices{grid-template-columns:1fr}}
 @media(max-width:640px){
  body{background-size:44px 44px}
@@ -177,18 +189,20 @@ footer{border-top:1px solid var(--ln);padding:32px 0;color:var(--mu);font-size:1
 </head>
 <body>
 <nav><div class="nw">
- <a class="lg" href="#"><svg viewBox="0 0 64 64"><defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g1)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="#fff"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="#fff" opacity=".55"/></svg>Chop</a>
+ <a class="lg" href="#"><svg viewBox="0 0 64 64"><defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g1)"/><mask id="cm"><rect width="64" height="64" fill="#fff"/><rect x="-12" y="30.2" width="89" height="3.8" transform="rotate(-30 32 32)" fill="#000"/></mask><circle cx="32" cy="32" r="14.25" fill="none" stroke="#fff" stroke-width="9.13" stroke-linecap="round" stroke-dasharray="67.1 22.4" transform="rotate(52 32 32)" mask="url(#cm)"/></svg>Chop</a>
  <span class="nsp"></span>
  <a class="nl" href="#feat">Features</a><a class="nl" href="#price">Pricing</a><a class="nl" href="#faq">FAQ</a>
  <a class="btn w" href="https://lewisscholes.github.io/ai-edit/">Start chopping</a>
 </div></nav>
 
 <section class="hero"><div class="wrap">
+ <div class="hcopy">
  <div class="eyeb rv">Built for TikTok Shop affiliates</div>
  <h1 class="rv">Don't edit,<br><em>just film.</em></h1>
  <p class="sub rv">Chop cuts the dead air, filler words and messed-up takes out of your talking-head videos — automatically. Film once, review in seconds, post everywhere.</p>
  <div class="cta rv"><a class="btn bl big" href="https://lewisscholes.github.io/ai-edit/">Chop your first video free</a><a class="btn gh big" href="#feat">See how it works</a></div>
  <div class="note rv">3 free videos · no card · works on your phone</div>
+ </div>
 
  <div class="stage rv"><div class="phone"><div class="scr">
   <div class="pv"><div class="pf"><img src="hero-still.jpg" alt=""><div class="pmode"><span>Raw</span><span class="on">Edited</span></div></div></div>
@@ -259,7 +273,7 @@ footer{border-top:1px solid var(--ln);padding:32px 0;color:var(--mu);font-size:1
 </div></div></section>
 
 <footer><div class="fw">
- <span style="display:flex;align-items:center;gap:8px;font-weight:800;color:var(--tx)"><svg width="19" height="19" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#3b82f6"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="#fff"/></svg>Chop</span>
+ <span style="display:flex;align-items:center;gap:8px;font-weight:800;color:var(--tx)"><svg width="19" height="19" viewBox="0 0 64 64"><rect width="64" height="64" rx="16" fill="#3b82f6"/><mask id="cm"><rect width="64" height="64" fill="#fff"/><rect x="-12" y="30.2" width="89" height="3.8" transform="rotate(-30 32 32)" fill="#000"/></mask><circle cx="32" cy="32" r="14.25" fill="none" stroke="#fff" stroke-width="9.13" stroke-linecap="round" stroke-dasharray="67.1 22.4" transform="rotate(52 32 32)" mask="url(#cm)"/></svg>Chop</span>
  <span>© Chop 2026</span><span style="flex:1"></span><a href="https://lewisscholes.github.io/ai-edit/">Sign in</a><a href="#price">Pricing</a><a href="mailto:hello@chop.app">Support</a>
 </div></footer>
 
