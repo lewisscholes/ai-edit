@@ -1522,74 +1522,17 @@ function redo(){ if(!state.future.length) return; state.past.push(snap()); apply
 function updUndoUI(){ $('undoBtn').disabled=!state.past.length; $('redoBtn').disabled=!state.future.length; }
 
 /* ---------------- player ------------------------------------------- */
-/* ---------- single video, always ------------------------------------
-   The double-buffered "gapless" preview is GONE (11 Aug). It swapped two
-   <video> elements at each cut; when a swap was interrupted the visible
-   element and the playing element drifted apart, which froze the timeline,
-   made the play button look dead and sent scrubbing wild. One decoder,
-   one source of truth, boring and fast. */
+/* ---------- one video, one source of truth ---------------------------
+   This is the playback core exactly as it was in 42ed812 — the build that
+   felt right. The double-buffered "gapless" preview that replaced it, and
+   every patch layered on top of it, has been taken back out. */
 function gvActive(){ return $('vid'); }
 const player = {
-  get time(){ return state.useRealVideo ? gvActive().currentTime/state.scale : state.vt; },
-  set time(t){ if(state.useRealVideo) gvActive().currentTime=t*state.scale; else state.vt=t; },
-  play(){
-    state.playing=true;
-    if(state.useRealVideo){
-      const pr=gvActive().play();
-      if(pr&&pr.catch) pr.catch(()=>{ state.playing=false; syncPlayUI(); });
-    }
-    syncPlayUI();
-  },
-  pause(){ state.playing=false; if(state.useRealVideo) gvActive().pause(); syncPlayUI(); }
+  get time(){ return state.useRealVideo ? $('vid').currentTime/state.scale : state.vt; },
+  set time(t){ if(state.useRealVideo) $('vid').currentTime=t*state.scale; else state.vt=t; },
+  play(){ state.playing=true; if(state.useRealVideo) $('vid').play().catch(()=>{}); syncPlayUI(); },
+  pause(){ state.playing=false; if(state.useRealVideo) $('vid').pause(); syncPlayUI(); }
 };
-/* Guarantees exactly one visible, audible video element. A swap interrupted by a
-   tab switch could leave the audible one hidden and the visible one muted — which
-   looked exactly like "the video is stuck". */
-function gvNormalise(){
-  try{
-    const v=$('vid'); if(!v) return;
-    v.style.opacity=''; v.style.pointerEvents=''; v.muted=(+$('vol').value===0);
-  }catch(e){}
-}
-document.addEventListener('visibilitychange',()=>{
-  if($('viewEditor').classList.contains('hidden')) return;
-  if(document.hidden){
-    /* leave in a clean, agreed state rather than a half-paused one */
-    try{ if(state.useRealVideo&&state.playing) player.pause(); }catch(e){}
-    return;
-  }
-  /* back on screen: believe the elements, park the standby, rebuild the cached
-     timeline geometry so the first scrub is as fast as the last one */
-  try{
-    gvNormalise();
-    if(state.useRealVideo) state.playing=!gvActive().paused;
-    syncPlayUI();
-    _qeLC=null;
-    lastTs=null;
-    if(typeof qeLayout==='function') qeLayout();
-    paintTime(player.time);
-  }catch(e){}
-});
-/* Scrubbing behaves like TikTok: playback pauses the moment you grab the
-   timeline (so the decoder isn't fighting your seeks), the frame under your
-   finger previews live, and on release it plays on from exactly where you
-   landed — never from wherever playback had drifted to. */
-let _scrubResume=false;
-function scrubGrab(){
-  if(scrubbing) return;
-  scrubbing=true;
-  _scrubResume = state.useRealVideo ? !gvActive().paused : state.playing;
-  if(_scrubResume) player.pause();
-}
-function scrubRelease(){
-  if(!scrubbing) return;
-  scrubbing=false;
-  if(!_scrubResume) return;
-  _scrubResume=false;
-  if(player.time>=rawDur()-0.05) player.time=0;
-  if(state.mode==='edited'){ const iv=cutAt(player.time); if(iv) player.time=iv.e+0.005; }
-  player.play();
-}
 function syncPlayUI(){
   $('playBtn').textContent=state.playing?'❚❚':'▶';
   $('vstage').classList.toggle('playing',state.playing&&!state.useRealVideo);
@@ -1604,7 +1547,7 @@ function loop(ts){
   if(state.snippet){
     if(state.snippet.ctx){ /* skip cuts mid-preview so the splice is audible */
       const iv=cutAt(t);
-      if(iv&&iv.e<state.snippet.end){ const nt=iv.e+0.005; player.time=nt; t=nt; flashCut(); }
+      if(iv&&iv.e<state.snippet.end){ player.time=iv.e+0.005; t=iv.e+0.005; flashCut(); }
     }
     if(t>=state.snippet.end){ player.pause(); state.snippet=null; state.rtPreview=null; syncPrevBtns(); }
   }
@@ -2113,7 +2056,6 @@ function qeZoomSet(z){
     }
     const x0=ev.clientX, sl0=el.scrollLeft; let moved=false;
     window._qePanning=true;
-    scrubGrab();                       /* pause while the strip is under the finger */
     state.snippet=null; state.rtPreview=null;
     let panPend=false,panX=x0;
     const panApply=()=>{
@@ -2145,8 +2087,7 @@ function qeZoomSet(z){
       if(pts.size>0) return;         /* wait for all fingers */
       el.onpointermove=null;
       window._qePanning=false;
-      if(pinch){ pinch=null; scrubbing=false; _scrubResume=false; qeZoomSet(state.qeZoom); return; }  /* settle: one clean re-render */
-      scrubRelease();                  /* play on from exactly where the strip landed */
+      if(pinch){ pinch=null; qeZoomSet(state.qeZoom); return; }  /* settle: one clean re-render */
       if(!moved){
         const t=document.elementFromPoint(up.clientX,up.clientY);
         const ks=t&&t.closest?t.closest('.kseg'):null;
@@ -2347,16 +2288,13 @@ function syncModeUI(){
 document.querySelectorAll('#modeTgl button,#vMode button').forEach(b=>{
   b.onclick=()=>{ state.mode=b.dataset.m; state.qeGap=null; syncModeUI(); renderStats(); renderStrip(); };
 });
-$('scrub').addEventListener('pointerdown',scrubGrab);
 $('scrub').addEventListener('input',function(){
-  scrubGrab();
+  scrubbing=true;
   const frac=+this.value/1000;
   const t=state.mode==='edited'? editedToRaw(frac*editedDur()) : frac*rawDur();
   state.snippet=null; player.time=Math.max(0,Math.min(rawDur()-0.05,t)); paintTime(player.time);
 });
-['change','pointerup','pointercancel'].forEach(ev=>$('scrub').addEventListener(ev,scrubRelease));
-window.addEventListener('pointerup',scrubRelease);
-window.addEventListener('pointercancel',scrubRelease);
+$('scrub').addEventListener('change',()=>{ scrubbing=false; });
 $('vol').oninput=function(){ if(state.useRealVideo){ gvActive().volume=+this.value; gvActive().muted=+this.value===0; }
   $('muteBtn').innerHTML=+this.value===0
     ?'<svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5"/></svg>'
