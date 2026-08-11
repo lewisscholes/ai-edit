@@ -1309,6 +1309,16 @@ window.addEventListener('unhandledrejection',e=>logErr((e.reason&&e.reason.messa
 const PIPELINE = {
   async upload(file){
     let blob=file, name=file.name;
+    /* iOS hands out lazy photo-library files that can go stale between import and
+       processing. Prove the bytes are still there before committing to anything —
+       uploading a dead handle is what produced Deepgram “corrupt or unsupported data”. */
+    try{
+      const probe=await file.slice(0,65536).arrayBuffer();
+      if(!file.size||!probe||!probe.byteLength) throw new Error('empty');
+    }catch(pe){
+      logErr('source unreadable ('+(file.size||0)+'B): '+((pe&&pe.message)||pe),'pipeline.verify:'+file.name);
+      throw new Error('iOS let go of that clip before we could read it. Open Chop, pick the video again and it’ll go straight through.');
+    }
     try{ const a=await extractAudio(file); blob=a.blob; name=name.replace(/\.[^.]+$/,'')+a.ext; }
     catch(e){
       /* last resort: upload the full video. Far slower, so say so and record it. */
@@ -1316,6 +1326,7 @@ const PIPELINE = {
       logErr(((e&&e.message)||'audio extract failed')+' — FULL VIDEO FALLBACK '+mb+'MB','extractAudio:'+file.name);
       toast('Couldn’t prepare the audio — uploading the full video, this one will take longer');
     }
+    if(!blob||!blob.size) throw new Error('That clip came back empty from your library — pick it again and Chop will retry it.');
     let lastErr=null;
     for(let att=0;att<2;att++){
       try{
@@ -1540,6 +1551,9 @@ function gvInit(){
 }
 function gvPreload(t){
   if(!state.useRealVideo||!sbyV||!sbyV.src||sbyV===actV||!gvEligible()) return;
+  /* seeking a stalled second decoder starves the first one — that is what made
+     scrubbing crawl after the tab came back. Only preload a healthy, visible page. */
+  if(document.hidden||sbyV.readyState<1) return;
   const nc=cutIntervals().find(c=>c.s>t+0.01);
   if(!nc) return;
   const target=(nc.e+0.005)*state.scale;
@@ -1565,9 +1579,50 @@ function gvSwap(nt){
 const player = {
   get time(){ return state.useRealVideo ? gvActive().currentTime/state.scale : state.vt; },
   set time(t){ if(state.useRealVideo) gvActive().currentTime=t*state.scale; else state.vt=t; },
-  play(){ state.playing=true; if(state.useRealVideo) gvActive().play().catch(()=>{}); syncPlayUI(); },
+  play(){
+    state.playing=true;
+    if(state.useRealVideo){
+      const pr=gvActive().play();
+      if(pr&&pr.catch) pr.catch(()=>{ state.playing=false; syncPlayUI(); });
+    }
+    syncPlayUI();
+  },
   pause(){ state.playing=false; if(state.useRealVideo){ gvActive().pause(); if(sbyV&&sbyV!==actV) sbyV.pause(); } syncPlayUI(); }
 };
+/* Guarantees exactly one visible, audible video element. A swap interrupted by a
+   tab switch could leave the audible one hidden and the visible one muted — which
+   looked exactly like "the video is stuck". */
+function gvNormalise(){
+  try{
+    const v=$('vid'); if(!v) return;
+    if(!actV) actV=v;
+    const a=gvActive();
+    a.style.opacity=''; a.style.pointerEvents=''; a.muted=(+$('vol').value===0);
+    if(sbyV&&sbyV!==a){
+      try{ sbyV.pause(); }catch(e){}
+      sbyV.muted=true; sbyV.style.opacity='0'; sbyV.style.pointerEvents='none'; sbyV._target=null;
+    }
+  }catch(e){}
+}
+document.addEventListener('visibilitychange',()=>{
+  if($('viewEditor').classList.contains('hidden')) return;
+  if(document.hidden){
+    /* leave in a clean, agreed state rather than a half-paused one */
+    try{ if(state.useRealVideo&&state.playing) player.pause(); }catch(e){}
+    return;
+  }
+  /* back on screen: believe the elements, park the standby, rebuild the cached
+     timeline geometry so the first scrub is as fast as the last one */
+  try{
+    gvNormalise();
+    if(state.useRealVideo) state.playing=!gvActive().paused;
+    syncPlayUI();
+    _qeLC=null;
+    lastTs=null;
+    if(typeof qeLayout==='function') qeLayout();
+    paintTime(player.time);
+  }catch(e){}
+});
 function syncPlayUI(){
   $('playBtn').textContent=state.playing?'❚❚':'▶';
   $('vstage').classList.toggle('playing',state.playing&&!state.useRealVideo);
@@ -2319,6 +2374,10 @@ $('playBtn').onclick=()=>{
       else { sbyV.pause(); sbyV.volume=1; sbyV.muted=true; sbyV._unlocked=true; }
     }catch(e){ try{sbyV.muted=true;sbyV.volume=1;}catch(e2){} sbyV._unlocked=true; }
   }
+  /* the browser pauses media in a backgrounded tab without telling us, which used
+     to leave state.playing stuck true — the next tap then "did nothing" because it
+     was pausing an already-paused video. Trust the element, not the flag. */
+  if(state.useRealVideo){ state.playing=!gvActive().paused; syncPlayUI(); }
   if(state.playing&&state.snippet){ state.snippet=null; state.rtPreview=null; syncPrevBtns(); }
   state.snippet=null;
   if(state.playing) player.pause();
@@ -2776,7 +2835,11 @@ function loadEditor(isDemo,payload,opts){
   actV=vid; vid.style.opacity=''; vid.style.pointerEvents=''; vid.muted=false;
   if(state.useRealVideo){
     if(/^https?:/.test(state.fileUrl)) vid.crossOrigin='anonymous'; else vid.removeAttribute('crossorigin');
+    vid.preload='auto';
     vid.src=state.fileUrl; vid.classList.remove('hidden'); $('vstage').classList.add('hidden');
+    /* a fresh <video> paints nothing until a frame is decoded — nudge it to frame 0
+       so the editor opens on the picture, not a black rectangle */
+    try{ vid._painted=false; }catch(e){}
     gvInit();
     /* SPEED: the standby video stays EMPTY at load — the main preview and the
        timeline thumbnails get the decoder to themselves. The standby only
@@ -2789,7 +2852,10 @@ function loadEditor(isDemo,payload,opts){
       }catch(e){}
     }
     state.scale=1;
-    vid.onloadedmetadata=()=>{ state.scale=state.realAnalysis?1:(vid.duration/DEMO_DUR||1); };
+    vid.onloadedmetadata=()=>{
+      state.scale=state.realAnalysis?1:(vid.duration/DEMO_DUR||1);
+      if(!vid._painted){ vid._painted=true; try{ vid.currentTime=0.001; }catch(e){} }
+    };
   } else {
     if(sbyV){ try{ sbyV.pause(); sbyV.removeAttribute('src'); sbyV.style.opacity='0'; }catch(e){} }
     vid.removeAttribute('src'); vid.classList.add('hidden'); $('vstage').classList.remove('hidden');
