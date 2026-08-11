@@ -915,7 +915,7 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
     <h3>How many videos do you want to chop?</h3>
     <p class="lsub">One credit chops one video. The more you buy, the less each video costs.</p>
     <div class="cr-big"><span id="crN">50</span><small> credits</small></div>
-    <input type="range" id="crSlider" min="5" max="300" step="5" value="50">
+    <input type="range" id="crSlider" min="1" max="300" step="1" value="50">
     <div class="tiers">
       <span>£1.00</span><span>85p</span><span>75p</span><span>70p</span><span>65p</span><span>60p</span>
     </div>
@@ -3288,6 +3288,26 @@ async function initAuth(){
     });
   }catch(e){ showView('auth'); $('authErr').textContent='Couldn’t reach the sign-in service — refresh to retry.'; }
 }
+/* back from Stripe: poll chop_profiles until the webhook has landed the credits */
+async function checkPaidReturn(){
+  const q=new URLSearchParams(location.search);
+  if(q.get('paid')!=='1') return;
+  history.replaceState(null,'',location.pathname);
+  toast('Payment received \u2014 adding your credits\u2026');
+  const before=creditsGet();
+  for(let i=0;i<12;i++){
+    await wait(1500);
+    try{
+      const {data}=await sb.from('chop_profiles').select('credits').eq('id',authUser.id).maybeSingle();
+      if(data && data.credits!=null && data.credits!==before){
+        creditsSet(data.credits,true); renderCredits();
+        toast('Credits added \u2014 you\u2019re good to go.');
+        return;
+      }
+    }catch(e){}
+  }
+  toast('Payment received. Credits will appear in a moment \u2014 refresh if not.');
+}
 async function routeAuth(session){
   authUser=session?session.user:null;
   if(!authUser){ userProfile=null; syncHeaderProfile(); setAuthMode(window.__authMode==='up'?'up':'in'); showView('auth'); return; }
@@ -3302,6 +3322,7 @@ async function routeAuth(session){
   /* account-wide sync: pull jobs/credits/stats saved from any device */
   try{ await window._restoredP; }catch(e){}
   cloudSyncCredits(); cloudSyncStats(); cloudSyncJobs();
+  checkPaidReturn();
 }
 /* uploaded avatars must be fetched with CORS: the app is cross-origin
    isolated (for the renderer), which blocks plain <img>/CSS loads */
@@ -3814,10 +3835,33 @@ $('renderBtn').onclick=async()=>{
     $('crPer').textContent=per<1?Math.round(per*100)+'p':gbp(per);
     $('crTotal').textContent=gbp(total);
     $('crSave').textContent=save>0?gbp(save):'—';
-    $('crBuy').textContent='Buy '+n+' credits for '+gbp(total);
+    $('crBuy').textContent='Buy '+n+' credit'+(n===1?'':'s')+' for '+gbp(total);
   }
   $('crSlider').oninput=crRender;
-  $('crBuy').onclick=()=>toast('Checkout coming soon — payments aren’t live yet');
+  async function startCheckout(){
+    const btn=$('crBuy');
+    if(!sb||!authUser){ toast('Sign in to buy credits.'); return; }
+    const n=+$('crSlider').value;
+    const label=btn.textContent;
+    btn.disabled=true; btn.textContent='Opening checkout\u2026';
+    try{
+      const {data:{session}}=await sb.auth.getSession();
+      if(!session) throw new Error('Sign in to buy credits.');
+      const r=await fetch(SB_URL+'/functions/v1/chop-checkout',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','apikey':ANON_KEY,'Authorization':'Bearer '+session.access_token},
+        body:JSON.stringify({credits:n})
+      });
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok||!j.url) throw new Error(j.error||'Couldn\u2019t start checkout.');
+      location.href=j.url;
+    }catch(e){
+      logErr((e&&e.message)||String(e),'checkout:'+(+$('crSlider').value)+'cr');
+      toast((e&&e.message)||'Couldn\u2019t start checkout \u2014 try again.');
+      btn.disabled=false; btn.textContent=label;
+    }
+  }
+  $('crBuy').onclick=startCheckout;
   crRender();
   /* glass nav + cut lab */
   $('navDash').onclick=()=>showView('home');
@@ -3878,9 +3922,7 @@ $('renderBtn').onclick=async()=>{
   },{passive:true});
   spEl.addEventListener('touchend',()=>{ spY0=null; },{passive:true});
   initAuth();
-  document.querySelectorAll('.pack .buy').forEach(b=>{
-    b.onclick=()=>toast('Checkout coming soon — payments aren’t live yet');
-  });
+
   renderCredits();
 })();
 </script>
