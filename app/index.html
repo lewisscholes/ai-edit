@@ -625,6 +625,32 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
 .mclose{float:right;font-size:19px;color:var(--mut);margin:-4px -4px 0 0;padding:5px}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--ink);color:var(--bg);font-weight:700;font-size:13px;padding:11px 19px;border-radius:12px;z-index:99;transition:.25s;opacity:0;max-width:calc(100vw - 32px);overflow-wrap:anywhere}
 .toast.show{transform:translateX(-50%) translateY(0);opacity:1}
+
+/* ---- out of credits prompt ---- */
+.oocwrap{position:fixed;inset:0;z-index:120;background:rgba(6,7,10,.72);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:20px}
+.oocsheet{background:var(--panel);border:1px solid var(--line);border-radius:22px;width:100%;max-width:420px;padding:26px 24px;box-shadow:0 30px 80px rgba(0,0,0,.45)}
+.oocgrab{display:none}
+.oochead{display:flex;gap:13px;align-items:flex-start}
+.oocspark{width:46px;height:46px;border-radius:14px;background:linear-gradient(135deg,var(--blue),var(--violet,#7c3aed));display:grid;place-items:center;font-size:21px;flex:none}
+.oochead h2{margin:0;font-size:20px;font-weight:800;letter-spacing:-.02em}
+.oochead p{color:var(--mut);font-size:13.5px;margin:8px 0 0}
+.oocpacks{display:grid;gap:8px;margin-top:18px}
+.oocpack{display:flex;align-items:center;gap:12px;border:1px solid var(--line);background:var(--soft,rgba(127,127,127,.06));border-radius:14px;padding:12px 14px;cursor:pointer;text-align:left;color:inherit;font:inherit;width:100%}
+.oocpack.best{border-color:rgba(26,109,255,.65)}
+.oocpack.sel{border-color:var(--blue);box-shadow:0 0 0 2px rgba(26,109,255,.25)}
+.oocpack b{font-size:15px;display:inline}
+.oocpack small{display:block;color:var(--mut);font-size:11.5px;font-weight:600;margin-top:2px}
+.oocpack .pr{margin-left:auto;text-align:right}
+.oocpack .pr small{font-size:11px}
+.ooctag{font-style:normal;background:linear-gradient(135deg,var(--blue),#7c3aed);color:#fff;font-size:9px;font-weight:800;letter-spacing:.08em;padding:3px 7px;border-radius:6px;vertical-align:2px}
+.oocbtn{display:block;width:100%;background:linear-gradient(135deg,var(--blue),#7c3aed);color:#fff;font-weight:800;font-size:15px;border:0;border-radius:14px;padding:14px 0;margin-top:16px;cursor:pointer}
+.oocskip{display:block;width:100%;background:none;border:0;color:var(--mut);font:inherit;font-size:12.5px;font-weight:700;padding:12px 0 2px;cursor:pointer}
+@media(max-width:640px){
+  .oocwrap{align-items:flex-end;padding:0}
+  .oocsheet{max-width:none;border-radius:24px 24px 0 0;border-bottom:0;padding:18px 18px calc(20px + env(safe-area-inset-bottom))}
+  .oocgrab{display:block;width:38px;height:4px;border-radius:3px;background:var(--line);margin:0 auto 16px}
+  .oochead h2{font-size:19px}
+}
 /* ================= mobile ================= */
 @media(max-width:760px){
   html,body{overflow-x:hidden;overscroll-behavior-y:none}
@@ -781,6 +807,22 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
   document.getElementById('authTitle').textContent='Create your account';
   document.getElementById('authSub').textContent='Three free videos are waiting.';
 }catch(e){}}</script>
+<div class="oocwrap hidden" id="oocWrap">
+  <div class="oocsheet" id="oocSheet">
+    <span class="oocgrab"></span>
+    <div class="oochead">
+      <span class="oocspark">⚡</span>
+      <div><h2>You're out of credits</h2><p>Your next video is one tap away — top up and pick straight back up where you left off.</p></div>
+    </div>
+    <div class="oocpacks">
+      <button class="oocpack" data-c="10"><span><b>10 credits</b><small>10 videos · £1.00 each</small></span><span class="pr"><b>£10</b></span></button>
+      <button class="oocpack best" data-c="50"><span><b>50 credits</b> <i class="ooctag">BEST VALUE</i><small>50 videos · 85p each</small></span><span class="pr"><b>£42.50</b><small>save £7.50</small></span></button>
+      <button class="oocpack" data-c="100"><span><b>100 credits</b><small>100 videos · 75p each</small></span><span class="pr"><b>£75</b><small>save £25</small></span></button>
+    </div>
+    <button class="oocbtn" id="oocGo">Top up and keep chopping</button>
+    <button class="oocskip" id="oocSkip">Not right now</button>
+  </div>
+</div>
 <div class="authwrap hidden" id="viewPsetup">
   <div class="authcard">
     <h2 id="psetupTitle">Set up your profile</h2>
@@ -1268,7 +1310,12 @@ const PIPELINE = {
   async upload(file){
     let blob=file, name=file.name;
     try{ const a=await extractAudio(file); blob=a.blob; name=name.replace(/\.[^.]+$/,'')+a.ext; }
-    catch(e){ logErr((e&&e.message)||'audio extract failed','extractAudio:'+file.name); /* last resort: upload the full video */ }
+    catch(e){
+      /* last resort: upload the full video. Far slower, so say so and record it. */
+      const mb=Math.round((file.size||0)/1048576);
+      logErr(((e&&e.message)||'audio extract failed')+' — FULL VIDEO FALLBACK '+mb+'MB','extractAudio:'+file.name);
+      toast('Couldn’t prepare the audio — uploading the full video, this one will take longer');
+    }
     let lastErr=null;
     for(let att=0;att<2;att++){
       try{
@@ -3311,7 +3358,7 @@ async function routeAuth(session){
   }catch(e){ userProfile=null; }
   syncHeaderProfile();
   if(!userProfile||!userProfile.name){ initPsetup(); showView('psetup'); }
-  else showView('home');
+  else { showView('home'); setTimeout(oocShow,600); }
   /* account-wide sync: pull jobs/credits/stats saved from any device */
   try{ await window._restoredP; }catch(e){}
   cloudSyncCredits(); cloudSyncStats(); cloudSyncJobs();
@@ -3580,6 +3627,16 @@ async function lpPlayPreview(){
 function creditsGet(){ try{ const v=localStorage.getItem('chopCredits'); return v===null?200:Math.max(0,parseInt(v,10)||0); }catch(e){ return 200; } }
 function creditsSet(n,skipCloud){ try{localStorage.setItem('chopCredits',String(n));}catch(e){} renderCredits(); if(!skipCloud&&sb&&authUser) sb.from('chop_profiles').update({credits:n}).eq('id',authUser.id).then(()=>{},()=>{}); }
 const BOLT_SVG='<svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M13 3L5.5 13.5h5L11 21l7.5-10.5h-5L13 3z"/></svg>';
+
+/* ---- out of credits: only ever at zero, on every app open ---- */
+let _oocPack=50;
+function oocShow(){
+  if(creditsGet()>0) return;
+  const w=$('oocWrap'); if(!w||!w.classList.contains('hidden')) return;
+  document.querySelectorAll('.oocpack').forEach(p=>p.classList.toggle('sel',+p.dataset.c===_oocPack));
+  w.classList.remove('hidden');
+}
+function oocHide(){ const w=$('oocWrap'); if(w) w.classList.add('hidden'); }
 function renderCredits(){ const n=creditsGet(); $('creditsChip').innerHTML=BOLT_SVG+' '+n+' credits'; if($('balNum')) $('balNum').textContent=n+' credits'; }
 
 /* ---------------- export ------------------------------------------- */
@@ -3646,7 +3703,14 @@ let _ffmpeg=null;
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=()=>rej(new Error('Failed to load '+src)); document.head.appendChild(s); }); }
 async function getFFmpeg(onLog){
   if(_ffmpeg) return _ffmpeg;
-  await loadScript('vendor/ffmpeg/ffmpeg.js'); /* self-hosted: workers must be same-origin */
+  /* self-hosted: workers must be same-origin. Retry — a single blip here used to
+     silently downgrade the whole job to a full-video upload (minutes instead of seconds). */
+  let _lsErr=null;
+  for(let a=0;a<3;a++){
+    try{ await loadScript('vendor/ffmpeg/ffmpeg.js?a='+a); _lsErr=null; break; }
+    catch(e){ _lsErr=e; await wait(400*(a+1)); }
+  }
+  if(_lsErr) throw _lsErr;
   const { FFmpeg } = window.FFmpegWASM;
   const ff=new FFmpeg();
   if(onLog) ff.on('log',({message})=>onLog(message));
@@ -3785,6 +3849,14 @@ $('renderBtn').onclick=async()=>{
   $('pmTheme').onclick=()=>{ try{localStorage.setItem('chopThemeChosen','1');}catch(e){} setTheme(!document.documentElement.classList.contains('dark')); };
   $('profBtn').onclick=e=>{ e.stopPropagation(); $('pMenu').classList.toggle('hidden'); };
   document.addEventListener('click',e=>{ if(!e.target.closest('.prof')) $('pMenu').classList.add('hidden'); });
+  /* out of credits prompt */
+  document.querySelectorAll('.oocpack').forEach(p=>p.onclick=()=>{
+    _oocPack=+p.dataset.c;
+    document.querySelectorAll('.oocpack').forEach(x=>x.classList.toggle('sel',x===p));
+  });
+  $('oocGo').onclick=()=>{ oocHide(); renderCredits(); showView('billing'); };
+  $('oocSkip').onclick=oocHide;
+  $('oocWrap').onclick=e=>{ if(e.target===$('oocWrap')) oocHide(); };
   $('pmBilling').onclick=()=>{ $('pMenu').classList.add('hidden'); renderCredits(); showView('billing'); };
   $('pmSettings').onclick=()=>{ $('pMenu').classList.add('hidden'); if(!authUser){ showView('auth'); return; } initPsetup(); $('psetupTitle').textContent='Your profile'; $('psetupSub').textContent='Update your details any time.'; $('pSave').textContent='Save changes'; $('psetupBilling').classList.remove('hidden'); showView('psetup'); };
   $('billBack').onclick=()=>showView('home');
