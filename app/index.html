@@ -752,7 +752,10 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
       </div>
       <div class="field"><label>Email</label><input type="email" id="authEmail" placeholder="you@example.com" autocomplete="email"></div>
       <div class="field"><label>Password</label><input type="password" id="authPass" placeholder="••••••••" autocomplete="current-password"></div>
+      <div class="field hidden" id="npRow"><label>New password</label><input type="password" id="authNewPass" placeholder="••••••••" autocomplete="new-password"></div>
       <button class="abtn" id="authGo">Sign in</button>
+      <button id="authForgot" style="background:none;border:0;color:var(--mut);font:inherit;font-size:12.5px;text-decoration:underline;cursor:pointer;margin-top:12px;padding:0;display:block;width:100%">Forgot your password?</button>
+      <button id="authBack" class="hidden" style="background:none;border:0;color:var(--mut);font:inherit;font-size:12.5px;text-decoration:underline;cursor:pointer;margin-top:12px;padding:0;display:block;width:100%">Back to sign in</button>
       <div class="aerr" id="authErr"></div>
       <div class="anote hidden" id="authNote"></div>
       <div class="freebadge" id="authFree">✦ New accounts get 3 free videos</div>
@@ -3277,19 +3280,24 @@ window.addEventListener('scroll',()=>{
 window.addEventListener('resize',()=>{ clearTimeout(_labFocusTimer); _labFocusTimer=setTimeout(evalLabFocus,300); });
 /* ---------------- auth + profiles ---------------------------------- */
 const AV_GRADS=['linear-gradient(135deg,#1a6dff,#7c3aed)','linear-gradient(135deg,#f0637a,#f9a35b)','linear-gradient(135deg,#0e9f6e,#38d9a9)','linear-gradient(135deg,#7c3aed,#e14fae)','linear-gradient(135deg,#f59f0b,#ef4444)','linear-gradient(135deg,#06b6d4,#3b82f6)','linear-gradient(135deg,#e14fae,#f9a35b)','linear-gradient(135deg,#101319,#66707f)'];
-let sb=null, authUser=null, userProfile=null, _avSel='g:0', _avUpload=null, _authMode='in';
+let sb=null, authUser=null, userProfile=null, _avSel='g:0', _avUpload=null, _authMode='in', _recovering=false;
 async function initAuth(){
   try{
     await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js');
     sb=window.supabase.createClient(SB_URL,ANON_KEY);
+    if(/type=recovery/.test(location.hash||'')) _recovering=true;
     const {data:{session}}=await sb.auth.getSession();
     await routeAuth(session);
-    sb.auth.onAuthStateChange((ev,s)=>{ if(ev==='SIGNED_OUT') routeAuth(null); });
+    sb.auth.onAuthStateChange((ev,s)=>{
+      if(ev==='SIGNED_OUT') routeAuth(null);
+      if(ev==='PASSWORD_RECOVERY'){ _recovering=true; showView('auth'); setAuthMode('newpass'); }
+    });
   }catch(e){ showView('auth'); $('authErr').textContent='Couldn’t reach the sign-in service — refresh to retry.'; }
 }
 async function routeAuth(session){
   authUser=session?session.user:null;
   if(!authUser){ userProfile=null; syncHeaderProfile(); setAuthMode(window.__authMode==='up'?'up':'in'); showView('auth'); return; }
+  if(_recovering){ showView('auth'); setAuthMode('newpass'); return; }
   try{
     const {data}=await sb.from('chop_profiles').select('*').eq('id',authUser.id).maybeSingle();
     userProfile=data||null;
@@ -3334,15 +3342,49 @@ function syncHeaderProfile(){
 }
 function setAuthMode(m){
   _authMode=m;
-  $('tabIn').classList.toggle('on',m==='in');
-  $('tabUp').classList.toggle('on',m==='up');
-  $('authGo').textContent=m==='in'?'Sign in':'Create account';
-  $('authTitle').textContent=m==='in'?'Welcome back':'Create your account';
-  $('authSub').textContent=m==='in'?'Sign in to keep chopping.':'Three free videos are waiting.';
+  const isIn=m==='in', isUp=m==='up', isReset=m==='reset', isNew=m==='newpass';
+  $('tabIn').classList.toggle('on',isIn);
+  $('tabUp').classList.toggle('on',isUp);
+  const tabs=document.querySelector('.atabs'); if(tabs) tabs.classList.toggle('hidden', isReset||isNew);
+  const emailRow=$('authEmail').closest('.field'), passRow=$('authPass').closest('.field');
+  if(emailRow) emailRow.classList.toggle('hidden', isNew);
+  if(passRow)  passRow.classList.toggle('hidden', isReset||isNew);
+  $('npRow').classList.toggle('hidden', !isNew);
+  $('authFree').classList.toggle('hidden', isReset||isNew);
+  $('authForgot').classList.toggle('hidden', !isIn);
+  $('authBack').classList.toggle('hidden', !(isReset||isNew));
+  $('authGo').textContent = isIn?'Sign in' : isUp?'Create account' : isReset?'Send reset link' : 'Save new password';
+  $('authTitle').textContent = isIn?'Welcome back' : isUp?'Create your account' : isReset?'Reset your password' : 'Choose a new password';
+  $('authSub').textContent = isIn?'Sign in to keep chopping.' : isUp?'Three free videos are waiting.' : isReset?'We\u2019ll email you a link to set a new one.' : 'Enter a new password for your account.';
   $('authErr').textContent=''; $('authNote').classList.add('hidden');
 }
 async function authGo(){
   const email=$('authEmail').value.trim(), pass=$('authPass').value;
+  if(_authMode==='reset'){
+    if(!email){ $('authErr').textContent='Enter your email address.'; return; }
+    $('authGo').disabled=true; $('authErr').textContent='';
+    try{
+      const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+      if(error) throw error;
+      $('authNote').textContent='Check your inbox \u2014 we\u2019ve sent you a link to set a new password.';
+      $('authNote').classList.remove('hidden');
+    }catch(e){ $('authErr').textContent=(e&&e.message)||'Couldn\u2019t send that \u2014 try again.'; }
+    $('authGo').disabled=false; return;
+  }
+  if(_authMode==='newpass'){
+    const np=$('authNewPass').value;
+    if(!np||np.length<6){ $('authErr').textContent='Use at least 6 characters.'; return; }
+    $('authGo').disabled=true; $('authErr').textContent='';
+    try{
+      const {error}=await sb.auth.updateUser({password:np});
+      if(error) throw error;
+      _recovering=false;
+      if(location.hash) history.replaceState(null,'',location.pathname+location.search);
+      const {data:{session}}=await sb.auth.getSession();
+      await routeAuth(session);
+    }catch(e){ $('authErr').textContent=(e&&e.message)||'Couldn\u2019t save that \u2014 try again.'; }
+    $('authGo').disabled=false; return;
+  }
   if(!email||!pass){ $('authErr').textContent='Enter your email and a password.'; return; }
   $('authGo').disabled=true; $('authErr').textContent='';
   try{
@@ -3743,6 +3785,8 @@ $('renderBtn').onclick=async()=>{
   /* auth */
   $('tabIn').onclick=()=>setAuthMode('in');
   $('tabUp').onclick=()=>setAuthMode('up');
+  $('authForgot').onclick=()=>{ $('authEmail').value=$('authEmail').value.trim(); setAuthMode('reset'); };
+  $('authBack').onclick=()=>{ _recovering=false; setAuthMode('in'); };
   $('authGo').onclick=authGo;
   $('authPass').addEventListener('keydown',e=>{ if(e.key==='Enter') authGo(); });
   $('pSave').onclick=saveProfile;
