@@ -2570,6 +2570,8 @@ function metaRecord(j,ts){
   return {name:j.name,status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,
           settings:j.settings||null,manualCuts:j.manualCuts||null,splits:j.splits||null,
           videoKey:j.videoKey||null,statusAt:j.statusAt||null,
+          proxyKey:j.proxyKey||null,proxyStatus:j.proxyStatus||null,proxyDur:j.proxyDur||null,
+          proxyW:j.proxyW||null,proxyH:j.proxyH||null,proxyFps:j.proxyFps||null,proxyBytes:j.proxyBytes||null,
           thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,ts};
 }
 /* ---- metadata: debounced, tiny, never carries the video ---- */
@@ -2656,10 +2658,64 @@ async function dbStripLegacyBlob(r){
 /* iOS can freeze a backgrounded PWA without warning — get pending metadata out first */
 window.addEventListener('pagehide',()=>{ dbFlushMeta(); });
 document.addEventListener('visibilitychange',()=>{ if(document.hidden) dbFlushMeta(); });
+/* ---------------- editing proxy (P1A: generate only) ----------------
+   After the ORIGINAL lands in R2 we ask the backend to build a 540x960 H.264
+   editing proxy alongside it. This phase only records that it exists — the
+   editor still plays exactly the source it played before. Playback switching
+   is P1B and is deliberately not implemented here. */
+const PROXY_API=SB_URL+'/functions/v1/chop-proxy';
+async function proxyApi(body){
+  const r=await fetch(PROXY_API,{method:'POST',headers:{'Content-Type':'application/json','apikey':ANON_KEY,'Authorization':API_AUTH},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok||j.error) throw new Error(j.error||('proxy api '+r.status));
+  return j;
+}
+function proxyApply(j,res){
+  if(!j||!res) return;
+  j.proxyStatus=res.status||'none';
+  if(res.proxyKey) j.proxyKey=res.proxyKey;
+  if(res.proxyDur!=null) j.proxyDur=+res.proxyDur;
+  if(res.width) j.proxyW=res.width;
+  if(res.height) j.proxyH=res.height;
+  if(res.fps) j.proxyFps=+res.fps;
+  if(res.bytes) j.proxyBytes=+res.bytes;
+  dbPutJob(j);
+}
+/* start generation once — safe to call repeatedly, the server is idempotent */
+async function proxyStart(j){
+  if(!j||!j.videoKey) return;
+  if(j.proxyStatus==='ready'||j.proxyStatus==='building'||j.proxyStatus==='mismatch') return;
+  if((j._proxyTries||0)>=3) return;
+  j._proxyTries=(j._proxyTries||0)+1;
+  try{
+    const res=await proxyApi({action:'proxy_start',key:j.videoKey,jobDur:j.rawSec||null});
+    proxyApply(j,res);
+    if(res.status==='queued'||res.status==='building') proxyPoll(j);
+  }catch(e){ logErr((e&&e.message)||'proxy start failed','proxy.start:'+j.name); }
+}
+/* poll while it builds; gives up quietly — a proxy is an optimisation, never a
+   requirement, so nothing here can block editing */
+function proxyPoll(j,n){
+  n=n||0;
+  if(n>40||!j||!j.videoKey) return;
+  setTimeout(async()=>{
+    try{
+      const res=await proxyApi({action:'proxy_status',key:j.videoKey});
+      proxyApply(j,res);
+      if(res.status==='building'||res.status==='queued') return proxyPoll(j,n+1);
+      if(res.status==='ready'){
+        const ratio=(res.srcBytes&&res.bytes)?(res.srcBytes/res.bytes).toFixed(1):'?';
+        logErr('proxy ready '+res.width+'x'+res.height+' '+Math.round((res.bytes||0)/1024)+'KB from '+Math.round((res.srcBytes||0)/1048576)+'MB ('+ratio+'x) src='+res.srcDur+'s proxy='+res.proxyDur+'s in '+res.ms+'ms','proxy.ok:'+j.name);
+      }
+      else if(res.status==='mismatch') logErr('proxy duration mismatch src='+res.srcDur+' proxy='+res.proxyDur,'proxy.mismatch:'+j.name);
+      else if(res.status==='failed') logErr('proxy failed: '+(res.err||'unknown')+' tries='+res.tries,'proxy.fail:'+j.name);
+    }catch(e){ /* transient — try again on the next open */ }
+  },n<3?4000:8000);
+}
 /* ---------------- cloud sync (account-wide jobs/credits/stats) ------ */
 const _cloudQ={};
 function cloudStrip(j){
-  return {status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,settings:j.settings||null,manualCuts:j.manualCuts||null,splits:j.splits||null,thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,rawSec:j.rawSec||0,editedSec:j.editedSec||0,videoKey:j.videoKey||null,statusAt:j.statusAt||null};
+  return {status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,settings:j.settings||null,manualCuts:j.manualCuts||null,splits:j.splits||null,thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,rawSec:j.rawSec||0,editedSec:j.editedSec||0,videoKey:j.videoKey||null,statusAt:j.statusAt||null,proxyKey:j.proxyKey||null,proxyStatus:j.proxyStatus||null,proxyDur:j.proxyDur||null};
 }
 /* background upload of the full video so other devices can stream it */
 const _vidQ=[]; let _vidBusy=false;
@@ -2687,6 +2743,7 @@ async function vidPump(){
     });
     j.videoKey=p.key; j.syncPct=null;
     dbPutJob(j); renderKanban();
+    proxyStart(j);                       /* background: build the editing proxy */
     toast(j.name+' synced — now watchable on your other devices ✓');
   }catch(e){
     logErr((e&&e.message)||'sync upload failed','vidPump:'+j.name+' try'+((j._vidTries||0)+1));
@@ -2790,7 +2847,7 @@ async function restoreJobs(){
     }
     try{ if(file) url=URL.createObjectURL(file); }catch(e){}
     const st=(r.status==='processing'||r.status==='queued')?'review':r.status;
-    const j={name:r.name,file,url,thumb:r.thumb,status:st,payload:r.payload,choices:r.choices,manuals:r.manuals,settings:r.settings,manualCuts:r.manualCuts||null,splits:r.splits||null,videoKey:r.videoKey||null,statusAt:r.statusAt||null,pending:0,_ts:r.ts||0,_mediaSaved:saved};
+    const j={name:r.name,file,url,thumb:r.thumb,status:st,payload:r.payload,choices:r.choices,manuals:r.manuals,settings:r.settings,manualCuts:r.manualCuts||null,splits:r.splits||null,videoKey:r.videoKey||null,statusAt:r.statusAt||null,proxyKey:r.proxyKey||null,proxyStatus:r.proxyStatus||null,proxyDur:r.proxyDur||null,proxyW:r.proxyW||null,proxyH:r.proxyH||null,proxyFps:r.proxyFps||null,proxyBytes:r.proxyBytes||null,pending:0,_ts:r.ts||0,_mediaSaved:saved};
     j._lastSt=j.status;
     jobStats(j); batch.push(j); n++;
     if(!state.edits.find(e=>e.name===j.name)) state.edits.push({name:j.name,grad:GRADS[state.edits.length%GRADS.length]});
@@ -2939,6 +2996,7 @@ async function openJob(j){
   }
   if(!j.file&&!j.url) toast(j.name+': video preview unavailable on this device — cuts and retakes still editable');
   await hydrateJob(j);
+  if(j.videoKey&&j.proxyStatus!=='ready'&&j.proxyStatus!=='mismatch') proxyStart(j);   /* resume/backfill, background */
   saveCurrentJob();
   dbFlushMeta();   /* commit the project we are leaving */
   currentJobName=j.name;
