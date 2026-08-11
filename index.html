@@ -1436,6 +1436,16 @@ function updUndoUI(){ $('undoBtn').disabled=!state.past.length; $('redoBtn').dis
    never stalls on decode. Falls back to a plain seek if not ready. */
 let actV=null, sbyV=null;
 function gvActive(){ return actV||$('vid'); }
+/* gapless is ONLY worth it on desktop with a local file: on phones a second
+   decoder fights the first, and on cloud-streamed video it would download the
+   footage twice in parallel. Everywhere else playback is the original
+   single-video path — zero overhead. */
+function gvEligible(){
+  return window.innerWidth>760
+    && state.useRealVideo
+    && typeof state.fileUrl==='string'
+    && state.fileUrl.indexOf('blob:')===0;
+}
 function gvInit(){
   if(!actV) actV=$('vid');
   if(!sbyV){
@@ -1448,7 +1458,7 @@ function gvInit(){
   }
 }
 function gvPreload(t){
-  if(!state.useRealVideo||!sbyV||!sbyV.src||sbyV===actV) return;
+  if(!state.useRealVideo||!sbyV||!sbyV.src||sbyV===actV||!gvEligible()) return;
   const nc=cutIntervals().find(c=>c.s>t+0.01);
   if(!nc) return;
   const target=(nc.e+0.005)*state.scale;
@@ -2212,10 +2222,9 @@ $('tglLogo').onclick=function(){ state.showLogo=!state.showLogo; this.classList.
 
 /* ---------------- transport ---------------------------------------- */
 $('playBtn').onclick=()=>{
-  /* first play: NOW attach the standby video source (deferred from load so it
-     never competes with the preview/thumbnails), and unlock its audio for iOS
-     while we still have the user gesture */
-  if(sbyV&&!sbyV.src&&state.useRealVideo&&state.fileUrl){
+  /* first play: attach the standby source — desktop + local file ONLY (see
+     gvEligible). On mobile/streamed video the play path is untouched. */
+  if(sbyV&&!sbyV.src&&gvEligible()&&state.fileUrl){
     try{
       if(/^https?:/.test(state.fileUrl)) sbyV.crossOrigin='anonymous'; else sbyV.removeAttribute('crossorigin');
       sbyV.src=state.fileUrl;
