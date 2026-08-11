@@ -1600,7 +1600,94 @@ function paintTime(t){
 }
 
 /* ---------------- render everything -------------------------------- */
-function renderAll(){ renderStats(); renderTranscript(); renderRetakes(); renderCuts(); renderStrip(); renderFlow(); renderBadges(); renderOverlays(); }
+/* ---------- targeted rendering -------------------------------------
+   renderAll() rebuilds eight subtrees, two of which (transcript, timeline)
+   destroy and recreate hundreds of nodes. Most edits change far less than
+   that, so each action now updates only what it genuinely affects.
+   isCut() depends on: rtPreview, seg.manual, pair choices, settings.minSil,
+   settings.fillers/soft — NOT on manualCuts/splits. That is why quick-edit
+   operations never need to touch the transcript or the cuts list. */
+const _rStats={full:0,targeted:0,transcriptRebuild:0,transcriptState:0,timelineRebuild:0,timelineGeom:0,cutsList:0,retakes:0,flow:0};
+window.chopRenderStats=()=>Object.assign({},_rStats);
+
+/* transcript: same nodes, new classes */
+function updateTranscriptState(){
+  const el=$('trFlow');
+  if(!el||!el.querySelector('[data-seg]')){ renderTranscript(); return; }
+  const byId=new Map();
+  el.querySelectorAll('[data-seg]').forEach(n=>byId.set(n.dataset.seg,n));
+  for(const sg of state.segments){
+    const n=byId.get(String(sg.id));
+    if(!n){ renderTranscript(); return; }   /* structure drifted — rebuild once */
+    let cls;
+    if(sg.kind==='silence') cls='sil '+(isCut(sg)?'cut':'keep');
+    else{
+      cls='w '+sg.kind;
+      if(sg.retake&&state.pairs[sg.pair]&&state.pairs[sg.pair].choice===null) cls+=' retake-open';
+      if(isCut(sg)) cls+=' cut r-'+segReason(sg);
+    }
+    if(n.className!==cls) n.className=cls;
+  }
+  _rStats.transcriptState++;
+}
+
+/* timeline: mutate in place when the band structure is unchanged */
+function qeSequence(its){
+  const seq=[]; let prevKeep=false;
+  its.forEach(it=>{
+    if(it.type==='keep'){ if(prevKeep) seq.push({t:'split',x:it.x}); seq.push({t:'keep',it}); prevKeep=true; }
+    else { seq.push({t:'gap',it}); prevKeep=false; }
+  });
+  return seq;
+}
+function updateTimelineSegments(){
+  const el=$('qeStrip');
+  if(!el||!el.children.length){ renderStrip(); return; }
+  _qeLC=null;                                   /* layout inputs changed */
+  const its=qeLayout();
+  const seq=qeSequence(its);
+  const nodes=[...el.querySelectorAll('.kseg,.gapc,.splitmark')];
+  const domSig=nodes.map(n=>n.classList.contains('kseg')?'keep':(n.classList.contains('gapc')?'gap':'split')).join(',');
+  if(nodes.length!==seq.length||domSig!==seq.map(x=>x.t).join(',')){ renderStrip(); return; }
+  const rd=rawDur()||1;
+  seq.forEach((x,i)=>{
+    const n=nodes[i];
+    if(x.t==='split'){ n.style.left=(x.x*100)+'%'; return; }
+    const it=x.it;
+    n.style.left=(it.x*100)+'%'; n.style.width=(it.w*100)+'%';
+    n.dataset.fs=it.s; n.dataset.fe=it.e;
+    if(x.t==='keep'){
+      n.dataset.band=it.band;
+      n.classList.toggle('sel',state.qeSel===it.band);
+    }else{
+      const on=state.qeGap&&Math.abs(state.qeGap.s-it.s*rd)<0.05&&Math.abs(state.qeGap.e-it.e*rd)<0.05;
+      n.classList.toggle('sel',!!on);
+      n.title=fmt1((it.e-it.s)*rd)+' cut — tap, then Restore';
+      const ivRaw={s:it.s*rd,e:it.e*rd};
+      n.onclick=ev=>{ ev.stopPropagation(); qeSelectGap(on?null:ivRaw); };
+    }
+  });
+  qePaintThumbs(el);
+  const bandsRaw=qeBands();
+  if(state.qeSel!==null&&bandsRaw[state.qeSel]) qeFrame(el,its,bandsRaw[state.qeSel],rd);
+  qeSyncUI(bandsRaw);
+  if(typeof player!=='undefined') paintTime(player.time);
+  _rStats.timelineGeom++;
+}
+
+/* one dispatcher; rendering only — persistence stays at the call sites */
+function applyEditUpdate(o){
+  o=o||{};
+  _rStats.targeted++;
+  if(o.transcript==='state') updateTranscriptState();
+  else if(o.transcript==='rebuild') renderTranscript();
+  if(o.timeline) updateTimelineSegments();
+  if(o.retakes){ renderRetakes(); _rStats.retakes++; }
+  if(o.flow){ renderFlow(); _rStats.flow++; }
+  if(o.cuts){ renderCuts(); _rStats.cutsList++; }
+  renderStats(); renderBadges();
+}
+function renderAll(){ _rStats.full++; renderStats(); renderTranscript(); renderRetakes(); renderCuts(); renderStrip(); renderFlow(); renderBadges(); renderOverlays(); }
 
 function renderStats(){
   const rd=rawDur(), ed=editedDur();
@@ -1614,6 +1701,7 @@ function renderBadges(){
 }
 
 function renderTranscript(){
+  _rStats.transcriptRebuild++;
   const el=$('trFlow'); el.innerHTML='';
   for(const s of state.segments){
     if(s.kind==='silence'){
@@ -1647,7 +1735,7 @@ function toggleSeg(s){
   const target=!isCut(s);
   s.manual=null;
   if(isCut(s)!==target) s.manual=target;
-  renderAll();
+  applyEditUpdate({transcript:'state',timeline:true,cuts:true});
 }
 
 function renderRetakes(){
@@ -1674,7 +1762,7 @@ function renderRetakes(){
       prev.onclick=()=>previewRange(seg.start,seg.end,'rk'+idx+key,idx,key);
       const keep=document.createElement('button'); keep.className='keep';
       keep.textContent=p.choice===key?'✓ Keeping this':'Keep this take';
-      keep.onclick=()=>{ pushHist(); p.choice=key; clearRtManuals(idx); renderAll(); if(pendingPairs()===0) toast('All retakes reviewed — hit the green Done button when you’re happy'); };
+      keep.onclick=()=>{ pushHist(); p.choice=key; clearRtManuals(idx); applyEditUpdate({transcript:'state',timeline:true,retakes:true,flow:true,cuts:true}); if(pendingPairs()===0) toast('All retakes reviewed — hit the green Done button when you’re happy'); };
       btns.appendChild(prev); btns.appendChild(keep);
       tk.appendChild(top); tk.appendChild(txt); tk.appendChild(btns);
       card.appendChild(tk);
@@ -1682,15 +1770,15 @@ function renderRetakes(){
     const foot=document.createElement('div'); foot.className='rkfoot';
     if(p.weak&&p.choice===null){
       const nr=document.createElement('button'); nr.className='notrt'; nr.textContent='✕ Not a retake';
-      nr.onclick=()=>{ pushHist(); p.choice='both'; clearRtManuals(idx); renderAll(); toast('Dismissed — keeping everything'); };
+      nr.onclick=()=>{ pushHist(); p.choice='both'; clearRtManuals(idx); applyEditUpdate({transcript:'state',timeline:true,retakes:true,flow:true,cuts:true}); toast('Dismissed — keeping everything'); };
       foot.appendChild(nr);
     }
     const both=document.createElement('button'); both.textContent='Keep both';
-    both.onclick=()=>{ pushHist(); p.choice='both'; clearRtManuals(idx); renderAll(); };
+    both.onclick=()=>{ pushHist(); p.choice='both'; clearRtManuals(idx); applyEditUpdate({transcript:'state',timeline:true,retakes:true,flow:true,cuts:true}); };
     foot.appendChild(both);
     if(p.choice!==null){
       const un=document.createElement('button'); un.textContent='Reset';
-      un.onclick=()=>{ pushHist(); p.choice=null; clearRtManuals(idx); renderAll(); };
+      un.onclick=()=>{ pushHist(); p.choice=null; clearRtManuals(idx); applyEditUpdate({transcript:'state',timeline:true,retakes:true,flow:true,cuts:true}); };
       foot.appendChild(un);
     }
     card.appendChild(foot);
@@ -1861,6 +1949,7 @@ function qeXToFrac(x){
 }
 function renderStrip(){
   const el=$('qeStrip'); if(!el) return;
+  _rStats.timelineRebuild++;
   _qeLC=null; /* state changed — recompute layout */
   const rd=rawDur()||1;
   const wrap=$('qeWrap'); const wrapW=(wrap&&wrap.clientWidth)||600;
@@ -2008,7 +2097,7 @@ function qeFrame(el,its,bRaw,rd){
           if(tl) state.manualCuts.push({s:orig.s,e:cur.s});
           if(tr) state.manualCuts.push({s:cur.e,e:orig.e});
           state.qeSel=null;
-          renderAll(); saveCurrentJob(); updateQueueBadge();
+          applyEditUpdate({timeline:true}); saveCurrentJob(); updateQueueBadge();
         }else renderStrip();
       };
     };
@@ -2019,7 +2108,7 @@ function qeRestore(s,e){
   state.manualCuts=state.manualCuts.filter(c=>!(c.s<e-0.001&&c.e>s+0.001));
   state.segments.forEach(sg=>{ if(sg.end>s+0.001&&sg.start<e-0.001&&isCut(sg)&&!sg.retake) sg.manual=false; });
   state.qeSel=null; state.qeGap=null;
-  renderAll(); saveCurrentJob(); updateQueueBadge();
+  applyEditUpdate({timeline:true}); saveCurrentJob(); updateQueueBadge();
   toast('Footage restored');
 }
 function qeRestoreSel(){ if(state.qeGap) qeRestore(state.qeGap.s,state.qeGap.e); }
@@ -2033,7 +2122,7 @@ function qeSplit(){
   /* TikTok behaviour: the split stays visible and the RIGHT clip stays selected */
   const nb=qeBands().findIndex(x=>Math.abs(x.s-t)<0.06);
   state.qeSel=nb>=0?nb:null;
-  renderAll(); saveCurrentJob();
+  applyEditUpdate({timeline:true}); saveCurrentJob();
 }
 function qeDelete(){
   const bands=qeBands();
@@ -2042,7 +2131,7 @@ function qeDelete(){
   pushHist();
   state.manualCuts.push({s:b.s,e:b.e});
   state.qeSel=null;
-  renderAll(); saveCurrentJob(); updateQueueBadge();
+  applyEditUpdate({timeline:true}); saveCurrentJob(); updateQueueBadge();
   toast(fmt1(b.e-b.s)+' cut — tap the gap to undo');
 }
 function qeZoomSet(z){
@@ -2158,7 +2247,7 @@ function renderFlow(){
         ch.className='takechip'+(on?' sel':'')+(off?' off':'');
         ch.innerHTML='<span>'+label+'</span><span class="tdur">'+fmt1(seg.end-seg.start)+'</span>';
         ch.title='Click to keep this take · double-click to preview';
-        ch.onclick=()=>{ pushHist(); p.choice=key; clearRtManuals(s.pair); renderAll(); if(pendingPairs()===0) toast('All retakes reviewed — hit Done when you’re happy'); };
+        ch.onclick=()=>{ pushHist(); p.choice=key; clearRtManuals(s.pair); applyEditUpdate({transcript:'state',timeline:true,retakes:true,flow:true,cuts:true}); if(pendingPairs()===0) toast('All retakes reviewed — hit Done when you’re happy'); };
         ch.ondblclick=()=>previewRange(seg.start,seg.end);
         card.appendChild(ch);
       });
@@ -2269,11 +2358,29 @@ function syncSettingUI(){
 let histArmed=false;
 function armHist(){ if(!histArmed){ pushHist(); histArmed=true; setTimeout(()=>histArmed=false,600); } }
 $('sOverlap').oninput=function(){ armHist(); state.settings.overlapMs=+this.value; $('vOverlap').textContent=this.value+'ms'; };
-$('sStart').oninput=function(){ armHist(); state.settings.startPadMs=+this.value; $('vStart').textContent=(+this.value>=0?'+':'−')+Math.abs(+this.value)+'ms'; renderAll(); };
-$('sEnd').oninput=function(){ armHist(); state.settings.endPadMs=+this.value; $('vEnd').textContent=(+this.value>=0?'+':'−')+Math.abs(+this.value)+'ms'; renderAll(); };
-$('sSil').oninput=function(){ armHist(); state.settings.minSil=+this.value; $('vSil').textContent=(+this.value).toFixed(2)+'s'; renderAll(); };
-$('tglFill').onclick=function(){ pushHist(); state.settings.fillers=!state.settings.fillers; this.classList.toggle('on',state.settings.fillers); renderAll(); };
-$('tglSoft').onclick=function(){ pushHist(); state.settings.soft=!state.settings.soft; this.classList.toggle('on',state.settings.soft); renderAll(); };
+/* dragging a slider fires dozens of input events per second: collapse them into
+   one update per animation frame. armHist() still gives one undo step per drag. */
+let _setPend=null;
+function scheduleSettingsUpdate(kind){
+  if(_setPend){ if(kind==='cutstate') _setPend.kind='cutstate'; return; }
+  _setPend={kind};
+  let ran=false;
+  const run=()=>{
+    if(ran) return; ran=true;
+    const k=(_setPend&&_setPend.kind)||'geometry'; _setPend=null;
+    if(k==='cutstate') applyEditUpdate({transcript:'state',timeline:true,cuts:true});
+    else applyEditUpdate({timeline:true});
+  };
+  requestAnimationFrame(run);
+  /* rAF is throttled to nothing in a hidden tab — without this the pending flag
+     would stick and every later slider move would be swallowed */
+  setTimeout(run,100);
+}
+$('sStart').oninput=function(){ armHist(); state.settings.startPadMs=+this.value; $('vStart').textContent=(+this.value>=0?'+':'−')+Math.abs(+this.value)+'ms'; scheduleSettingsUpdate('geometry'); };
+$('sEnd').oninput=function(){ armHist(); state.settings.endPadMs=+this.value; $('vEnd').textContent=(+this.value>=0?'+':'−')+Math.abs(+this.value)+'ms'; scheduleSettingsUpdate('geometry'); };
+$('sSil').oninput=function(){ armHist(); state.settings.minSil=+this.value; $('vSil').textContent=(+this.value).toFixed(2)+'s'; scheduleSettingsUpdate('cutstate'); };
+$('tglFill').onclick=function(){ pushHist(); state.settings.fillers=!state.settings.fillers; this.classList.toggle('on',state.settings.fillers); applyEditUpdate({transcript:'state',timeline:true,cuts:true}); };
+$('tglSoft').onclick=function(){ pushHist(); state.settings.soft=!state.settings.soft; this.classList.toggle('on',state.settings.soft); applyEditUpdate({transcript:'state',timeline:true,cuts:true}); };
 $('undoBtn').onclick=undo; $('redoBtn').onclick=redo;
 /* subtitles */
 $('tglSubs').onclick=function(){ state.subtitles=!state.subtitles; this.classList.toggle('on',state.subtitles); };
