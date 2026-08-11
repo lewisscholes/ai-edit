@@ -150,7 +150,7 @@ details p{color:var(--mu);font-size:14px;margin:11px 0 0}
 .offer p{color:var(--mu);max-width:460px;margin:0 auto 24px;font-size:15.5px}
 .claims{display:inline-flex;align-items:center;gap:10px;background:rgba(255,255,255,.05);border:1px solid var(--ln2);border-radius:11px;padding:8px 15px;font:700 12px ui-monospace,Menlo,monospace;margin-top:18px}
 .claims .bar{width:130px;height:6px;background:rgba(255,255,255,.1);border-radius:4px;overflow:hidden}
-.claims .bar i{display:block;height:100%;width:37%;background:linear-gradient(90deg,var(--blue),var(--vio));animation:fill 2s ease forwards}
+.claims .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--blue),var(--vio));transition:width .9s cubic-bezier(.2,.7,.2,1)}
 @keyframes fill{from{width:0}}
 
 footer{border-top:1px solid var(--ln);padding:32px 0;color:var(--mu);font-size:13px;position:relative;z-index:2}
@@ -266,10 +266,10 @@ footer{border-top:1px solid var(--ln);padding:32px 0;color:var(--mu);font-size:1
 
 <section class="sect" style="padding-top:0"><div class="wrap"><div class="offer rv">
  <div class="eyeb" style="color:#7ea6ff">Launch offer</div>
- <h2>First 100 affiliates get<br><em>10 free credits.</em></h2>
- <p>That's 10 videos chopped, on us — on top of your 3 free trial videos. Claim it, sign up, and the credits land in your account automatically.</p>
- <a class="btn w big" href="/app/?offer=first100&amp;signup=1">Claim my 10 free credits</a>
- <div class="claims"><span>37 / 100 claimed</span><span class="bar"><i></i></span></div>
+ <h2 id="offerHead">First 10 affiliates get<br><em>10 free credits.</em></h2>
+ <p id="offerBody">That's 10 videos chopped, on us. Sign up and the credits land in your account automatically — no code to enter.</p>
+ <a class="btn w big" id="offerCta" href="/app/?signup=1">Claim my 10 free credits</a>
+ <div class="claims" id="offerClaims"><span id="offerCount">0 / 10 claimed</span><span class="bar"><i id="offerBar"></i></span></div>
 </div></div></section>
 
 <footer><div class="fw">
@@ -280,6 +280,27 @@ footer{border-top:1px solid var(--ln);padding:32px 0;color:var(--mu);font-size:1
 <script>
 const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{threshold:.12});
 document.querySelectorAll('.rv').forEach(el=>io.observe(el));
+/* live launch-offer counter — reads the public counter straight from the database */
+(function(){
+  var SB='https://vcrforlyuhapvkewsogq.supabase.co';
+  var K='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZjcmZvcmx5dWhhcHZrZXdzb2dxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzODk4NzAsImV4cCI6MjA5NTk2NTg3MH0.lcFC5aJFUGYrj4iw8oJ8R1bci4y_-aYKyQg8v9zrMqQ';
+  function paint(o){
+    var claimed=Math.min(o.claimed,o.cap), left=Math.max(0,o.cap-claimed), gone=left===0;
+    var count=document.getElementById('offerCount'), bar=document.getElementById('offerBar');
+    if(count) count.textContent=gone?('all '+o.cap+' claimed'):(claimed+' / '+o.cap+' claimed');
+    if(bar) bar.style.width=(o.cap?Math.round(claimed/o.cap*100):0)+'%';
+    if(gone){
+      var h=document.getElementById('offerHead'), b=document.getElementById('offerBody'), c=document.getElementById('offerCta');
+      if(h) h.innerHTML='Every new account gets<br><em>'+o.default_credits+' free videos.</em>';
+      if(b) b.textContent='The launch credits are gone, but your first '+o.default_credits+' videos are still on us. No card, no code — just sign up and start chopping.';
+      if(c) c.textContent='Start chopping free';
+    }
+  }
+  fetch(SB+'/rest/v1/chop_offer?select=claimed,cap,offer_credits,default_credits&id=eq.1',{headers:{apikey:K}})
+    .then(function(r){ return r.ok?r.json():null; })
+    .then(function(j){ if(j&&j[0]) paint(j[0]); })
+    .catch(function(){});
+})();
 </script>
 </body>
 </html>

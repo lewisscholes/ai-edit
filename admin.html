@@ -187,6 +187,28 @@ tr:last-child td{border-bottom:none}
   </div>
 </div>
 
+<!-- ============ USERS ============ -->
+<div class="wrap hidden" id="tabUsers">
+  <h1>Users</h1>
+  <p class="sub">Every registered creator, live from the database.</p>
+  <div class="impact" style="grid-template-columns:repeat(4,1fr)">
+    <div class="icard hero-card"><div class="big" id="uTotal">–</div><div class="lbl">Registered</div><div class="sub2" id="uOffer">launch offer –</div></div>
+    <div class="icard"><div class="big" id="uActive">–</div><div class="lbl">Active</div><div class="sub2">edited in the last 7 days</div></div>
+    <div class="icard"><div class="big" id="uDry">–</div><div class="lbl">Out of credits</div><div class="sub2">balance at zero</div></div>
+    <div class="icard"><div class="big" id="uBought">–</div><div class="lbl">Credits bought</div><div class="sub2" id="uSpend">all time</div></div>
+  </div>
+  <div class="panel">
+    <div class="phead"><b>Creator database</b><span class="sp"></span>
+      <input id="uSearch" placeholder="Search name or handle" style="background:var(--soft2);border:1px solid var(--line);border-radius:10px;padding:7px 12px;color:var(--ink);font:inherit;font-size:12.5px;max-width:220px">
+      <small style="margin-left:10px">newest first</small>
+    </div>
+    <table id="dbTable">
+      <tr><th>Creator</th><th>TikTok</th><th>Signed up</th><th>Stage</th><th>Credits</th><th>Bought</th><th>Videos</th></tr>
+      <tr><td colspan="7" class="loading">Loading…</td></tr>
+    </table>
+  </div>
+</div>
+
 <!-- ============ ROADMAP ============ -->
 <div class="wrap hidden" id="tabRoadmap">
   <h1>Roadmap</h1>
@@ -206,6 +228,7 @@ tr:last-child td{border-bottom:none}
 
 <div class="glassnav hidden" id="gnav">
   <button class="gbtn on" data-t="Overview"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="10" rx="2"/><rect x="13.5" y="3.5" width="7" height="6" rx="2"/><rect x="13.5" y="12.5" width="7" height="8" rx="2"/><rect x="3.5" y="16.5" width="7" height="4" rx="2"/></svg>Overview</button>
+  <button class="gbtn" data-t="Users"><svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><path d="M16.5 11.2A2.8 2.8 0 1 0 16 5.7M17 14.6c2.2.4 3.8 2.2 3.8 4.9"/></svg>Users</button>
   <button class="gbtn" data-t="Roadmap"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19V5M4 6h11l-2.5 3L15 12H4M20 19V9"/></svg>Roadmap</button>
 </div>
 
@@ -248,8 +271,8 @@ async function boot(){
 function show(m){
   $('gate').classList.toggle('hidden',m!=='gate');
   $('gnav').classList.toggle('hidden',m!=='app');
-  if(m!=='app'){ $('tabOverview').classList.add('hidden'); $('tabRoadmap').classList.add('hidden'); }
-  else { $('tabOverview').classList.remove('hidden'); $('tabRoadmap').classList.add('hidden');
+  if(m!=='app'){ $('tabOverview').classList.add('hidden'); $('tabUsers').classList.add('hidden'); $('tabRoadmap').classList.add('hidden'); }
+  else { $('tabOverview').classList.remove('hidden'); $('tabUsers').classList.add('hidden'); $('tabRoadmap').classList.add('hidden');
     document.querySelectorAll('.gbtn').forEach(x=>x.classList.toggle('on',x.dataset.t==='Overview')); }
 }
 $('gGo').onclick=async()=>{
@@ -265,8 +288,90 @@ $('signOut').onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
 document.querySelectorAll('.gbtn').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.gbtn').forEach(x=>x.classList.toggle('on',x===b));
   $('tabOverview').classList.toggle('hidden',b.dataset.t!=='Overview');
+  $('tabUsers').classList.toggle('hidden',b.dataset.t!=='Users');
   $('tabRoadmap').classList.toggle('hidden',b.dataset.t!=='Roadmap');
+  if(b.dataset.t==='Users') loadUsers();
 });
+
+/* ---------- users database ---------- */
+let _users=null;
+function esc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function stageOf(u){
+  if(!u.jobs) return ['Signed up','sg'];
+  if((u.credits||0)<=0) return ['Out of credits','oc'];
+  const d=u.last?(Date.now()-u.last)/86400000:999;
+  return d<=7?['Active','ac']:['Idle','id'];
+}
+function fmtDate(t){ if(!t) return '—'; const d=new Date(t); return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'2-digit'}); }
+function fmtAgo(t){
+  if(!t) return 'never';
+  const m=Math.floor((Date.now()-t)/60000);
+  if(m<60) return m<1?'just now':m+'m ago';
+  const h=Math.floor(m/60); if(h<24) return h+'h ago';
+  const d=Math.floor(h/24); return d+'d ago';
+}
+async function loadUsers(){
+  if(_users){ paintUsers(); return; }
+  const tb=$('dbTable');
+  try{
+    const [profs,jobs,buys,offer]=await Promise.all([
+      sb.from('chop_profiles').select('id,name,tiktok,created_at,credits,signup_bonus'),
+      sb.from('chop_jobs').select('user_id,created_at,updated_at'),
+      sb.from('chop_purchases').select('user_id,credits,pence'),
+      sb.from('chop_offer').select('claimed,cap,offer_credits,default_credits').eq('id',1).maybeSingle()
+    ]);
+    if(profs.error) throw profs.error;
+    const jm={}, bm={};
+    (jobs.data||[]).forEach(j=>{
+      const k=j.user_id; jm[k]=jm[k]||{n:0,last:0};
+      jm[k].n++;
+      const t=new Date(j.updated_at||j.created_at).getTime();
+      if(t>jm[k].last) jm[k].last=t;
+    });
+    (buys.data||[]).forEach(p=>{
+      const k=p.user_id; bm[k]=bm[k]||{c:0,p:0};
+      bm[k].c+=(p.credits||0); bm[k].p+=(p.pence||0);
+    });
+    _users=(profs.data||[]).map(p=>({
+      id:p.id, name:p.name||'(no name yet)', tiktok:p.tiktok||'', bonus:!!p.signup_bonus,
+      signed:new Date(p.created_at).getTime(), credits:(typeof p.credits==='number'?p.credits:0),
+      jobs:(jm[p.id]||{}).n||0, last:(jm[p.id]||{}).last||0,
+      bought:(bm[p.id]||{}).c||0, spent:(bm[p.id]||{}).p||0
+    })).sort((a,b)=>b.signed-a.signed);
+    const o=offer.data;
+    $('uOffer').textContent=o?('launch offer '+Math.min(o.claimed,o.cap)+'/'+o.cap+' claimed'):'launch offer –';
+    paintUsers();
+  }catch(e){
+    tb.innerHTML='<tr><th>Creator</th></tr><tr><td class="loading">Couldn’t load users — '+(e.message||e)+'</td></tr>';
+  }
+}
+function paintUsers(){
+  const q=($('uSearch').value||'').trim().toLowerCase();
+  const rows=_users.filter(u=>!q||u.name.toLowerCase().includes(q)||u.tiktok.toLowerCase().includes(q));
+  $('uTotal').textContent=_users.length;
+  $('uActive').textContent=_users.filter(u=>stageOf(u)[1]==='ac').length;
+  $('uDry').textContent=_users.filter(u=>(u.credits||0)<=0).length;
+  const tc=_users.reduce((a,u)=>a+u.bought,0), tp=_users.reduce((a,u)=>a+u.spent,0);
+  $('uBought').textContent=tc;
+  $('uSpend').textContent=tp?('£'+(tp/100).toFixed(2)+' all time'):'all time · Stripe not live yet';
+  let h='<tr><th>Creator</th><th>TikTok</th><th>Signed up</th><th>Stage</th><th>Credits</th><th>Bought</th><th>Videos</th></tr>';
+  if(!rows.length) h+='<tr><td colspan="7" class="loading">No creators match that search.</td></tr>';
+  rows.forEach(u=>{
+    const st=stageOf(u);
+    const col={ac:'#2fbf8f',id:'#f0a020',oc:'#e0355f',sg:'#8b93a5'}[st[1]];
+    h+='<tr>'
+      +'<td><b>'+esc(u.name)+'</b>'+(u.bonus?' <span style="font-size:10px;font-weight:800;color:#8fb1ff">LAUNCH 10</span>':'')+'</td>'
+      +'<td>'+(u.tiktok?esc(u.tiktok):'<span style="opacity:.4">—</span>')+'</td>'
+      +'<td>'+fmtDate(u.signed)+'</td>'
+      +'<td><span style="display:inline-flex;align-items:center;gap:6px"><i style="width:7px;height:7px;border-radius:50%;background:'+col+';display:inline-block"></i>'+st[0]+'<small style="opacity:.55">'+fmtAgo(u.last)+'</small></span></td>'
+      +'<td><b>'+u.credits+'</b></td>'
+      +'<td>'+(u.bought?u.bought+' <small style="opacity:.55">£'+(u.spent/100).toFixed(2)+'</small>':'<span style="opacity:.4">—</span>')+'</td>'
+      +'<td>'+u.jobs+'</td>'
+      +'</tr>';
+  });
+  $('dbTable').innerHTML=h;
+}
+$('uSearch').addEventListener('input',()=>{ if(_users) paintUsers(); });
 
 /* ---------- date filter ---------- */
 function rangeFor(key){
