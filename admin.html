@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chop Admin</title>
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="%231a6dff"/><stop offset="1" stop-color="%237c3aed"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(%23g)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="white"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="white" opacity=".55"/></svg>'>
+<style>
+:root{--bg:#0e1014;--panel:#151820;--ink:#e9edf5;--mut:#8a93a5;--line:#262a33;--blue:#1a6dff;--blue-dk:#6ea1ff;--blue-soft:#1c2634;--soft2:#1a1e27;--hovbg:#1c212b;--green:#2fbf8f;--green-soft:#12291f;--rose:#e0355f;--rose-soft:#2b141c;--amber:#f59e0b;--amber-soft:#2b2312}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;-webkit-font-smoothing:antialiased;padding-bottom:110px}
+button{font:inherit;border:none;background:none;cursor:pointer;color:inherit}
+input,select{font:inherit;color:var(--ink)}
+svg.ic{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.hidden{display:none!important}
+header{border-bottom:1px solid var(--line);background:var(--panel)}
+.hwrap{max-width:1060px;margin:0 auto;padding:12px 20px;display:flex;align-items:center;gap:12px}
+.logo{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px}
+.logo svg{width:26px;height:26px}
+.admchip{background:var(--rose-soft);color:#ff7d9d;font-weight:800;font-size:11px;padding:4px 11px;border-radius:12px;letter-spacing:.05em}
+.hsp{flex:1}
+.who{font-size:12px;color:var(--mut);font-weight:700}
+.out{border:1px solid var(--line);border-radius:10px;padding:7px 13px;font-size:12px;font-weight:700;color:var(--mut)}
+.out:hover{color:var(--ink);border-color:var(--blue)}
+.wrap{max-width:1060px;margin:0 auto;padding:24px 20px}
+h1{font-size:24px;margin:0 0 2px}
+.sub{color:var(--mut);font-size:13px;margin:0 0 18px}
+
+/* auth gate */
+.gate{max-width:380px;margin:80px auto;background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:28px}
+.gate h2{margin:0 0 4px;font-size:19px}
+.gate p{color:var(--mut);font-size:12.5px;margin:0 0 18px}
+.gate label{font-size:11px;font-weight:800;color:var(--mut);letter-spacing:.05em;display:block;margin:12px 0 5px}
+.gate input{width:100%;background:var(--soft2);border:1px solid var(--line);border-radius:11px;padding:11px 13px}
+.gate .go{width:100%;background:var(--blue);color:#fff;border-radius:12px;padding:13px;font-weight:800;margin-top:18px}
+.gerr{color:#ff7d9d;font-size:12px;font-weight:700;margin-top:10px;min-height:16px}
+
+/* date filter */
+.fbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:20px}
+.fq{border:1px solid var(--line);background:var(--panel);border-radius:11px;padding:8px 14px;font-size:12px;font-weight:800;color:var(--mut)}
+.fq:hover{border-color:var(--blue);color:var(--blue-dk)}
+.fq.on{background:var(--blue-soft);border-color:var(--blue);color:var(--blue-dk)}
+.fsep{width:1px;height:24px;background:var(--line);margin:0 6px}
+.fdate{background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:7px 10px;font-size:12px;font-weight:700;color-scheme:dark}
+.fgo{background:var(--blue);color:#fff;border-radius:11px;padding:8px 16px;font-size:12px;font-weight:800}
+
+/* stat cards */
+.impact{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
+.icard{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 20px}
+.icard .big{font-size:30px;font-weight:800;line-height:1.1}
+.icard .big small{font-size:15px;color:var(--mut)}
+.icard .lbl{font-size:12.5px;font-weight:700;margin-top:6px}
+.icard .sub2{font-size:11px;color:var(--mut);margin-top:2px}
+.icard.hero-card{background:linear-gradient(135deg,#1a6dff,#7c3aed);border:none;color:#fff}
+.icard.hero-card .big small,.icard.hero-card .sub2{color:rgba(255,255,255,.75)}
+
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px 20px;margin-bottom:22px}
+.phead{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.phead b{font-size:14.5px}
+.phead .sp{flex:1}
+.phead small{font-size:11px;color:var(--mut);font-weight:700}
+.legend{display:flex;gap:12px;font-size:10.5px;font-weight:700;color:var(--mut)}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:4px;font-style:normal}
+.bars{display:flex;align-items:flex-end;gap:4px;height:120px}
+.bcol{flex:1;display:flex;align-items:flex-end;gap:2px;height:100%}
+.bcol .b{flex:1;border-radius:4px 4px 2px 2px;min-height:2px}
+.b.s{background:linear-gradient(180deg,#1a6dff,#7c3aed)}
+.b.e{background:#2fbf8f}
+.blabels{display:flex;gap:4px;margin-top:6px}
+.blabels i{flex:1;text-align:center;font-size:8.5px;color:var(--mut);font-style:normal;font-weight:700;overflow:hidden;white-space:nowrap}
+.grid2{display:grid;grid-template-columns:1.4fr 1fr;gap:22px}
+@media(max-width:820px){.grid2{grid-template-columns:1fr}.impact{grid-template-columns:1fr 1fr}}
+
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;color:var(--mut);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;padding:0 8px 8px;border-bottom:1px solid var(--line)}
+td{padding:9px 8px;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:none}
+.uav{width:26px;height:26px;border-radius:50%;display:inline-grid;place-items:center;font-size:11px;font-weight:800;color:#fff;vertical-align:middle;margin-right:8px;background:linear-gradient(135deg,#1a6dff,#7c3aed);background-size:cover;background-position:center}
+.uchip{font-size:10px;font-weight:800;padding:2px 8px;border-radius:9px}
+.uchip.act{background:var(--green-soft);color:var(--green)}
+.uchip.idle{background:var(--soft2);color:var(--mut)}
+.crd{font-variant-numeric:tabular-nums;font-weight:700}
+.err{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:12px}
+.err:last-child{border-bottom:none}
+.err .dot{width:8px;height:8px;border-radius:50%;background:var(--rose);margin-top:5px;flex:none}
+.err b{display:block;font-size:12px}
+.err small{color:var(--mut);font-size:11px}
+.kempty{color:var(--mut);font-size:12px;padding:8px 0}
+
+/* roadmap */
+.rmadd{display:flex;gap:10px;margin-bottom:18px}
+.rmadd input{flex:1;background:var(--soft2);border:1px solid var(--line);border-radius:12px;padding:12px 15px}
+.rmadd select{background:var(--soft2);border:1px solid var(--line);border-radius:12px;padding:0 12px;font-weight:700}
+.rmadd .add{background:var(--blue);color:#fff;border-radius:12px;padding:0 20px;font-weight:800}
+.rcols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+@media(max-width:820px){.rcols{grid-template-columns:1fr}}
+.rcol2{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;min-height:200px}
+.rcol2 h3{font-size:12px;letter-spacing:.06em;color:var(--mut);margin:0 0 12px;display:flex;align-items:center;gap:8px}
+.rcol2 h3 .cnt{background:var(--soft2);border-radius:9px;padding:1px 8px;font-size:10.5px}
+.rcard{background:var(--soft2);border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-bottom:10px}
+.rcard b{font-size:13px;display:block;margin-bottom:6px}
+.rrow{display:flex;align-items:center;gap:6px}
+.rtag{font-size:9.5px;font-weight:800;padding:2px 8px;border-radius:8px}
+.rtag.feat{background:var(--blue-soft);color:var(--blue-dk)}
+.rtag.bug{background:var(--rose-soft);color:#ff7d9d}
+.rtag.biz{background:var(--amber-soft);color:var(--amber)}
+.rrow .sp{flex:1}
+.rmv{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;color:var(--mut);border:1px solid var(--line);font-size:11px}
+.rmv:hover{color:var(--ink);border-color:var(--blue)}
+.rwho{font-size:10px;color:var(--mut);font-weight:700}
+
+.glassnav{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);display:flex;gap:4px;background:rgba(21,24,32,.6);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:5px;box-shadow:0 14px 40px rgba(0,0,0,.45);z-index:60}
+.gbtn{display:flex;align-items:center;gap:8px;padding:10px 18px;border-radius:17px;font-weight:800;font-size:13px;color:var(--mut)}
+.gbtn.on{background:var(--blue);color:#fff;box-shadow:0 4px 14px rgba(26,109,255,.4)}
+.loading{color:var(--mut);font-size:13px;font-weight:700;padding:30px;text-align:center}
+</style>
+</head>
+<body>
+
+<header><div class="hwrap">
+  <div class="logo"><svg viewBox="0 0 64 64"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1a6dff"/><stop offset="1" stop-color="#7c3aed"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#lg)"/><path d="M18 14h22a6 6 0 0 1 6 6v10L20 46a6 6 0 0 1-8-6V20a6 6 0 0 1 6-6z" fill="#fff"/><path d="M26 52l24-18v10a6 6 0 0 1-6 6H26z" fill="#fff" opacity=".55"/></svg>Chop <span class="admchip">ADMIN</span></div>
+  <div class="hsp"></div>
+  <span class="who" id="who"></span>
+  <button class="out hidden" id="signOut">Sign out</button>
+</div></header>
+
+<!-- gate -->
+<div class="gate" id="gate">
+  <h2>Admin sign in</h2>
+  <p>Use your normal Chop login. Only listed admins get in.</p>
+  <label>EMAIL</label><input type="email" id="gEmail" autocomplete="email">
+  <label>PASSWORD</label><input type="password" id="gPass" autocomplete="current-password">
+  <button class="go" id="gGo">Sign in</button>
+  <div class="gerr" id="gErr"></div>
+</div>
+
+<!-- ============ OVERVIEW ============ -->
+<div class="wrap hidden" id="tabOverview">
+  <h1>Overview</h1>
+  <p class="sub">Everything happening across Chop, live from the database.</p>
+
+  <div class="fbar" id="fbar">
+    <button class="fq" data-d="today">Today</button>
+    <button class="fq" data-d="yesterday">Yesterday</button>
+    <button class="fq" data-d="3">Last 3 days</button>
+    <button class="fq" data-d="7">Last 7 days</button>
+    <button class="fq on" data-d="14">Last 14 days</button>
+    <button class="fq" data-d="30">Last 30 days</button>
+    <span class="fsep"></span>
+    <input type="date" class="fdate" id="fFrom">
+    <input type="date" class="fdate" id="fTo">
+    <button class="fgo" id="fGo">Apply</button>
+  </div>
+
+  <div class="impact">
+    <div class="icard hero-card"><div class="big" id="cSign">–</div><div class="lbl">Signups</div><div class="sub2" id="cSignSub">in range · <span id="cSignAll">–</span> all time</div></div>
+    <div class="icard"><div class="big" id="cCred">–</div><div class="lbl">Credits bought</div><div class="sub2" id="cCredSub">£0 · Stripe not live yet</div></div>
+    <div class="icard"><div class="big" id="cEdit">–</div><div class="lbl">Videos edited</div><div class="sub2">processed in range · <span id="cEditAll">–</span> all time</div></div>
+    <div class="icard"><div class="big" id="cPub">–</div><div class="lbl">Videos published</div><div class="sub2">exported &amp; downloaded in range</div></div>
+  </div>
+
+  <div class="panel">
+    <div class="phead"><b>Signups &amp; videos</b><span class="sp"></span>
+      <span class="legend"><span><i style="background:#1a6dff"></i>Signups</span><span><i style="background:#2fbf8f"></i>Videos edited</span></span>
+    </div>
+    <div class="bars" id="bars"><div class="loading">Loading…</div></div>
+    <div class="blabels" id="blab"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel" style="margin:0">
+      <div class="phead"><b>Creators</b><span class="sp"></span><small>most active first</small></div>
+      <table id="uTable"><tr><th>Creator</th><th>Videos</th><th>Credits</th><th>Last active</th><th></th></tr></table>
+    </div>
+    <div class="panel" style="margin:0">
+      <div class="phead"><b>Live error feed</b><span class="sp"></span><small>device telemetry · last 10</small></div>
+      <div id="errFeed"><div class="loading">Loading…</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ROADMAP ============ -->
+<div class="wrap hidden" id="tabRoadmap">
+  <h1>Roadmap</h1>
+  <p class="sub">Shared between all admins — changes save instantly.</p>
+  <div class="rmadd">
+    <input id="rmIn" placeholder="What needs doing? e.g. Stripe checkout for credit packs" maxlength="200">
+    <select id="rmTag"><option value="feat">Feature</option><option value="bug">Fix</option><option value="biz">Business</option></select>
+    <button class="add" id="rmAdd">Add</button>
+  </div>
+  <div class="rcols">
+    <div class="rcol2" data-st="backlog"><h3>BACKLOG <span class="cnt"></span></h3><div class="rlist"></div></div>
+    <div class="rcol2" data-st="doing"><h3>IN PROGRESS <span class="cnt"></span></h3><div class="rlist"></div></div>
+    <div class="rcol2" data-st="done"><h3>SHIPPED <span class="cnt"></span></h3><div class="rlist"></div></div>
+  </div>
+</div>
+
+<div class="glassnav hidden" id="gnav">
+  <button class="gbtn on" data-t="Overview"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="10" rx="2"/><rect x="13.5" y="3.5" width="7" height="6" rx="2"/><rect x="13.5" y="12.5" width="7" height="8" rx="2"/><rect x="3.5" y="16.5" width="7" height="4" rx="2"/></svg>Overview</button>
+  <button class="gbtn" data-t="Roadmap"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19V5M4 6h11l-2.5 3L15 12H4M20 19V9"/></svg>Roadmap</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+const SB_URL='https://vcrforlyuhapvkewsogq.supabase.co';
+const ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZjcmZvcmx5dWhhcHZrZXdzb2dxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzODk4NzAsImV4cCI6MjA5NTk2NTg3MH0.lcFC5aJFUGYrj4iw8oJ8R1bci4y_-aYKyQg8v9zrMqQ';
+const $=id=>document.getElementById(id);
+const sb=window.supabase.createClient(SB_URL,ANON_KEY);
+let session=null;
+
+async function adminApi(body){
+  const {data:{session:s}}=await sb.auth.getSession();
+  const r=await fetch(SB_URL+'/functions/v1/ai-edit',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','apikey':ANON_KEY,'Authorization':'Bearer '+(s?s.access_token:ANON_KEY)},
+    body:JSON.stringify({action:'admin',...body})
+  });
+  const j=await r.json();
+  if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
+  return j;
+}
+
+/* ---------- gate ---------- */
+async function boot(){
+  const {data:{session:s}}=await sb.auth.getSession();
+  session=s;
+  if(!s){ show('gate'); return; }
+  try{
+    const p=await adminApi({op:'ping'});
+    $('who').textContent=p.email;
+    $('signOut').classList.remove('hidden');
+    show('app');
+    loadStats(); loadRoadmap();
+  }catch(e){
+    show('gate');
+    $('gErr').textContent=e.message==='not authorised'?'This account isn’t on the admin list.':e.message;
+  }
+}
+function show(m){
+  $('gate').classList.toggle('hidden',m!=='gate');
+  $('gnav').classList.toggle('hidden',m!=='app');
+  if(m!=='app'){ $('tabOverview').classList.add('hidden'); $('tabRoadmap').classList.add('hidden'); }
+  else { $('tabOverview').classList.remove('hidden'); $('tabRoadmap').classList.add('hidden');
+    document.querySelectorAll('.gbtn').forEach(x=>x.classList.toggle('on',x.dataset.t==='Overview')); }
+}
+$('gGo').onclick=async()=>{
+  $('gErr').textContent='';
+  const {error}=await sb.auth.signInWithPassword({email:$('gEmail').value.trim(),password:$('gPass').value});
+  if(error){ $('gErr').textContent=error.message; return; }
+  boot();
+};
+$('gPass').addEventListener('keydown',e=>{ if(e.key==='Enter') $('gGo').click(); });
+$('signOut').onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
+
+/* ---------- tabs ---------- */
+document.querySelectorAll('.gbtn').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.gbtn').forEach(x=>x.classList.toggle('on',x===b));
+  $('tabOverview').classList.toggle('hidden',b.dataset.t!=='Overview');
+  $('tabRoadmap').classList.toggle('hidden',b.dataset.t!=='Roadmap');
+});
+
+/* ---------- date filter ---------- */
+function rangeFor(key){
+  const now=new Date(); const end=new Date(now);
+  const sod=d=>{ const x=new Date(d); x.setHours(0,0,0,0); return x; };
+  if(key==='today') return [sod(now),end];
+  if(key==='yesterday'){ const y=new Date(now.getTime()-86400000); const s=sod(y); const e=new Date(s.getTime()+86399999); return [s,e]; }
+  const n=parseInt(key,10)||14;
+  return [sod(new Date(now.getTime()-(n-1)*86400000)),end];
+}
+let curRange=rangeFor('14');
+function fmtD(d){ return d.toISOString().slice(0,10); }
+document.querySelectorAll('.fq').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('.fq').forEach(x=>x.classList.toggle('on',x===b));
+  curRange=rangeFor(b.dataset.d);
+  $('fFrom').value=fmtD(curRange[0]); $('fTo').value=fmtD(curRange[1]);
+  loadStats();
+});
+$('fGo').onclick=()=>{
+  const f=$('fFrom').value,t=$('fTo').value;
+  if(!f||!t) return;
+  document.querySelectorAll('.fq').forEach(x=>x.classList.remove('on'));
+  const s=new Date(f); s.setHours(0,0,0,0);
+  const e=new Date(t); e.setHours(23,59,59,999);
+  curRange=[s,e];
+  loadStats();
+};
+
+/* ---------- stats ---------- */
+function avStyle(el,avatar,name){
+  el.textContent=(name||'C')[0].toUpperCase();
+  if(avatar&&avatar.startsWith('http')){ el.style.backgroundImage='url('+avatar+')'; el.textContent=''; }
+}
+function ago(iso){
+  if(!iso) return '—';
+  const s=(Date.now()-new Date(iso).getTime())/1000;
+  if(s<3600) return Math.max(1,Math.round(s/60))+'m ago';
+  if(s<86400) return Math.round(s/3600)+'h ago';
+  return Math.round(s/86400)+'d ago';
+}
+async function loadStats(){
+  $('bars').innerHTML='<div class="loading">Loading…</div>';
+  try{
+    const d=await adminApi({op:'stats',from:curRange[0].toISOString(),to:curRange[1].toISOString()});
+    $('cSign').textContent=d.signups;
+    $('cSignAll').textContent=d.totalUsers;
+    $('cCred').textContent=d.credBought;
+    $('cCredSub').textContent='£'+(d.penceBought/100).toFixed(2)+(d.penceBought?'':' · Stripe not live yet');
+    $('cEdit').textContent=d.edited;
+    $('cEditAll').textContent=d.totalJobs;
+    $('cPub').textContent=d.published;
+    /* chart */
+    const bars=$('bars'), blab=$('blab'); bars.innerHTML=''; blab.innerHTML='';
+    const mx=Math.max(1,...d.series.map(x=>Math.max(x.s,x.e)));
+    const many=d.series.length>21;
+    d.series.forEach((x,i)=>{
+      const col=document.createElement('div'); col.className='bcol';
+      col.innerHTML='<div class="b s" style="height:'+(x.s/mx*100)+'%" title="'+x.d+' · '+x.s+' signups"></div>'
+                   +'<div class="b e" style="height:'+(x.e/mx*100)+'%" title="'+x.d+' · '+x.e+' videos"></div>';
+      bars.appendChild(col);
+      const l=document.createElement('i');
+      l.textContent=(many&&i%Math.ceil(d.series.length/14)!==0)?'':x.d.slice(8,10)+'/'+x.d.slice(5,7);
+      blab.appendChild(l);
+    });
+    /* creators */
+    const t=$('uTable');
+    t.innerHTML='<tr><th>Creator</th><th>Videos</th><th>Credits</th><th>Last active</th><th></th></tr>';
+    d.creators.forEach(c=>{
+      const tr=document.createElement('tr');
+      const days=c.last?(Date.now()-new Date(c.last).getTime())/86400000:99;
+      tr.innerHTML='<td><span class="uav"></span>'+String(c.name).replace(/</g,'&lt;')+'</td>'
+        +'<td>'+c.videos+'</td><td class="crd">'+(c.credits==null?'—':c.credits)+'</td><td>'+ago(c.last)+'</td>'
+        +'<td>'+(c.credits===0?'<span class="uchip idle">OUT OF CREDITS</span>':days<3?'<span class="uchip act">ACTIVE</span>':'<span class="uchip idle">IDLE</span>')+'</td>';
+      avStyle(tr.querySelector('.uav'),c.avatar,c.name);
+      t.appendChild(tr);
+    });
+    /* errors */
+    const ef=$('errFeed'); ef.innerHTML='';
+    if(!d.logs.length) ef.innerHTML='<div class="kempty">No errors logged — all clear.</div>';
+    d.logs.forEach(l=>{
+      const e=document.createElement('div'); e.className='err';
+      const dev=/iPhone/.test(l.ua||'')?'iPhone':/Android/.test(l.ua||'')?'Android':'Desktop';
+      e.innerHTML='<span class="dot"></span><div><b>'+String(l.msg||'').replace(/</g,'&lt;')+'</b><small>'+String(l.ctx||'').replace(/</g,'&lt;')+' · '+dev+' · '+ago(l.created_at)+'</small></div>';
+      ef.appendChild(e);
+    });
+  }catch(e){ $('bars').innerHTML='<div class="loading">'+e.message+'</div>'; }
+}
+
+/* ---------- roadmap ---------- */
+const ORDER=['backlog','doing','done'];
+let rmItems=[];
+function rmRender(){
+  document.querySelectorAll('.rcol2').forEach(col=>{
+    const st=col.dataset.st, list=col.querySelector('.rlist'); list.innerHTML='';
+    const its=rmItems.filter(x=>x.status===st);
+    col.querySelector('.cnt').textContent=its.length;
+    its.forEach(it=>{
+      const idx=ORDER.indexOf(st);
+      const c=document.createElement('div'); c.className='rcard';
+      c.innerHTML='<b>'+String(it.title).replace(/</g,'&lt;')+'</b><div class="rrow">'
+        +'<span class="rtag '+(it.tag||'feat')+'">'+(it.tag==='bug'?'FIX':it.tag==='biz'?'BUSINESS':'FEATURE')+'</span>'
+        +'<span class="rwho">'+(it.who||'')+'</span><span class="sp"></span>'
+        +(idx>0?'<button class="rmv bk">‹</button>':'')
+        +(idx<2?'<button class="rmv fw">›</button>':'')
+        +'<button class="rmv del">✕</button></div>';
+      const fw=c.querySelector('.fw'),bk=c.querySelector('.bk'),del=c.querySelector('.del');
+      if(fw) fw.onclick=async()=>{ it.status=ORDER[idx+1]; rmRender(); adminApi({op:'rm_move',id:it.id,status:it.status}).catch(()=>{}); };
+      if(bk) bk.onclick=async()=>{ it.status=ORDER[idx-1]; rmRender(); adminApi({op:'rm_move',id:it.id,status:it.status}).catch(()=>{}); };
+      del.onclick=async()=>{ rmItems=rmItems.filter(x=>x!==it); rmRender(); adminApi({op:'rm_del',id:it.id}).catch(()=>{}); };
+      list.appendChild(c);
+    });
+  });
+}
+async function loadRoadmap(){
+  try{ rmItems=(await adminApi({op:'rm_list'})).items||[]; rmRender(); }catch(e){}
+}
+$('rmAdd').onclick=async()=>{
+  const v=$('rmIn').value.trim(); if(!v) return;
+  $('rmIn').value='';
+  try{ const r=await adminApi({op:'rm_add',title:v,tag:$('rmTag').value}); rmItems.unshift(r.item); rmRender(); }catch(e){}
+};
+$('rmIn').addEventListener('keydown',e=>{ if(e.key==='Enter') $('rmAdd').click(); });
+
+/* init date inputs + boot */
+$('fFrom').value=fmtD(curRange[0]); $('fTo').value=fmtD(curRange[1]);
+boot();
+</script>
+</body>
+</html>
