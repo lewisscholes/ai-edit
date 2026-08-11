@@ -1731,9 +1731,9 @@ const MUTED_CLIP='linear-gradient(180deg,#333a47,#252b36)';
 let _thumbVid=null, _thumbBusy=false, _thumbAgain=false;
 const _thumbCache={};
 function resetThumbs(){ _thumbVid=null; for(const k in _thumbCache) delete _thumbCache[k]; if(typeof _qeStrip!=='undefined') _qeStrip=null; }
-async function captureThumb(t){
-  const key=Math.round(t*4);
-  if(_thumbCache[key]) return _thumbCache[key];
+/* seek the scratch decoder to t and hand back the element — callers either encode
+   it (card thumbnails) or draw straight from it (the filmstrip) */
+async function thumbSeek(t){
   if(!_thumbVid){
     _thumbVid=document.createElement('video');
     _thumbVid.muted=true; _thumbVid.playsInline=true; _thumbVid.setAttribute('playsinline','');
@@ -1743,7 +1743,23 @@ async function captureThumb(t){
     try{ await _thumbVid.play(); _thumbVid.pause(); }catch(e){} /* iOS decode nudge */
   }
   const v=_thumbVid;
-  await new Promise((res)=>{ const h=()=>{ v.removeEventListener('seeked',h); res(); }; v.addEventListener('seeked',h); v.currentTime=Math.max(0,Math.min(t,(v.duration||t)-0.05)); setTimeout(res,4000); });
+  await new Promise((res)=>{ const h=()=>{ v.removeEventListener('seeked',h); res(); }; v.addEventListener('seeked',h); v.currentTime=Math.max(0,Math.min(t,(v.duration||t)-0.05)); setTimeout(res,1200); });
+  return v;
+}
+/* wait until the preview has its own first frame before we start competing for
+   the decoder — the strip is never worth delaying the picture the user is waiting for */
+function previewReady(){
+  return new Promise(res=>{
+    const v=$('vid');
+    if(!v||!state.useRealVideo||v.readyState>=2) return res();
+    let done=false; const fin=()=>{ if(done) return; done=true; v.removeEventListener('loadeddata',fin); res(); };
+    v.addEventListener('loadeddata',fin); setTimeout(fin,2500);
+  });
+}
+async function captureThumb(t){
+  const key=Math.round(t*4);
+  if(_thumbCache[key]) return _thumbCache[key];
+  const v=await thumbSeek(t);
   const c=document.createElement('canvas');
   const ratio=(v.videoWidth/v.videoHeight)||0.5625;
   c.height=120; c.width=Math.max(56,Math.round(120*ratio));
@@ -1892,7 +1908,6 @@ function renderStrip(){
 }
 /* filmstrip thumbnails painted onto the kept bands */
 let _qeStrip=null,_qeStripBusy=false;
-function qeLoadImg(u){ return new Promise((res,rej)=>{ const im=new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=u; }); }
 async function qeEnsureStrip(){
   if(!state.useRealVideo||!state.fileUrl) return;
   const nm=currentJobName||'live';
@@ -1900,14 +1915,20 @@ async function qeEnsureStrip(){
   if(_qeStripBusy) return;
   _qeStripBusy=true;
   try{
+    await previewReady();               /* picture first, filmstrip second */
     const rd=rawDur()||1;
-    const n=Math.min(36,Math.max(10,Math.round(rd/2.5)));
+    /* phones have one decoder and pay for every seek — ask for fewer frames */
+    const mob=window.innerWidth<=760;
+    const n=mob ? Math.min(18,Math.max(8,Math.round(rd/4)))
+                : Math.min(36,Math.max(10,Math.round(rd/2.5)));
     const fw=34,fh=56;
     const c=document.createElement('canvas'); c.width=fw*n; c.height=fh;
     const x=c.getContext('2d');
     for(let i=0;i<n;i++){
       const t=Math.min(rd-0.1,(i+0.5)/n*rd);
-      try{ const im=await qeLoadImg(await captureThumb(Math.max(0,t))); x.drawImage(im,i*fw,0,fw,fh); }catch(e){}
+      /* draw the decoded frame straight into the strip: no JPEG encode, no
+         Image decode, no data URL per frame — one encode for the whole strip */
+      try{ const v=await thumbSeek(Math.max(0,t)); x.drawImage(v,i*fw,0,fw,fh); }catch(e){}
     }
     _qeStrip={name:nm,url:c.toDataURL('image/jpeg',0.62),n};
   }catch(e){ _qeStrip=null; }
