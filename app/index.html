@@ -1523,10 +1523,9 @@ function updUndoUI(){ $('undoBtn').disabled=!state.past.length; $('redoBtn').dis
 
 /* ---------------- player ------------------------------------------- */
 /* ---------- one video, one source of truth ---------------------------
-   This is the playback core exactly as it was in 42ed812 — the build that
-   felt right. The double-buffered "gapless" preview that replaced it, and
-   every patch layered on top of it, has been taken back out. */
-function gvActive(){ return $('vid'); }
+   Playback is exactly as it was in 42ed812, the build that felt right.
+   The double-buffered "gapless" preview and every patch layered on it
+   have been removed completely. */
 const player = {
   get time(){ return state.useRealVideo ? $('vid').currentTime/state.scale : state.vt; },
   set time(t){ if(state.useRealVideo) $('vid').currentTime=t*state.scale; else state.vt=t; },
@@ -2267,7 +2266,6 @@ $('tglLogo').onclick=function(){ state.showLogo=!state.showLogo; this.classList.
 
 /* ---------------- transport ---------------------------------------- */
 $('playBtn').onclick=()=>{
-  if(state.useRealVideo){ state.playing=!gvActive().paused; syncPlayUI(); }
   if(state.playing&&state.snippet){ state.snippet=null; state.rtPreview=null; syncPrevBtns(); }
   state.snippet=null;
   if(state.playing) player.pause();
@@ -2295,7 +2293,7 @@ $('scrub').addEventListener('input',function(){
   state.snippet=null; player.time=Math.max(0,Math.min(rawDur()-0.05,t)); paintTime(player.time);
 });
 $('scrub').addEventListener('change',()=>{ scrubbing=false; });
-$('vol').oninput=function(){ if(state.useRealVideo){ gvActive().volume=+this.value; gvActive().muted=+this.value===0; }
+$('vol').oninput=function(){ if(state.useRealVideo){ $('vid').volume=+this.value; $('vid').muted=+this.value===0; }
   $('muteBtn').innerHTML=+this.value===0
     ?'<svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z"/><path d="M15.5 9.5l5 5M20.5 9.5l-5 5"/></svg>'
     :'<svg class="ic" viewBox="0 0 24 24" style="width:17px;height:17px"><path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.8a7.6 7.6 0 0 1 0 10.4"/></svg>'; };
