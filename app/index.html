@@ -11,6 +11,20 @@
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0e1014">
+<script>
+/* pre-paint auth gate: decide from the stored session BEFORE the dashboard can flash.
+   Removed again by showView() as soon as the real routing runs. */
+(function(){try{
+  var t=localStorage.getItem('sb-vcrforlyuhapvkewsogq-auth-token');
+  var signedIn=!!(t&&t.length>20);
+  if(/[?&](signup=1|auth=up)/.test(location.search)) window.__authMode='up';
+  if(!signedIn) document.documentElement.classList.add('anon');
+}catch(e){}})();
+</script>
+<style>
+html.anon #viewHome,html.anon #viewProc,html.anon #viewEditor,html.anon #viewBilling,html.anon #viewLab,html.anon #viewQueue,html.anon #glassNav,html.anon #creditsChip,html.anon .prof{display:none!important}
+html.anon #viewAuth{display:grid!important}
+</style>
 <style>
 :root{
   color-scheme:light;
@@ -757,6 +771,13 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
 </div>
 
 <!-- ============ PROFILE SETUP ============ -->
+<script>if(window.__authMode==='up'){try{
+  document.getElementById('tabIn').classList.remove('on');
+  document.getElementById('tabUp').classList.add('on');
+  document.getElementById('authGo').textContent='Create account';
+  document.getElementById('authTitle').textContent='Create your account';
+  document.getElementById('authSub').textContent='Three free videos are waiting.';
+}catch(e){}}</script>
 <div class="authwrap hidden" id="viewPsetup">
   <div class="authcard">
     <h2 id="psetupTitle">Set up your profile</h2>
@@ -2816,6 +2837,7 @@ function renderEditsGrid(){
 }
 
 function showView(v){
+  document.documentElement.classList.remove('anon');
   const authish=(v==='auth'||v==='psetup');
   $('viewAuth').classList.toggle('hidden',v!=='auth');
   $('viewPsetup').classList.toggle('hidden',v!=='psetup');
@@ -3267,7 +3289,7 @@ async function initAuth(){
 }
 async function routeAuth(session){
   authUser=session?session.user:null;
-  if(!authUser){ userProfile=null; syncHeaderProfile(); showView('auth'); return; }
+  if(!authUser){ userProfile=null; syncHeaderProfile(); setAuthMode(window.__authMode==='up'?'up':'in'); showView('auth'); return; }
   try{
     const {data}=await sb.from('chop_profiles').select('*').eq('id',authUser.id).maybeSingle();
     userProfile=data||null;
@@ -3338,7 +3360,23 @@ async function authGo(){
         setAuthMode('in');
       }
     }
-  }catch(e){ $('authErr').textContent=(e&&e.message)||'That didn’t work — try again.'; }
+  }catch(e){
+    const raw=((e&&e.message)||'').toLowerCase(), code=(e&&e.code)||'';
+    let msg=(e&&e.message)||'That didn’t work — try again.';
+    if(code==='user_already_exists'||raw.includes('already registered')||raw.includes('already been registered')){
+      msg='That email already has a Chop account. Sign in instead — your credits are waiting.';
+      setAuthMode('in'); $('authEmail').value=email;
+    }else if(code==='invalid_credentials'||raw.includes('invalid login credentials')){
+      msg=_authMode==='in'?'No account matches that email and password. Check them, or create an account.':msg;
+    }else if(raw.includes('password should be')||raw.includes('at least 6')){
+      msg='Pick a password with at least 6 characters.';
+    }else if(raw.includes('invalid format')||raw.includes('unable to validate email')){
+      msg='That doesn’t look like a valid email address.';
+    }else if(raw.includes('rate limit')||raw.includes('too many')){
+      msg='Too many attempts — wait a minute and try again.';
+    }
+    $('authErr').textContent=msg;
+  }
   $('authGo').disabled=false;
 }
 function initPsetup(){
