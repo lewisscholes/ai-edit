@@ -2704,6 +2704,8 @@ function proxyPoll(j,n){
       proxyApply(j,res);
       if(res.status==='building'||res.status==='queued') return proxyPoll(j,n+1);
       if(res.status==='ready'){
+        _pxStats.proxyStatus='ready';
+        proxyMaybeSwap(j);                 /* defers itself if the user is busy */
         const ratio=(res.srcBytes&&res.bytes)?(res.srcBytes/res.bytes).toFixed(1):'?';
         logErr('proxy ready '+res.width+'x'+res.height+' '+Math.round((res.bytes||0)/1024)+'KB from '+Math.round((res.srcBytes||0)/1048576)+'MB ('+ratio+'x) src='+res.srcDur+'s proxy='+res.proxyDur+'s in '+res.ms+'ms','proxy.ok:'+j.name);
       }
@@ -2712,6 +2714,147 @@ function proxyPoll(j,n){
     }catch(e){ /* transient — try again on the next open */ }
   },n<3?4000:8000);
 }
+/* ---------------- P1B: proxy playback (developer flag) ---------------
+   The proxy is a lighter representation of the SAME logical timeline. It only
+   ever feeds the <video> element. j.url stays the ORIGINAL so every piece of
+   original metadata (measureWidth -> j.vw, export routing) is unaffected, and
+   export always uses j.videoKey. Off unless localStorage.chopProxy === '1'. */
+function proxyEnabled(){ try{ return localStorage.getItem('chopProxy')==='1'; }catch(e){ return false; } }
+window.chopEnableProxy=()=>{ try{localStorage.setItem('chopProxy','1');}catch(e){} return 'proxy playback ON — reopen a project'; };
+window.chopDisableProxy=()=>{ try{localStorage.setItem('chopProxy','0');}catch(e){} return 'proxy playback OFF — reopen a project'; };
+
+const _pxStats={enabled:false,activeSource:'none',proxyStatus:'none',
+  swapsAttempted:0,swapsSucceeded:0,swapsFailed:0,swapsDeferred:0,fallbacks:0,
+  lastSwapMs:null,lastSwapTimeDelta:null,
+  seeks:{proxy:[],'local-original':[],'remote-original':[]}};
+function _pxPct(a,p){ if(!a.length) return null; const s=[...a].sort((x,y)=>x-y); return Math.round(s[Math.min(s.length-1,Math.floor(s.length*p))]); }
+window.chopProxyStats=()=>{
+  const seek={};
+  for(const k of Object.keys(_pxStats.seeks)){
+    const a=_pxStats.seeks[k];
+    seek[k]={count:a.length,median:_pxPct(a,0.5),p90:_pxPct(a,0.9)};
+  }
+  return {enabled:proxyEnabled(),activeSource:_pxStats.activeSource,proxyStatus:_pxStats.proxyStatus,
+    swapsAttempted:_pxStats.swapsAttempted,swapsSucceeded:_pxStats.swapsSucceeded,
+    swapsFailed:_pxStats.swapsFailed,swapsDeferred:_pxStats.swapsDeferred,fallbacks:_pxStats.fallbacks,
+    lastSwapMs:_pxStats.lastSwapMs,lastSwapTimeDelta:_pxStats.lastSwapTimeDelta,seeks:seek};
+};
+
+/* ONE place decides what the editor plays */
+async function pickSource(j){
+  const localUrl=(j&&j.file&&j.url)?j.url:null;
+  const remoteUrl=(j&&j.url)?j.url:null;
+  if(proxyEnabled()&&j&&j.proxyStatus==='ready'&&j.proxyKey&&j.videoKey&&!j._proxyBanned){
+    try{
+      const g=await proxyApi({action:'proxy_get',key:j.videoKey});   /* fresh presign, never persisted */
+      if(g&&g.url) return {url:g.url,mode:'proxy',key:j.proxyKey};
+    }catch(e){ _pxStats.fallbacks++; logErr((e&&e.message)||'proxy presign failed','proxy.presign:'+j.name); }
+  }
+  if(localUrl) return {url:localUrl,mode:'local-original',key:null};
+  if(remoteUrl) return {url:remoteUrl,mode:'remote-original',key:(j&&j.videoKey)||null};
+  return {url:null,mode:'none',key:null};
+}
+
+/* a swap is only safe when nothing is in flight */
+function swapSafe(){
+  return !state.playing && !scrubbing && !window._qePanning && !$('vid').seeking;
+}
+let _pxPending=null;
+function proxyMaybeSwap(j){
+  if(!proxyEnabled()||!j||j.proxyStatus!=='ready'||j._proxyBanned) return;
+  if(_pxStats.activeSource==='proxy') return;
+  if(currentJobName!==j.name) return;
+  if(!swapSafe()){ _pxPending=j; _pxStats.swapsDeferred++; return; }
+  _pxPending=null; proxySwap(j);
+}
+/* checked whenever the player settles */
+function proxySwapTick(){ if(_pxPending&&swapSafe()) proxyMaybeSwap(_pxPending); }
+
+async function proxySwap(j){
+  const vid=$('vid'); if(!vid) return;
+  _pxStats.swapsAttempted++;
+  const t0=performance.now();
+  const keepTime=player.time, wasPlaying=state.playing;
+  let src;
+  try{ src=await pickSource(j); }catch(e){ src=null; }
+  if(!src||src.mode!=='proxy'){ _pxStats.swapsFailed++; return; }
+  try{
+    if(wasPlaying) player.pause();
+    const prevUrl=state.fileUrl;
+    await new Promise((res,rej)=>{
+      let done=false;
+      const ok=()=>{ if(done) return; done=true; cleanup(); res(); };
+      const bad=()=>{ if(done) return; done=true; cleanup(); rej(new Error('media error on proxy')); };
+      const cleanup=()=>{ vid.removeEventListener('loadedmetadata',ok); vid.removeEventListener('error',bad); clearTimeout(tm); };
+      const tm=setTimeout(()=>bad(),8000);
+      vid.addEventListener('loadedmetadata',ok); vid.addEventListener('error',bad);
+      vid.crossOrigin='anonymous';
+      state.fileUrl=src.url;                 /* j.url stays the ORIGINAL */
+      vid.src=src.url;
+      try{ vid.load(); }catch(e){}
+      state._prevUrl=prevUrl;
+    });
+    /* the timeline never moves: same seconds, lighter media */
+    await new Promise(res=>{
+      let done=false;
+      const fin=()=>{ if(done) return; done=true; vid.removeEventListener('seeked',fin); clearTimeout(tm); res(); };
+      const tm=setTimeout(fin,4000);
+      vid.addEventListener('seeked',fin);
+      try{ vid.currentTime=keepTime*state.scale; }catch(e){ fin(); }
+    });
+    const delta=Math.abs(player.time-keepTime);
+    if(delta>0.35) throw new Error('seek after swap landed '+delta.toFixed(2)+'s away');
+    _pxStats.activeSource='proxy'; j._srcMode='proxy';
+    _pxStats.swapsSucceeded++;
+    _pxStats.lastSwapMs=Math.round(performance.now()-t0);
+    _pxStats.lastSwapTimeDelta=+delta.toFixed(3);
+    resetThumbs();                            /* filmstrip re-derives from the active source */
+    paintTime(player.time);
+    if(wasPlaying) player.play();
+  }catch(e){
+    _pxStats.swapsFailed++;
+    logErr((e&&e.message)||'proxy swap failed','proxy.swap:'+j.name);
+    proxyFallback(j,keepTime,wasPlaying);
+  }
+}
+/* proxy is always optional: drop back to the original and keep editing */
+function proxyFallback(j,keepTime,wasPlaying){
+  const vid=$('vid'); if(!vid||!j) return;
+  j._proxyBanned=true; _pxStats.fallbacks++;
+  const back=(j.file&&j.url)?j.url:(j.url||null);
+  if(!back){ _pxStats.activeSource='none'; return; }
+  try{
+    if(/^https?:/.test(back)) vid.crossOrigin='anonymous'; else vid.removeAttribute('crossorigin');
+    state.fileUrl=back; vid.src=back; try{vid.load();}catch(e){}
+    vid.addEventListener('loadedmetadata',function once(){
+      vid.removeEventListener('loadedmetadata',once);
+      try{ vid.currentTime=(keepTime||0)*state.scale; }catch(e){}
+      if(wasPlaying) player.play();
+      paintTime(player.time);
+    });
+    _pxStats.activeSource=(j.file?'local-original':'remote-original');
+    j._srcMode=_pxStats.activeSource;
+  }catch(e){}
+}
+/* seek latency, measured request -> seeked, bucketed by the source in play */
+(function(){
+  const vid=$('vid'); if(!vid) return;
+  let t0=0;
+  vid.addEventListener('seeking',()=>{ t0=performance.now(); });
+  vid.addEventListener('seeked',()=>{
+    if(!t0) return;
+    const ms=performance.now()-t0; t0=0;
+    const b=_pxStats.seeks[_pxStats.activeSource];
+    if(b){ b.push(ms); if(b.length>200) b.shift(); }
+  });
+  /* a deferred swap lands when the element itself settles — no change to player */
+  vid.addEventListener('pause',()=>{ try{ proxySwapTick(); }catch(e){} });
+  vid.addEventListener('error',()=>{
+    if(_pxStats.activeSource!=='proxy') return;
+    const j=currentJobName&&jobByName(currentJobName);
+    if(j) proxyFallback(j,player.time,false);
+  });
+})();
 /* ---------------- cloud sync (account-wide jobs/credits/stats) ------ */
 const _cloudQ={};
 function cloudStrip(j){
@@ -3001,6 +3144,12 @@ async function openJob(j){
   dbFlushMeta();   /* commit the project we are leaving */
   currentJobName=j.name;
   state.file=j.file; state.fileUrl=j.url; resetThumbs();
+  /* P1B: one selector decides what plays. j.url is left as the ORIGINAL. */
+  let _src=null;
+  try{ _src=await pickSource(j); }catch(e){ _src=null; }
+  if(_src&&_src.url){ state.fileUrl=_src.url; _pxStats.activeSource=_src.mode; j._srcMode=_src.mode; }
+  else { _pxStats.activeSource=j.file?'local-original':(j.url?'remote-original':'none'); j._srcMode=_pxStats.activeSource; }
+  _pxStats.proxyStatus=j.proxyStatus||'none';
   loadEditor(false,j.payload);
   if(j.choices) j.choices.forEach((c,i)=>{ if(state.pairs[i]!==undefined) state.pairs[i].choice=c; });
   if(j.manuals) state.segments.forEach((s,i)=>{ s.manual=(j.manuals[i]===undefined?null:j.manuals[i]); });
@@ -3375,7 +3524,7 @@ async function exportJob(j,btn){
     if(btn){ btn.disabled=true; }
     epShow(j.name,20+Math.round((j.editedSec||30)*0.6));
     try{
-      const blob=await withRetry(()=>serverRender(null,j.name,kept,fade,t=>{ if(btn) btn.textContent=t; },j.videoKey),3,j.name);
+      const blob=await withRetry(()=>serverRender(null,j.name,kept,fade,t=>{ if(btn) btn.textContent=t; },assertExportKey(j,j.videoKey)),3,j.name);
       dlBlob(blob,j.name); epDone(j.name,blob);
       j.status='exported'; dbPutJob(j);
       toast(j.name+' exported in 1080p');
@@ -3402,7 +3551,7 @@ async function exportJob(j,btn){
     const fade=Math.min(0.2,state.settings.overlapMs/1000/2)||0.03;
     epShow(j.name,20+Math.round((j.editedSec||30)*0.6));
     try{
-      const blob=await withRetry(()=>serverRender(j.file,j.name,kept,fade,t=>{ if(btn) btn.textContent=t; },j.videoKey||null),3,j.name);
+      const blob=await withRetry(()=>serverRender(j.file,j.name,kept,fade,t=>{ if(btn) btn.textContent=t; },j.videoKey?assertExportKey(j,j.videoKey):null),3,j.name);
       dlBlob(blob,j.name); epDone(j.name,blob);
       j.status='exported'; dbPutJob(j);
       toast(j.name+' exported in 1080p');
@@ -4019,8 +4168,18 @@ async function measureWidth(url){
 }
 const RENDER_URL='https://lewisscholes--chop-render-api.modal.run/render';
 const RENDER_KEY='chop-render-x7k2m9';
+/* P1B invariant: the proxy is a preview. Export renders the ORIGINAL, always. */
+function assertExportKey(j,key){
+  const k=String(key||'');
+  if(!k) throw new Error('CHOP_EXPORT_NO_KEY');
+  if(k.startsWith('proxy/')||(j&&j.proxyKey&&k===j.proxyKey)){
+    logErr('export guard tripped: '+k,'export.guard:'+((j&&j.name)||'?'));
+    throw new Error('CHOP_EXPORT_PROXY_GUARD');
+  }
+  return k;
+}
 async function serverRender(file,name,keptList,fade,progress,existingKey){
-  let key=existingKey;
+  let key=existingKey?assertExportKey(null,existingKey):null;
   if(!key){
     progress&&progress('Uploading…');
     const p=await api({action:'presign',filename:name});
