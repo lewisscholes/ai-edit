@@ -3056,11 +3056,28 @@ window.chopDisableProxy=()=>{ try{localStorage.setItem('chopProxy','0');}catch(e
 
 /* Drag diagnostic. Measures what actually happens when you drag the timeline
    while playing: did the video genuinely stop fighting you, and how long from
-   letting go to the first real frame on screen. On by default so it can be
-   observed on a phone with no console; chopDragDiag(false) silences it. */
+   letting go to the first real frame on screen.
+
+   OFF by default — creators shouldn't see developer toasts. Two ways to enable:
+     · console:  chopDragDiag(true)
+     · phone:    open the app with ?diag=1  (?diag=0 turns it off again)
+   The URL switch exists because iOS Safari has no console, and the readings
+   that matter can only be taken on a real phone. */
 const _dg={on:true,fought:false,releaseAt:0,armed:false,last:null};
 function dgOn(){ try{ return localStorage.getItem('chopDragDiag')==='1'; }catch(e){ return false; } }
 window.chopDragDiag=(v)=>{ try{ localStorage.setItem('chopDragDiag',v?'1':'0'); }catch(e){} return v?'drag diagnostic ON':'drag diagnostic OFF'; };
+/* ?diag=1 / ?diag=0 — enable from a phone, then drop it out of the URL */
+(function(){
+  try{
+    const q=new URLSearchParams(location.search), d=q.get('diag');
+    if(d===null) return;
+    localStorage.setItem('chopDragDiag', d==='0'?'0':'1');
+    q.delete('diag');
+    const qs=q.toString();
+    history.replaceState(null,'',location.pathname+(qs?'?'+qs:''));
+    setTimeout(()=>{ try{ toast(d==='0'?'Diagnostics off':'Diagnostics on — play, then pause'); }catch(e){} },600);
+  }catch(e){}
+})();
 window.chopLastDrag=()=>_dg.last;
 function dgArm(){ _dg.fought=false; _dg.armed=true; }
 function dgWatch(){ if(_dg.armed&&!$('vid').paused) _dg.fought=true; }   /* still running under the finger = still fighting */
