@@ -3059,7 +3059,7 @@ window.chopDisableProxy=()=>{ try{localStorage.setItem('chopProxy','0');}catch(e
    letting go to the first real frame on screen. On by default so it can be
    observed on a phone with no console; chopDragDiag(false) silences it. */
 const _dg={on:true,fought:false,releaseAt:0,armed:false,last:null};
-function dgOn(){ try{ return localStorage.getItem('chopDragDiag')!=='0'; }catch(e){ return true; } }
+function dgOn(){ try{ return localStorage.getItem('chopDragDiag')==='1'; }catch(e){ return false; } }
 window.chopDragDiag=(v)=>{ try{ localStorage.setItem('chopDragDiag',v?'1':'0'); }catch(e){} return v?'drag diagnostic ON':'drag diagnostic OFF'; };
 window.chopLastDrag=()=>_dg.last;
 function dgArm(){ _dg.fought=false; _dg.armed=true; }
