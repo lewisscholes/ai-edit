@@ -120,6 +120,62 @@ tr:last-child td{border-bottom:none}
 .gbtn{display:flex;align-items:center;gap:8px;padding:10px 18px;border-radius:17px;font-weight:800;font-size:13px;color:var(--mut)}
 .gbtn.on{background:var(--blue);color:#fff;box-shadow:0 4px 14px rgba(26,109,255,.4)}
 .loading{color:var(--mut);font-size:13px;font-weight:700;padding:30px;text-align:center}
+
+/* ---------- activity heatmap ---------- */
+.actwrap{background:#0b0d12;border:1px solid var(--line);border-radius:18px;padding:0;overflow:hidden;position:relative;margin-bottom:22px}
+.actwrap::before{content:"";position:absolute;inset:0;pointer-events:none;z-index:0;
+  background-image:linear-gradient(rgba(26,109,255,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(26,109,255,.05) 1px,transparent 1px);
+  background-size:34px 34px}
+.actbar{position:relative;z-index:2;display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid rgba(26,109,255,.12);flex-wrap:wrap}
+.actbar b{font-size:14.5px;color:#e9edf5}
+.actbar .sp{flex:1}
+.live{display:inline-flex;align-items:center;gap:7px;font-size:11px;font-weight:800;letter-spacing:.08em;color:#5fe0b3;background:rgba(47,191,143,.10);border:1px solid rgba(47,191,143,.28);padding:5px 11px;border-radius:20px}
+.live i{width:7px;height:7px;border-radius:50%;background:#2fbf8f;display:block;animation:lpulse 1.9s ease-in-out infinite}
+@keyframes lpulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(47,191,143,.55)}50%{opacity:.55;box-shadow:0 0 0 6px rgba(47,191,143,0)}}
+.seg{display:inline-flex;background:rgba(26,109,255,.08);border:1px solid rgba(26,109,255,.20);border-radius:11px;padding:3px}
+.seg button{background:none;border:0;color:#8a93a5;font:800 11.5px inherit;padding:6px 13px;border-radius:8px;cursor:pointer;transition:.15s;white-space:nowrap}
+.seg button.on{background:rgba(26,109,255,.22);color:#bcd4ff}
+.seg button:hover{color:#e9edf5}
+.fsel{background:rgba(26,109,255,.08);border:1px solid rgba(26,109,255,.20);color:#bcd4ff;font:800 11.5px inherit;padding:6px 10px;border-radius:9px;cursor:pointer;outline:none}
+.fsel option{background:#141926;color:#e9edf5}
+.mbtn{background:rgba(26,109,255,.08);border:1px solid rgba(26,109,255,.20);color:#8a93a5;border-radius:9px;width:30px;height:30px;font-size:15px;cursor:pointer;line-height:1;transition:.15s}
+.mbtn:hover{color:#e9edf5;background:rgba(26,109,255,.20)}
+.mapbox{position:relative;z-index:1;width:100%;min-height:420px}
+.mapbox svg{display:block;width:100%;height:auto;cursor:grab}
+.mapbox svg:active{cursor:grabbing}
+.uk-land{fill:#151a26;stroke:#2a3552;stroke-width:.6;transition:fill .2s}
+.hs{cursor:pointer}
+.hs .core{transition:r .25s ease,opacity .25s ease}
+.hs.sel .core{stroke:#bcd4ff;stroke-width:1.5}
+.hs .lab{fill:#8fa2c9;font-size:8.5px;font-weight:700;pointer-events:none;text-anchor:middle}
+.hs:hover .lab{fill:#e9edf5}
+@keyframes ping{0%{r:6;opacity:.85}100%{r:34;opacity:0}}
+circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-out forwards;pointer-events:none}
+.mtip{position:absolute;z-index:5;pointer-events:none;background:rgba(6,9,14,.94);border:1px solid rgba(26,109,255,.24);border-radius:12px;padding:11px 14px;opacity:0;transition:opacity .12s;min-width:172px;backdrop-filter:blur(6px)}
+.mtip h5{margin:0 0 7px;font-size:13.5px;color:#e9edf5;font-weight:800}
+.mtip div{font-size:11.5px;color:#8a93a5;display:flex;justify-content:space-between;gap:14px;margin-top:3px}
+.mtip div b{color:#bcd4ff;font-weight:800;font-variant-numeric:tabular-nums}
+.mfoot{position:relative;z-index:2;display:flex;align-items:center;gap:14px;padding:11px 20px;border-top:1px solid rgba(26,109,255,.12);font-size:11px;color:#5f6878;flex-wrap:wrap}
+.mfoot .sp{flex:1}
+.scale{display:flex;align-items:center;gap:5px}
+.scale i{width:20px;height:9px;border-radius:2px;display:block}
+.revhero{background:linear-gradient(135deg,#1a6dff,#7c3aed);border:none;border-radius:18px;padding:24px 26px;margin-bottom:14px;position:relative;overflow:hidden}
+.revhero .cap{font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:rgba(255,255,255,.72);font-weight:800}
+.revhero .amt{font-size:52px;font-weight:800;letter-spacing:-.03em;line-height:1.05;margin-top:8px;color:#fff;font-variant-numeric:tabular-nums}
+.revhero .delta{font-size:13px;color:rgba(255,255,255,.88);font-weight:800;margin-top:6px}
+@media(max-width:760px){.revhero .amt{font-size:38px}.impact{grid-template-columns:repeat(2,1fr)}}
+.actgrid{display:grid;grid-template-columns:1fr 1fr 1.2fr;gap:14px}
+@media(max-width:900px){.actgrid{grid-template-columns:1fr}}
+.rgrow{display:flex;align-items:center;gap:10px;margin-bottom:9px;font-size:12.5px}
+.rgrow .nm{width:88px;font-weight:700}
+.rgrow .tb{flex:1;height:18px;background:rgba(26,109,255,.09);border-radius:5px;overflow:hidden}
+.rgrow .tb i{display:block;height:100%;background:linear-gradient(90deg,#1a6dff,#7c3aed);border-radius:5px;transition:width .5s}
+.rgrow .v{width:56px;text-align:right;font-variant-numeric:tabular-nums;color:var(--mut)}
+.feed{max-height:210px;overflow:auto}
+.feed div{display:flex;gap:9px;align-items:baseline;font-size:12px;padding:6px 0;border-top:1px solid var(--line)}
+.feed div:first-child{border-top:0}
+.feed .w{color:var(--mut);margin-left:auto;font-size:10.5px;white-space:nowrap}
+.feed .dot{width:6px;height:6px;border-radius:50%;background:#2fbf8f;flex:none;position:relative;top:-1px}
 </style>
 </head>
 <body>
@@ -210,6 +266,64 @@ tr:last-child td{border-bottom:none}
 </div>
 
 <!-- ============ ROADMAP ============ -->
+<div class="wrap hidden" id="tabActivity">
+
+  <div class="revhero">
+    <div class="cap">Total revenue</div>
+    <div class="amt" id="aRev">£0.00</div>
+    <div class="delta" id="aRevD">+£0.00 today</div>
+  </div>
+
+  <div class="impact">
+    <div class="icard"><div class="big" id="aEdits">0</div><div class="lbl">Edits completed</div><div class="sub2">all time</div></div>
+    <div class="icard"><div class="big" id="aActive">0</div><div class="lbl">Active editors</div><div class="sub2">in the last hour</div></div>
+    <div class="icard"><div class="big" id="aToday">0</div><div class="lbl">Edits today</div><div class="sub2">since midnight</div></div>
+    <div class="icard"><div class="big" id="aProc">0</div><div class="lbl">Processing now</div><div class="sub2">videos in the queue</div></div>
+  </div>
+
+  <div class="actwrap">
+    <div class="actbar">
+      <span class="seg" id="aScope">
+        <button class="on" data-s="uk">UK</button>
+        <button data-s="region">Region</button>
+        <button data-s="global">Global</button>
+      </span>
+      <select id="aRegion" class="fsel"><option value="">All regions</option></select>
+      <span class="live"><i></i>LIVE</span>
+      <span class="sp"></span>
+      <span class="seg" id="aSeg">
+        <button class="on" data-m="editors">Active editors</button>
+        <button data-m="edits">Edits</button>
+        <button data-m="revenue">Revenue</button>
+      </span>
+      <button class="mbtn" id="aZin" title="Zoom in">+</button>
+      <button class="mbtn" id="aZout" title="Zoom out">&minus;</button>
+      <button class="mbtn" id="aRst" title="Reset">&#8635;</button>
+    </div>
+    <div class="mapbox" id="aMap"><div class="loading" style="padding:60px 0;text-align:center">Loading map&hellip;</div></div>
+    <div class="mtip" id="aTip"></div>
+    <div class="mfoot">
+      <span>Aggregated to city level &mdash; never exact locations</span>
+      <span class="sp"></span>
+      <span class="scale">Lower
+        <i style="background:#16203a"></i><i style="background:#22459c"></i><i style="background:#1a6dff"></i><i style="background:#5b4ee8"></i><i style="background:#9d6bff"></i>
+        Higher</span>
+    </div>
+  </div>
+
+  <div class="actgrid">
+    <div class="panel"><div class="phead"><b>Top regions</b><span class="sp"></span><small id="aRegM">active editors</small></div>
+      <div id="aRegions"></div></div>
+    <div class="panel"><div class="phead"><b>Revenue today</b><span class="sp"></span><small id="aSelName">all regions</small></div>
+      <div class="big" style="font-size:30px;font-weight:800" id="aRevToday">£0.00</div>
+      <div class="sub2" style="font-size:11px;color:var(--mut);margin-top:4px" id="aRevSub">across every city</div>
+      <div style="margin-top:14px" id="aRevBars"></div></div>
+    <div class="panel"><div class="phead"><b>Recent activity</b><span class="sp"></span><small>live</small></div>
+      <div class="feed" id="aFeed"></div></div>
+  </div>
+
+</div>
+
 <div class="wrap hidden" id="tabRoadmap">
   <h1>Roadmap</h1>
   <p class="sub">Shared between all admins — changes save instantly.</p>
@@ -229,6 +343,7 @@ tr:last-child td{border-bottom:none}
 <div class="glassnav hidden" id="gnav">
   <button class="gbtn on" data-t="Overview"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="10" rx="2"/><rect x="13.5" y="3.5" width="7" height="6" rx="2"/><rect x="13.5" y="12.5" width="7" height="8" rx="2"/><rect x="3.5" y="16.5" width="7" height="4" rx="2"/></svg>Overview</button>
   <button class="gbtn" data-t="Users"><svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><path d="M16.5 11.2A2.8 2.8 0 1 0 16 5.7M17 14.6c2.2.4 3.8 2.2 3.8 4.9"/></svg>Users</button>
+  <button class="gbtn" data-t="Activity"><svg class="ic" viewBox="0 0 24 24"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Activity</button>
   <button class="gbtn" data-t="Roadmap"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19V5M4 6h11l-2.5 3L15 12H4M20 19V9"/></svg>Roadmap</button>
 </div>
 
@@ -271,8 +386,8 @@ async function boot(){
 function show(m){
   $('gate').classList.toggle('hidden',m!=='gate');
   $('gnav').classList.toggle('hidden',m!=='app');
-  if(m!=='app'){ $('tabOverview').classList.add('hidden'); $('tabUsers').classList.add('hidden'); $('tabRoadmap').classList.add('hidden'); }
-  else { $('tabOverview').classList.remove('hidden'); $('tabUsers').classList.add('hidden'); $('tabRoadmap').classList.add('hidden');
+  if(m!=='app'){ $('tabOverview').classList.add('hidden'); $('tabUsers').classList.add('hidden'); $('tabActivity').classList.add('hidden'); $('tabRoadmap').classList.add('hidden'); }
+  else { $('tabOverview').classList.remove('hidden'); $('tabUsers').classList.add('hidden'); $('tabActivity').classList.add('hidden'); $('tabRoadmap').classList.add('hidden');
     document.querySelectorAll('.gbtn').forEach(x=>x.classList.toggle('on',x.dataset.t==='Overview')); }
 }
 $('gGo').onclick=async()=>{
@@ -289,8 +404,10 @@ document.querySelectorAll('.gbtn').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('.gbtn').forEach(x=>x.classList.toggle('on',x===b));
   $('tabOverview').classList.toggle('hidden',b.dataset.t!=='Overview');
   $('tabUsers').classList.toggle('hidden',b.dataset.t!=='Users');
+  $('tabActivity').classList.toggle('hidden',b.dataset.t!=='Activity');
   $('tabRoadmap').classList.toggle('hidden',b.dataset.t!=='Roadmap');
   if(b.dataset.t==='Users') loadUsers();
+  if(b.dataset.t==='Activity') loadActivity();
 });
 
 /* ---------- users database ---------- */
@@ -517,6 +634,277 @@ $('rmAdd').onclick=async()=>{
   sync();
 })();
 $('rmIn').addEventListener('keydown',e=>{ if(e.key==='Enter') $('rmAdd').click(); });
+
+
+/* ---------- activity heatmap ----------
+   Locations are aggregated to city (UK) or country (global) level only. We never
+   store, plot or expose a precise coordinate. Demo figures until chop_purchases
+   carries a region column — see ACT_DEMO.                                      */
+const ACT_DEMO = true;
+const UK_CITIES = [
+  {n:'London',      lat:51.5074, lon:-0.1278, reg:'South',            editors:9, edits:412, revenue:518430, proc:31},
+  {n:'Manchester',  lat:53.4808, lon:-2.2426, reg:'North',            editors:8, edits:147, revenue:73450,  proc:23},
+  {n:'Birmingham',  lat:52.4862, lon:-1.8904, reg:'Midlands',         editors:5, edits:118, revenue:61200,  proc:14},
+  {n:'Leeds',       lat:53.8008, lon:-1.5491, reg:'North',            editors:4, edits: 96, revenue:44800,  proc: 9},
+  {n:'Liverpool',   lat:53.4084, lon:-2.9916, reg:'North',            editors:3, edits: 81, revenue:37600,  proc: 7},
+  {n:'Glasgow',     lat:55.8642, lon:-4.2518, reg:'Scotland',         editors:3, edits: 74, revenue:33900,  proc: 6},
+  {n:'Sheffield',   lat:53.3811, lon:-1.4701, reg:'North',            editors:2, edits: 58, revenue:24100,  proc: 5},
+  {n:'Bristol',     lat:51.4545, lon:-2.5879, reg:'South',            editors:2, edits: 55, revenue:22800,  proc: 4},
+  {n:'Newcastle',   lat:54.9783, lon:-1.6178, reg:'North',            editors:2, edits: 47, revenue:19400,  proc: 4},
+  {n:'Nottingham',  lat:52.9548, lon:-1.1581, reg:'Midlands',         editors:2, edits: 42, revenue:17300,  proc: 3},
+  {n:'Edinburgh',   lat:55.9533, lon:-3.1883, reg:'Scotland',         editors:1, edits: 38, revenue:15900,  proc: 3},
+  {n:'Cardiff',     lat:51.4816, lon:-3.1791, reg:'Wales',            editors:1, edits: 34, revenue:14100,  proc: 2},
+  {n:'Belfast',     lat:54.5973, lon:-5.9301, reg:'Northern Ireland', editors:1, edits: 27, revenue:11200,  proc: 2},
+  {n:'Brighton',    lat:50.8225, lon:-0.1372, reg:'South',            editors:1, edits: 24, revenue: 9800,  proc: 2},
+  {n:'Southampton', lat:50.9097, lon:-1.4044, reg:'South',            editors:1, edits: 19, revenue: 7900,  proc: 1}
+];
+const COUNTRIES = [
+  {n:'United Kingdom',           reg:'Europe',                 editors:36, edits:1272, revenue:911980, proc:106},
+  {n:'United States of America', reg:'North America',          editors:11, edits: 388, revenue:288900, proc: 29},
+  {n:'Ireland',                  reg:'Europe',                 editors: 4, edits: 121, revenue: 96400, proc: 11},
+  {n:'Australia',                reg:'Asia Pacific',           editors: 3, edits:  94, revenue: 73200, proc:  8},
+  {n:'Germany',                  reg:'Europe',                 editors: 2, edits:  71, revenue: 52100, proc:  6},
+  {n:'Netherlands',              reg:'Europe',                 editors: 2, edits:  58, revenue: 41300, proc:  5},
+  {n:'Spain',                    reg:'Europe',                 editors: 2, edits:  52, revenue: 38200, proc:  4},
+  {n:'Canada',                   reg:'North America',          editors: 1, edits:  47, revenue: 36100, proc:  4},
+  {n:'France',                   reg:'Europe',                 editors: 1, edits:  33, revenue: 25400, proc:  3},
+  {n:'New Zealand',              reg:'Asia Pacific',           editors: 1, edits:  21, revenue: 16800, proc:  2},
+  {n:'United Arab Emirates',     reg:'Middle East & Africa',   editors: 1, edits:  18, revenue: 14200, proc:  2},
+  {n:'South Africa',             reg:'Middle East & Africa',   editors: 1, edits:  14, revenue: 10600, proc:  1},
+  {n:'Brazil',                   reg:'Latin America',          editors: 1, edits:  12, revenue:  8900, proc:  1},
+  {n:'Singapore',                reg:'Asia Pacific',           editors: 1, edits:  11, revenue:  8100, proc:  1}
+];
+const ACT_RAMP=['#16203a','#22459c','#1a6dff','#5b4ee8','#9d6bff'];
+let _labelSet={};
+let _actInit=false,_actMetric='editors',_actSel=null,_actScope='uk',_actRegion='';
+let _actSvg=null,_actZoom=null,_actPaint=null,_actTimer=null;
+
+function gbpP(p){ return '£'+(p/100).toLocaleString('en-GB',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function actAll(){ return _actScope==='uk'?UK_CITIES:COUNTRIES; }
+function isWorld(){ return _actScope!=='uk'; }
+function actData(){ return (_actScope==='region'&&_actRegion)? COUNTRIES.filter(r=>r.reg===_actRegion) : actAll(); }
+function metricOf(r){ return _actMetric==='revenue'?r.revenue:_actMetric==='edits'?r.edits:r.editors; }
+function metricLabel(){ return _actMetric==='revenue'?'revenue':_actMetric==='edits'?'edits today':'active editors'; }
+
+function fillRegions(){
+  const sel=$('aRegion');
+  if(_actScope!=='region'){ sel.style.display='none'; sel.innerHTML=''; return; }
+  sel.style.display='';
+  const seen=[]; COUNTRIES.forEach(r=>{ if(seen.indexOf(r.reg)<0) seen.push(r.reg); });
+  seen.sort();
+  if(!_actRegion) _actRegion=seen[0];
+  sel.innerHTML=seen.map(r=>'<option value="'+r+'"'+(r===_actRegion?' selected':'')+'>'+r+'</option>').join('');
+}
+
+function countTo(el,target,fmt,ms){
+  const t0=performance.now();
+  (function tick(now){
+    const p=Math.min(1,(now-t0)/(ms||1100)), e=1-Math.pow(1-p,3);
+    el.textContent=fmt(target*e);
+    if(p<1) requestAnimationFrame(tick);
+  })(t0);
+}
+function refreshTotals(){
+  const d=actData();
+  countTo($('aRev'),d.reduce((a,r)=>a+r.revenue,0),v=>gbpP(v));
+  countTo($('aRevD'),Math.round(d.reduce((a,r)=>a+r.revenue,0)*0.14),v=>'+'+gbpP(v)+' today');
+  countTo($('aEdits'),d.reduce((a,r)=>a+r.edits,0)*3,v=>Math.round(v).toLocaleString('en-GB'));
+  countTo($('aActive'),d.reduce((a,r)=>a+r.editors,0),v=>Math.round(v));
+  countTo($('aToday'),d.reduce((a,r)=>a+r.edits,0),v=>Math.round(v).toLocaleString('en-GB'));
+  countTo($('aProc'),d.reduce((a,r)=>a+r.proc,0),v=>Math.round(v));
+}
+
+function loadScriptOnce(src){
+  return new Promise((res,rej)=>{
+    if(document.querySelector('script[data-s="'+src+'"]')) return res();
+    const t=document.createElement('script'); t.src=src; t.dataset.s=src;
+    t.onload=()=>res(); t.onerror=()=>rej(new Error('load failed')); document.head.appendChild(t);
+  });
+}
+
+async function loadActivity(){
+  if(_actInit) return; _actInit=true;
+  fillRegions(); refreshTotals(); renderRegions(); renderRevPanel(null); seedFeed();
+  try{
+    await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js');
+    await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js');
+    await drawMap();
+  }catch(e){
+    $('aMap').innerHTML='<div class="kempty" style="padding:60px 20px;text-align:center">Map unavailable. Figures above are unaffected.</div>';
+  }
+}
+
+const _topoCache={};
+async function getFeatures(scope){
+  scope = scope==='uk' ? 'uk' : 'world';
+  if(_topoCache[scope]) return _topoCache[scope];
+  let feats;
+  if(scope==='uk'){
+    const t=await d3.json('https://cdn.jsdelivr.net/npm/datamaps@0.5.10/src/js/data/gbr.topo.json');
+    feats=topojson.feature(t,t.objects[Object.keys(t.objects)[0]]).features;
+  }else{
+    const w=await d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
+    feats=topojson.feature(w,w.objects.countries).features;
+  }
+  _topoCache[scope]=feats; return feats;
+}
+
+async function drawMap(){
+  const W=820,H=560;
+  $('aMap').innerHTML='<div class="loading" style="padding:60px 0;text-align:center">Loading map&hellip;</div>';
+  const feats=await getFeatures(_actScope);
+  $('aMap').innerHTML='';
+  const svg=d3.select('#aMap').append('svg').attr('viewBox','0 0 '+W+' '+H); _actSvg=svg;
+
+  let fitTo=feats;
+  if(_actScope==='region'&&_actRegion){
+    const want=COUNTRIES.filter(c=>c.reg===_actRegion).map(c=>c.n);
+    const sub=feats.filter(f=>f.properties&&want.indexOf(f.properties.name)>=0);
+    if(sub.length) fitTo=sub;
+  }
+  const proj=(_actScope==='uk'?d3.geoMercator():d3.geoNaturalEarth1())
+    .fitExtent([[30,26],[W-30,H-26]],{type:'FeatureCollection',features:fitTo});
+  const path=d3.geoPath(proj);
+  const g=svg.append('g');
+
+  const defs=svg.append('defs');
+  ACT_RAMP.forEach((c,i)=>{
+    const rg=defs.append('radialGradient').attr('id','hsg'+i);
+    rg.append('stop').attr('offset','0%').attr('stop-color',c).attr('stop-opacity',.62);
+    rg.append('stop').attr('offset','45%').attr('stop-color',c).attr('stop-opacity',.16);
+    rg.append('stop').attr('offset','100%').attr('stop-color',c).attr('stop-opacity',0);
+  });
+  defs.append('filter').attr('id','hsblur').attr('x','-70%').attr('y','-70%').attr('width','240%').attr('height','240%')
+      .append('feGaussianBlur').attr('stdDeviation',2.4);
+
+  g.append('g').selectAll('path').data(feats).join('path').attr('d',path).attr('class','uk-land');
+
+  /* country centroids come from the real geometry — nothing hand-placed */
+  const byName={}; feats.forEach(f=>{ if(f.properties&&f.properties.name) byName[f.properties.name]=f; });
+  function xyOf(d){
+    if(_actScope==='uk') return proj([d.lon,d.lat]);
+    const f=byName[d.n]; return f?path.centroid(f):null;
+  }
+
+  const layer=g.append('g'), tip=$('aTip'), box=$('aMap').parentNode;
+
+  function paint(){
+    const rows=actData().filter(d=>xyOf(d));
+    /* only label the busiest few — at scale everything else is a point of light */
+    _labelSet={};
+    rows.slice().sort((a,b)=>metricOf(b)-metricOf(a)).slice(0,8).forEach(d=>{ _labelSet[d.n]=1; });
+    const vals=rows.map(metricOf), max=Math.max.apply(null,vals.concat([1]));
+    const sel=layer.selectAll('g.hs').data(rows,d=>d.n);
+    sel.exit().remove();
+    const ent=sel.enter().append('g').attr('class','hs');
+    ent.append('circle').attr('class','halo').attr('filter','url(#hsblur)');
+    ent.append('circle').attr('class','core');
+    ent.append('text').attr('class','lab').attr('y',-16);
+    const all=ent.merge(sel);
+    all.attr('transform',d=>{const xy=xyOf(d);return 'translate('+xy[0]+','+xy[1]+')';});
+    all.each(function(d){
+      const t=Math.sqrt(metricOf(d)/max), idx=Math.min(4,Math.floor(t*4.999));
+      d3.select(this).select('.halo').attr('r',6+t*17).attr('fill','url(#hsg'+idx+')');
+      d3.select(this).select('.core').attr('r',1.8+t*2.6).attr('fill',ACT_RAMP[Math.min(4,idx+1)]).attr('opacity',.95);
+      d3.select(this).select('.lab').text(_labelSet[d.n]?d.n:'').attr('y',-(8+t*17));
+    });
+    all.classed('sel',d=>_actSel&&d.n===_actSel.n);
+    all.on('mousemove',function(e,d){
+        const r=box.getBoundingClientRect();
+        tip.innerHTML='<h5>'+d.n+'</h5>'+
+          '<div><span>Active editors</span><b>'+d.editors+'</b></div>'+
+          '<div><span>Edits today</span><b>'+d.edits+'</b></div>'+
+          '<div><span>Revenue</span><b>'+gbpP(d.revenue)+'</b></div>'+
+          '<div><span>Processing</span><b>'+d.proc+'</b></div>';
+        let x=e.clientX-r.left+16,y=e.clientY-r.top-18;
+        if(x>r.width-200) x=e.clientX-r.left-196;
+        tip.style.left=x+'px'; tip.style.top=y+'px'; tip.style.opacity=1;
+      })
+      .on('mouseleave',()=>{ tip.style.opacity=0; })
+      .on('click',function(e,d){ _actSel=(_actSel&&_actSel.n===d.n)?null:d; paint(); renderRegions(); renderRevPanel(_actSel); });
+  }
+  paint(); _actPaint=paint;
+
+  _actZoom=d3.zoom().scaleExtent([1,8]).on('zoom',ev=>g.attr('transform',ev.transform));
+  svg.call(_actZoom);
+
+  if(_actTimer) clearInterval(_actTimer);
+  _actTimer=setInterval(()=>{
+    if($('tabActivity').classList.contains('hidden')) return;
+    const pool=[]; actData().forEach(r=>{ if(xyOf(r)) for(let i=0;i<r.editors;i++) pool.push(r); });
+    const r=pool[Math.floor(Math.random()*pool.length)]; if(!r) return;
+    const xy=xyOf(r);
+    const c=g.append('circle').attr('class','ping').attr('cx',xy[0]).attr('cy',xy[1]).attr('r',6);
+    setTimeout(()=>c.remove(),1700);
+    pushFeed(r);
+  },3200);
+}
+
+function renderRegions(){
+  const sorted=actData().slice().sort((a,b)=>metricOf(b)-metricOf(a)).slice(0,8);
+  const max=sorted.length?metricOf(sorted[0]):1;
+  $('aRegM').textContent=metricLabel();
+  $('aRegions').innerHTML=sorted.map(r=>{
+    const v=metricOf(r), txt=_actMetric==='revenue'?gbpP(v):v.toLocaleString('en-GB');
+    return '<div class="rgrow"><div class="nm">'+r.n+'</div><div class="tb"><i style="width:'+
+      Math.round(v/(max||1)*100)+'%"></i></div><div class="v">'+txt+'</div></div>';
+  }).join('')||'<div class="kempty">Nothing here yet.</div>';
+}
+function renderRevPanel(sel){
+  const list=sel?[sel]:actData();
+  const tot=list.reduce((a,r)=>a+r.revenue,0);
+  $('aSelName').textContent=sel?sel.n:(_actRegion||'all '+(_actScope==='uk'?'regions':'countries'));
+  $('aRevSub').textContent=sel?(sel.editors+' active · '+sel.proc+' processing'):'across the selection';
+  countTo($('aRevToday'),Math.round(tot*0.12),v=>gbpP(v),700);
+  const top=actData().slice().sort((a,b)=>b.revenue-a.revenue).slice(0,4);
+  const mx=top.length?top[0].revenue:1;
+  $('aRevBars').innerHTML=top.map(r=>'<div class="rgrow"><div class="nm">'+r.n+'</div><div class="tb"><i style="width:'+
+    Math.round(r.revenue/(mx||1)*100)+'%"></i></div><div class="v">'+gbpP(r.revenue)+'</div></div>').join('');
+}
+const FEED_VERBS=['finished an edit','exported a video','started chopping','picked a retake','bought credits'];
+function pushFeed(r){
+  const el=$('aFeed'); if(!el) return;
+  const d=document.createElement('div');
+  d.innerHTML='<span class="dot"></span><span>'+r.n+' &mdash; '+FEED_VERBS[Math.floor(Math.random()*FEED_VERBS.length)]+'</span><span class="w">just now</span>';
+  el.prepend(d);
+  while(el.children.length>12) el.removeChild(el.lastChild);
+}
+function seedFeed(){
+  const el=$('aFeed'); el.innerHTML='';
+  const pool=actData().slice(0,8); if(!pool.length) return;
+  for(let i=0;i<7;i++){
+    const r=pool[Math.floor(Math.random()*pool.length)];
+    const d=document.createElement('div');
+    d.innerHTML='<span class="dot" style="background:#3d6ae0"></span><span>'+r.n+' &mdash; '+FEED_VERBS[Math.floor(Math.random()*FEED_VERBS.length)]+'</span><span class="w">'+(i+2)+'m ago</span>';
+    el.appendChild(d);
+  }
+}
+
+document.querySelectorAll('#aSeg button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#aSeg button').forEach(x=>x.classList.toggle('on',x===b));
+  _actMetric=b.dataset.m; if(_actPaint) _actPaint(); renderRegions();
+});
+document.querySelectorAll('#aScope button').forEach(b=>b.onclick=async()=>{
+  if(b.dataset.s===_actScope) return;
+  document.querySelectorAll('#aScope button').forEach(x=>x.classList.toggle('on',x===b));
+  _actScope=b.dataset.s; _actRegion=''; _actSel=null;
+  fillRegions();
+  refreshTotals(); renderRegions(); renderRevPanel(null); seedFeed();
+  try{ await drawMap(); }catch(e){}
+});
+$('aRegion').onchange=async function(){
+  _actRegion=this.value; _actSel=null;
+  refreshTotals(); renderRegions(); renderRevPanel(null); seedFeed();
+  try{ await drawMap(); }catch(e){}
+};
+$('aZin').onclick=()=>{ if(_actSvg&&_actZoom) _actSvg.transition().duration(300).call(_actZoom.scaleBy,1.6); };
+$('aZout').onclick=()=>{ if(_actSvg&&_actZoom) _actSvg.transition().duration(300).call(_actZoom.scaleBy,1/1.6); };
+$('aRst').onclick=()=>{
+  if(_actSvg&&_actZoom) _actSvg.transition().duration(400).call(_actZoom.transform,d3.zoomIdentity);
+  _actSel=null; if(_actScope!=='region') _actRegion='';
+  fillRegions(); refreshTotals();
+  if(_actPaint) _actPaint(); renderRegions(); renderRevPanel(null);
+};
 
 /* init date inputs + boot */
 $('fFrom').value=fmtD(curRange[0]); $('fTo').value=fmtD(curRange[1]);

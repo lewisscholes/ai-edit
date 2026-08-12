@@ -844,6 +844,7 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
     <button class="abtn" id="pSave">Start chopping</button>
     <div class="aerr" id="pErr"></div>
     <button class="pitem hidden" id="psetupBilling" style="justify-content:center;margin-top:10px;color:var(--blue);font-weight:800"><svg class="ic" viewBox="0 0 24 24" style="width:15px;height:15px"><rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/></svg> Manage billing &amp; credits</button>
+    <button class="pitem hidden" id="psetupDelete" style="justify-content:center;margin-top:8px;color:var(--rose);font-weight:800">Delete my account</button>
   </div>
 </div>
 
@@ -3774,7 +3775,7 @@ async function exportJob(j,btn){
   applyJobToState(j); currentJobName=j.name;
   await hydrateJob(j);
   if(!j.vw) j.vw=await measureWidth(j.url);
-  const needServer=(j.file.size>1400*1024*1024)||(j.vw>0&&j.vw!==1080);
+  const needServer=window.CHOP_FORCE_SERVER_RENDER||(j.file.size>1400*1024*1024)||(j.vw>0&&j.vw!==1080);
   if(needServer){
     if(_rendering){ toast('Another export is already running — one at a time'); return; }
     _rendering=true;
@@ -4138,6 +4139,7 @@ function initPsetup(){
   $('psetupSub').textContent="This is how you'll show up on Chop.";
   $('pSave').textContent='Start chopping';
   $('psetupBilling').classList.add('hidden');
+  $('psetupDelete').classList.add('hidden');
   /* show the account email (read-only) once signed in */
   if(authUser&&authUser.email){ $('pEmail').value=authUser.email; $('pEmailRow').classList.remove('hidden'); }
   else $('pEmailRow').classList.add('hidden');
@@ -4520,7 +4522,7 @@ $('renderBtn').onclick=async()=>{
   $('oocSkip').onclick=oocHide;
   $('oocWrap').onclick=e=>{ if(e.target===$('oocWrap')) oocHide(); };
   $('pmBilling').onclick=()=>{ $('pMenu').classList.add('hidden'); renderCredits(); showView('billing'); };
-  $('pmSettings').onclick=()=>{ $('pMenu').classList.add('hidden'); if(!authUser){ showView('auth'); return; } initPsetup(); $('psetupTitle').textContent='Your profile'; $('psetupSub').textContent='Update your details any time.'; $('pSave').textContent='Save changes'; $('psetupBilling').classList.remove('hidden'); showView('psetup'); };
+  $('pmSettings').onclick=()=>{ $('pMenu').classList.add('hidden'); if(!authUser){ showView('auth'); return; } initPsetup(); $('psetupTitle').textContent='Your profile'; $('psetupSub').textContent='Update your details any time.'; $('pSave').textContent='Save changes'; $('psetupBilling').classList.remove('hidden'); $('psetupDelete').classList.remove('hidden'); showView('psetup'); };
   $('billBack').onclick=()=>showView('home');
   $('psetupBilling').onclick=()=>{ renderCredits(); showView('billing'); };
   /* credit slider: £1/credit standard; 50+ → 85p; 100+ → 75p; −5p per extra 50; floor 60p */
@@ -4587,6 +4589,46 @@ $('renderBtn').onclick=async()=>{
   $('authGo').onclick=authGo;
   $('authPass').addEventListener('keydown',e=>{ if(e.key==='Enter') authGo(); });
   $('pSave').onclick=saveProfile;
+  /* running inside the iOS/Android shell? web is byte-identical when false */
+  window.CHOP_NATIVE = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+
+  async function deleteAccount(){
+    const typed = prompt('This permanently deletes your account, your saved edits and any remaining credits.\n\nThis cannot be undone.\n\nType DELETE to confirm:');
+    if(!typed || typed.trim().toUpperCase()!=='DELETE') return;
+    const btn=$('psetupDelete'); const label=btn.textContent;
+    btn.disabled=true; btn.textContent='Deleting\u2026';
+    try{
+      const {data:{session}}=await sb.auth.getSession();
+      if(!session) throw new Error('Sign in again to delete your account.');
+      const r=await fetch(SB_URL+'/functions/v1/chop-delete-account',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','apikey':ANON_KEY,'Authorization':'Bearer '+session.access_token}
+      });
+      const j=await r.json().catch(()=>({}));
+      if(!r.ok||!j.ok) throw new Error(j.error||'Couldn\u2019t delete the account.');
+      try{ localStorage.clear(); }catch(e){}
+      try{ indexedDB.deleteDatabase('chop'); }catch(e){}
+      try{ await sb.auth.signOut(); }catch(e){}
+      location.reload();
+    }catch(e){
+      toast((e&&e.message)||'Couldn\u2019t delete the account.');
+      btn.disabled=false; btn.textContent=label;
+    }
+  }
+  $('psetupDelete').onclick=deleteAccount;
+
+  if(window.CHOP_NATIVE){
+    /* Apple require digital goods to go through IAP, so the iOS build ships
+       with no purchase path at all. Credits are bought on chopedit.com.      */
+    document.querySelectorAll('#pmBilling, #psetupBilling, #navBill').forEach(el=>{ if(el) el.remove(); });
+    const bill=$('viewBilling'); if(bill) bill.remove();
+    /* Apple reject visibly non-functional features — remove, don't blur */
+    document.querySelectorAll('.rbtn.soon').forEach(el=>el.remove());
+    ['pn-text','pn-image','pn-subtitles'].forEach(id=>{ const el=$(id); if(el) el.remove(); });
+    /* ffmpeg.wasm needs crossOriginIsolated, which is a fight inside WKWebView */
+    window.CHOP_FORCE_SERVER_RENDER = true;
+  }
+
   $('pmSignout').onclick=async()=>{ $('pMenu').classList.add('hidden'); try{await sb.auth.signOut();}catch(e){} routeAuth(null); };
   /* mobile: player bar moves between the timeline and the panel */
   const transportEl=document.querySelector('.transport');
