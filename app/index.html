@@ -2966,9 +2966,9 @@ async function proxyBlobUrl(j){
 async function pickSource(j){
   const localUrl=(j&&j.file&&j.url)?j.url:null;
   const remoteUrl=(j&&j.url)?j.url:null;
-  /* A local file is already on disk — nothing beats that, so it wins over a
-     proxy we'd have to pull down. The proxy is for when there is no local copy. */
-  if(localUrl) return {url:localUrl,mode:'local-original',key:null};
+  /* Both the proxy and a local original end up as in-memory blobs, so the only
+     thing separating them is weight: 540p/7MB vs 4K/371MB. The proxy wins.
+     (This was the other way round while the proxy was still streamed.) */
   if(proxyEnabled()&&j&&j.proxyStatus==='ready'&&j.proxyKey&&j.videoKey&&!j._proxyBanned){
     try{
       const t0=performance.now();
@@ -2977,6 +2977,7 @@ async function pickSource(j){
       return {url:u,mode:'proxy',key:j.proxyKey};
     }catch(e){ _pxStats.fallbacks++; logErr((e&&e.message)||'proxy fetch failed','proxy.fetch:'+j.name); }
   }
+  if(localUrl) return {url:localUrl,mode:'local-original',key:null};
   if(remoteUrl) return {url:remoteUrl,mode:'remote-original',key:(j&&j.videoKey)||null};
   return {url:null,mode:'none',key:null};
 }
