@@ -1970,11 +1970,12 @@ function playWhenReady(){
   _mp.playRequests++;
   const vid=$('vid');
   markPlayTiming();
-  if(!state.useRealVideo||!vid||(!vid.seeking&&vid.readyState>=2)){ player.play(); return; }
+  if(!state.useRealVideo||!vid||(!vid.seeking&&vid.readyState>=2)){ _dg.via='immediate'; _dg.playAt=performance.now(); player.play(); return; }
   _mp.playWhileSeeking++;
   let done=false;
-  const go=()=>{ if(done) return; done=true;
+  const go=(ev)=>{ if(done) return; done=true;
     vid.removeEventListener('seeked',go); vid.removeEventListener('canplay',go); clearTimeout(tm);
+    _dg.via=(ev&&ev.type)||'timeout'; _dg.playAt=performance.now();
     player.play(); };
   const tm=setTimeout(go,400);        /* never let the button hang */
   vid.addEventListener('seeked',go);
@@ -2950,10 +2951,16 @@ function dgRelease(){
   if(!_dg.armed) return;
   _dg.armed=false;
   const fought=_dg.fought, t0=performance.now(); let done=false;
+  _dg.via='?'; _dg.playAt=0; _dg.seekedAt=0;
+  const vv=$('vid');
+  if(vv){ const os=()=>{ vv.removeEventListener('seeked',os); _dg.seekedAt=performance.now(); }; vv.addEventListener('seeked',os); }
   const report=(ms,how)=>{
     if(done) return; done=true;
-    _dg.last={resumeMs:Math.round(ms),fought:fought,via:how,at:new Date().toISOString()};
-    if(dgOn()) toast((fought?'\u26a0\ufe0f still fighting':'\u2713 paused cleanly')+' \u00b7 resumed in '+Math.round(ms)+'ms');
+    const wait=_dg.playAt?Math.round(_dg.playAt-t0):-1;          /* release -> play() called */
+    const frame=_dg.playAt?Math.round(ms-(_dg.playAt-t0)):-1;    /* play() -> first frame */
+    const seeked=_dg.seekedAt?Math.round(_dg.seekedAt-t0):-1;    /* release -> seek settled */
+    _dg.last={totalMs:Math.round(ms),waitMs:wait,frameMs:frame,seekedMs:seeked,via:_dg.via,fought:fought,how:how,at:new Date().toISOString()};
+    if(dgOn()) toast((fought?'\u26a0\ufe0f fighting':'\u2713 clean')+' \u00b7 '+Math.round(ms)+'ms = wait '+wait+' + frame '+frame+' \u00b7 via '+_dg.via+' \u00b7 seeked '+seeked);
   };
   const v=$('vid');
   if(v&&v.requestVideoFrameCallback){ try{ v.requestVideoFrameCallback(()=>report(performance.now()-t0,'frame')); }catch(e){} }
