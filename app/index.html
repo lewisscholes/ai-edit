@@ -2841,6 +2841,7 @@ async function dbPutJob(j,opts){
 }
 async function dbDelJob(name){
   const e=_metaQ[name]; if(e){ clearTimeout(e.t); delete _metaQ[name]; }
+  if(_proxyBlobs[name]){ try{URL.revokeObjectURL(_proxyBlobs[name]);}catch(e2){} delete _proxyBlobs[name]; }
   try{ await idbTx('jobs','readwrite',st=>st.delete(name)); }catch(err){ _dbStats.failures++; logErr('meta delete failed: '+((err&&err.message)||err),'idb.del:'+name); }
   try{ await idbTx('media','readwrite',st=>st.delete(name)); }catch(err){ _dbStats.failures++; logErr('media delete failed: '+((err&&err.message)||err),'idb.del:'+name); }
 }
@@ -2935,20 +2936,46 @@ window.chopProxyStats=()=>{
   return {enabled:proxyEnabled(),activeSource:_pxStats.activeSource,proxyStatus:_pxStats.proxyStatus,
     swapsAttempted:_pxStats.swapsAttempted,swapsSucceeded:_pxStats.swapsSucceeded,
     swapsFailed:_pxStats.swapsFailed,swapsDeferred:_pxStats.swapsDeferred,fallbacks:_pxStats.fallbacks,
-    lastSwapMs:_pxStats.lastSwapMs,lastSwapTimeDelta:_pxStats.lastSwapTimeDelta,seeks:seek};
+    lastSwapMs:_pxStats.lastSwapMs,lastSwapTimeDelta:_pxStats.lastSwapTimeDelta,
+    lastProxyFetchMs:_pxStats.lastProxyFetchMs||null,seeks:seek};
 };
 
+/* Download the proxy ONCE and play it from memory.
+   Streaming it was the mistake: R2 has no CDN in front of it, so every seek
+   paid a ~180ms round trip (measured) — which is what made scrubbing, resume
+   and continuous playback stutter. The whole 7MB file fetches in ~0.5s, after
+   which every seek is instant and the network is never touched again. */
+const PROXY_MAX_FETCH=80*1024*1024;
+const _proxyBlobs={};                 /* job name -> blob: URL, runtime only */
+async function proxyBlobUrl(j){
+  if(_proxyBlobs[j.name]) return _proxyBlobs[j.name];
+  const g=await proxyApi({action:'proxy_get',key:j.videoKey});   /* fresh presign, never persisted */
+  if(!g||!g.url) throw new Error('no proxy url');
+  const r=await fetch(g.url);
+  if(!r.ok) throw new Error('proxy fetch '+r.status);
+  const len=+(r.headers.get('content-length')||0);
+  if(len>PROXY_MAX_FETCH) throw new Error('proxy too large to hold in memory');
+  const blob=await r.blob();
+  if(!blob.size) throw new Error('empty proxy');
+  const u=URL.createObjectURL(blob);
+  _proxyBlobs[j.name]=u;
+  return u;
+}
 /* ONE place decides what the editor plays */
 async function pickSource(j){
   const localUrl=(j&&j.file&&j.url)?j.url:null;
   const remoteUrl=(j&&j.url)?j.url:null;
+  /* A local file is already on disk — nothing beats that, so it wins over a
+     proxy we'd have to pull down. The proxy is for when there is no local copy. */
+  if(localUrl) return {url:localUrl,mode:'local-original',key:null};
   if(proxyEnabled()&&j&&j.proxyStatus==='ready'&&j.proxyKey&&j.videoKey&&!j._proxyBanned){
     try{
-      const g=await proxyApi({action:'proxy_get',key:j.videoKey});   /* fresh presign, never persisted */
-      if(g&&g.url) return {url:g.url,mode:'proxy',key:j.proxyKey};
-    }catch(e){ _pxStats.fallbacks++; logErr((e&&e.message)||'proxy presign failed','proxy.presign:'+j.name); }
+      const t0=performance.now();
+      const u=await proxyBlobUrl(j);
+      _pxStats.lastProxyFetchMs=Math.round(performance.now()-t0);
+      return {url:u,mode:'proxy',key:j.proxyKey};
+    }catch(e){ _pxStats.fallbacks++; logErr((e&&e.message)||'proxy fetch failed','proxy.fetch:'+j.name); }
   }
-  if(localUrl) return {url:localUrl,mode:'local-original',key:null};
   if(remoteUrl) return {url:remoteUrl,mode:'remote-original',key:(j&&j.videoKey)||null};
   return {url:null,mode:'none',key:null};
 }
@@ -2976,6 +3003,7 @@ async function proxySwap(j){
   let src;
   try{ src=await pickSource(j); }catch(e){ src=null; }
   if(!src||src.mode!=='proxy'){ _pxStats.swapsFailed++; return; }
+  /* pickSource returns a blob: URL for proxies now, so the swap is instant */
   try{
     if(wasPlaying) player.pause();
     const prevUrl=state.fileUrl;
@@ -2986,7 +3014,7 @@ async function proxySwap(j){
       const cleanup=()=>{ vid.removeEventListener('loadedmetadata',ok); vid.removeEventListener('error',bad); clearTimeout(tm); };
       const tm=setTimeout(()=>bad(),8000);
       vid.addEventListener('loadedmetadata',ok); vid.addEventListener('error',bad);
-      vid.crossOrigin='anonymous';
+      if(/^https?:/.test(src.url)) vid.crossOrigin='anonymous'; else vid.removeAttribute('crossorigin');
       state.fileUrl=src.url;                 /* j.url stays the ORIGINAL */
       vid.src=src.url;
       try{ vid.load(); }catch(e){}
