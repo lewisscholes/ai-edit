@@ -651,6 +651,40 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
   .oocgrab{display:block;width:38px;height:4px;border-radius:3px;background:var(--line);margin:0 auto 16px}
   .oochead h2{font-size:19px}
 }
+/* ---------- account settings ---------- */
+.setwrap{max-width:480px;margin:0 auto;padding:18px 18px 60px}
+.sethead{text-align:center;padding:14px 0 22px}
+.setav{position:relative;width:84px;height:84px;margin:0 auto 12px;cursor:pointer}
+.setav .ph{width:84px;height:84px;border-radius:50%;background:linear-gradient(135deg,var(--blue),#7c3aed);display:grid;place-items:center;font-size:30px;font-weight:800;color:#fff;overflow:hidden;background-size:cover;background-position:center}
+.setav .cam{position:absolute;right:-2px;bottom:-2px;width:28px;height:28px;border-radius:50%;background:var(--card);border:2px solid var(--bg);display:grid;place-items:center;color:var(--blue)}
+.sethead .nm{font-size:18px;font-weight:800}
+.sethead .hd{font-size:13px;color:var(--mut);margin-top:2px}
+.setcr{display:inline-flex;align-items:center;gap:6px;margin-top:10px;background:var(--blue-soft);border:1px solid rgba(26,109,255,.24);color:var(--blue);font-size:11.5px;font-weight:800;padding:5px 12px;border-radius:20px}
+.setlab{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);font-weight:800;margin:18px 0 8px 4px}
+.setlab.danger{color:var(--rose)}
+.setgrp{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.setrow{display:flex;align-items:center;gap:10px;padding:13px 15px;width:100%;background:none;border:0;border-top:1px solid var(--line);font:inherit;color:var(--ink);text-align:left;cursor:pointer}
+.setrow:first-child{border-top:0}
+.setrow:hover{background:var(--soft2)}
+.setrow .k{font-size:13.5px;color:var(--mut);width:112px;flex:none}
+.setrow .v{flex:1;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.setrow .v.mut{color:var(--mut)}
+.setrow .act{font-size:12.5px;font-weight:800;color:var(--blue)}
+.setrow .chev{color:var(--mut);flex:none}
+.setrow.static{cursor:default}
+.setrow.static:hover{background:none}
+.setpill{font-size:12.5px;font-weight:800;color:var(--blue);background:var(--blue-soft);border:1px solid rgba(26,109,255,.24);padding:4px 11px;border-radius:8px}
+.setsw{width:38px;height:22px;border-radius:20px;background:var(--line);position:relative;flex:none;transition:.18s}
+.setsw i{position:absolute;left:2px;top:2px;width:18px;height:18px;border-radius:50%;background:#fff;display:block;transition:.18s}
+.setsw.on{background:var(--blue)}
+.setsw.on i{left:18px}
+.setout{margin-top:14px;background:none;border:1px solid var(--line);border-radius:14px;width:100%;padding:13px;font:inherit;font-size:14px;font-weight:700;color:var(--ink);cursor:pointer}
+.setout:hover{background:var(--soft2)}
+.setdz{background:rgba(224,53,95,.05);border:1px solid rgba(224,53,95,.25);border-radius:14px;padding:15px}
+.setdz b{font-size:14px;display:block;margin-bottom:3px}
+.setdz p{font-size:12px;color:var(--mut);line-height:1.5;margin:0}
+.setdzbtn{margin-top:12px;background:none;font:inherit;font-size:13px;font-weight:800;color:var(--rose);border:1px solid rgba(224,53,95,.4);padding:8px 15px;border-radius:9px;cursor:pointer}
+.setdzbtn:hover{background:rgba(224,53,95,.10)}
 /* ================= mobile ================= */
 @media(max-width:760px){
   html,body{overflow-x:hidden;overscroll-behavior-y:none}
@@ -757,7 +791,7 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
       <div class="pmenu hidden" id="pMenu">
         <div class="pitem rowi" id="pmWho" style="border-bottom:1px solid var(--line);border-radius:0;margin-bottom:4px;padding-bottom:12px"><b id="pmWhoName">Not signed in</b></div>
         <button class="pitem" id="pmBilling"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="M3 10h18M7 15h4"/></svg> Billing</button>
-        <button class="pitem" id="pmSettings"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><circle cx="12" cy="12" r="3.1"/><path d="M12 2.8v2.7M12 18.5v2.7M2.8 12h2.7M18.5 12h2.7M5.4 5.4l1.9 1.9M16.7 16.7l1.9 1.9M18.6 5.4l-1.9 1.9M7.3 16.7l-1.9 1.9"/></svg> Settings</button>
+        <button class="pitem" id="pmSettings"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><circle cx="12" cy="12" r="3.2"/><path d="M19.1 13.6a7.6 7.6 0 0 0 0-3.2l2-1.5-2-3.4-2.3 1a7.6 7.6 0 0 0-2.8-1.6L13.6 2h-3.2l-.4 2.9a7.6 7.6 0 0 0-2.8 1.6l-2.3-1-2 3.4 2 1.5a7.6 7.6 0 0 0 0 3.2l-2 1.5 2 3.4 2.3-1a7.6 7.6 0 0 0 2.8 1.6l.4 2.9h3.2l.4-2.9a7.6 7.6 0 0 0 2.8-1.6l2.3 1 2-3.4z"/></svg> Settings</button>
         <button class="pitem" id="pmSignout"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M9 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H9M15 8l4 4-4 4M19 12H9"/></svg> Sign out</button>
         <div class="pitem rowi"><span id="pmThemeLbl" style="display:inline-flex;align-items:center;gap:8px"><svg class="ic" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M20 13.5A8 8 0 0 1 10.5 4a8 8 0 1 0 9.5 9.5z"/></svg> Dark mode</span><div class="tgl" id="pmTheme"></div></div>
       </div>
@@ -823,6 +857,50 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
     <button class="oocskip" id="oocSkip">Not right now</button>
   </div>
 </div>
+<!-- ============ SETTINGS ============ -->
+<div class="hidden" id="viewSettings">
+  <div class="setwrap">
+    <div class="sethead">
+      <div class="setav" id="stAv"><div class="ph" id="stAvPh">A</div>
+        <div class="cam"><svg class="ic" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M4 8.5h3l1.5-2h7L17 8.5h3v10H4z"/><circle cx="12" cy="13" r="3"/></svg></div>
+      </div>
+      <div class="nm" id="stName">&nbsp;</div>
+      <div class="hd" id="stHandle"></div>
+      <div class="setcr"><svg class="ic" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M13 2L4.5 13.5H11L10 22l8.5-11.5H12z"/></svg><span id="stCredits">0</span> credits</div>
+    </div>
+
+    <div class="setlab">Profile</div>
+    <div class="setgrp">
+      <button class="setrow" id="stEditName"><span class="k">Name</span><span class="v" id="stVName"></span><svg class="ic chev" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M9 5l7 7-7 7"/></svg></button>
+      <button class="setrow" id="stEditTt"><span class="k">TikTok</span><span class="v" id="stVTt"></span><svg class="ic chev" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M9 5l7 7-7 7"/></svg></button>
+      <button class="setrow" id="stEditPhoto"><span class="k">Photo</span><span class="v act">Change</span><svg class="ic chev" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M9 5l7 7-7 7"/></svg></button>
+    </div>
+
+    <div class="setlab">Account</div>
+    <div class="setgrp">
+      <div class="setrow static"><span class="k">Email</span><span class="v mut" id="stEmail"></span></div>
+      <div class="setrow static"><span class="k">Credits</span><span class="v" id="stCredits2">0</span><button class="setpill" id="stBuy">Buy more</button></div>
+      <div class="setrow static"><span class="k">Member since</span><span class="v mut" id="stSince">&mdash;</span></div>
+      <button class="setrow" id="stPw"><span class="v">Password</span><span class="act">Reset</span><svg class="ic chev" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M9 5l7 7-7 7"/></svg></button>
+    </div>
+
+    <div class="setlab">Preferences</div>
+    <div class="setgrp">
+      <div class="setrow static"><span class="v">Dark mode</span><span class="setsw" id="stDark"><i></i></span></div>
+      <button class="setrow" id="stLab"><span class="v">Cut Lab defaults</span><svg class="ic chev" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M9 5l7 7-7 7"/></svg></button>
+    </div>
+
+    <button class="setout" id="stSignout">Sign out</button>
+
+    <div class="setlab danger">Danger zone</div>
+    <div class="setdz">
+      <b>Delete my account</b>
+      <p>Permanently removes your profile, saved edits and any remaining credits. This cannot be undone.</p>
+      <button class="setdzbtn" id="stDelete">Delete account</button>
+    </div>
+  </div>
+</div>
+
 <div class="authwrap hidden" id="viewPsetup">
   <div class="authcard">
     <h2 id="psetupTitle">Set up your profile</h2>
@@ -3612,6 +3690,7 @@ function showView(v){
   const authish=(v==='auth'||v==='psetup');
   $('viewAuth').classList.toggle('hidden',v!=='auth');
   $('viewPsetup').classList.toggle('hidden',v!=='psetup');
+  $('viewSettings').classList.toggle('hidden',v!=='settings');
   $('viewHome').classList.toggle('hidden',v!=='home');
   $('viewProc').classList.toggle('hidden',v!=='proc');
   $('viewEditor').classList.toggle('hidden',v!=='editor');
@@ -4218,6 +4297,54 @@ async function authGo(){
   }
   $('authGo').disabled=false;
 }
+function openSettings(){
+  const p=userProfile||{};
+  const name=p.name||'';
+  $('stName').textContent=name||'Your account';
+  $('stVName').textContent=name||'Not set';
+  const tt=String(p.tiktok||'').replace(/^@+/,'');
+  $('stHandle').textContent=tt?('@'+tt):'';
+  $('stVTt').textContent=tt?('@'+tt):'Not set';
+  $('stEmail').textContent=(authUser&&authUser.email)||'';
+  const c=creditsGet();
+  $('stCredits').textContent=c; $('stCredits2').textContent=c;
+  if(p.created_at){
+    try{ $('stSince').textContent=new Date(p.created_at).toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}); }
+    catch(e){ $('stSince').textContent='—'; }
+  } else $('stSince').textContent='—';
+  /* avatar: uploaded photo, chosen icon, or initial */
+  const ph=$('stAvPh'); ph.style.background=''; ph.textContent='';
+  const av=p.avatar||'';
+  if(av && av.indexOf('http')===0){ loadAvatarBg(ph,av,()=>{}); }
+  else if(av && av.indexOf('e:')===0){ const parts=av.split(':'); ph.textContent=parts[1]||''; ph.style.fontSize='34px'; }
+  else { ph.textContent=(name||'?').trim().charAt(0).toUpperCase(); }
+  $('stDark').classList.toggle('on', !document.documentElement.classList.contains('light'));
+  showView('settings');
+}
+
+function editProfile(focus){
+  initPsetup();
+  $('psetupTitle').textContent='Your profile';
+  $('psetupSub').textContent='Update your details any time.';
+  $('pSave').textContent='Save changes';
+  showView('psetup');
+  if(focus==='name') setTimeout(()=>$('pName').focus(),80);
+  if(focus==='tt')   setTimeout(()=>$('pTikTok').focus(),80);
+  if(focus==='photo') setTimeout(()=>{ const g=$('avGrid'); if(g) g.scrollIntoView({behavior:'smooth',block:'center'}); },80);
+}
+
+async function resetPasswordFromSettings(){
+  const email=(authUser&&authUser.email)||'';
+  if(!email){ toast('No email on this account.'); return; }
+  const b=$('stPw'); b.disabled=true;
+  try{
+    const {error}=await sb.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});
+    if(error) throw error;
+    toast('Reset link sent — check your inbox.');
+  }catch(e){ toast((e&&e.message)||'Couldn’t send that.'); }
+  b.disabled=false;
+}
+
 function initPsetup(){
   $('psetupTitle').textContent='Set up your profile';
   $('psetupSub').textContent="This is how you'll show up on Chop.";
@@ -4606,8 +4733,18 @@ $('renderBtn').onclick=async()=>{
   $('oocSkip').onclick=oocHide;
   $('oocWrap').onclick=e=>{ if(e.target===$('oocWrap')) oocHide(); };
   $('pmBilling').onclick=()=>{ $('pMenu').classList.add('hidden'); renderCredits(); showView('billing'); };
-  $('pmSettings').onclick=()=>{ $('pMenu').classList.add('hidden'); if(!authUser){ showView('auth'); return; } initPsetup(); $('psetupTitle').textContent='Your profile'; $('psetupSub').textContent='Update your details any time.'; $('pSave').textContent='Save changes'; $('psetupBilling').classList.remove('hidden'); $('psetupDelete').classList.remove('hidden'); showView('psetup'); };
-  $('billBack').onclick=()=>showView('home');
+  $('pmSettings').onclick=()=>{ $('pMenu').classList.add('hidden'); if(!authUser){ showView('auth'); return; } openSettings(); };
+
+  $('stEditName').onclick=()=>editProfile('name');
+  $('stEditTt').onclick=()=>editProfile('tt');
+  $('stEditPhoto').onclick=()=>editProfile('photo');
+  $('stAv').onclick=()=>editProfile('photo');
+  $('stBuy').onclick=()=>{ renderCredits(); showView('billing'); };
+  $('stPw').onclick=resetPasswordFromSettings;
+  $('stLab').onclick=()=>{ labSet(cutDefaults()); renderPresets(); showView('lab'); };
+  $('stDark').onclick=()=>{ setTheme(document.documentElement.classList.contains('light')); $('stDark').classList.toggle('on'); };
+  $('stSignout').onclick=async()=>{ try{await sb.auth.signOut();}catch(e){} routeAuth(null); };
+  $('stDelete').onclick=deleteAccount;  $('billBack').onclick=()=>showView('home');
   $('psetupBilling').onclick=()=>{ renderCredits(); showView('billing'); };
   /* credit slider: £1/credit standard; 50+ → 85p; 100+ → 75p; −5p per extra 50; floor 60p */
   function perCredit(n){
@@ -4679,7 +4816,7 @@ $('renderBtn').onclick=async()=>{
   async function deleteAccount(){
     const typed = prompt('This permanently deletes your account, your saved edits and any remaining credits.\n\nThis cannot be undone.\n\nType DELETE to confirm:');
     if(!typed || typed.trim().toUpperCase()!=='DELETE') return;
-    const btn=$('psetupDelete'); const label=btn.textContent;
+    const btn=$('stDelete')||$('psetupDelete'); const label=btn.textContent;
     btn.disabled=true; btn.textContent='Deleting\u2026';
     try{
       const {data:{session}}=await sb.auth.getSession();
