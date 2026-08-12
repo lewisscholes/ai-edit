@@ -2101,7 +2101,9 @@ function renderStrip(){
    CanvasSink does the scaling AND defaults rotation to the file's metadata,
    which is what makes iPhone footage come out upright. Any failure falls
    straight through to the existing <video> seek loop. */
-function mbEnabled(){ try{ return localStorage.getItem('chopMB')==='1'; }catch(e){ return false; } }
+/* ON by default now. Any failure still falls through to the old path, and
+   chopDisableMB() turns it off on this device without a deploy. */
+function mbEnabled(){ try{ return localStorage.getItem('chopMB')!=='0'; }catch(e){ return true; } }
 window.chopEnableMB=()=>{ try{localStorage.setItem('chopMB','1');}catch(e){} return 'mediabunny filmstrip ON — reopen a project'; };
 window.chopDisableMB=()=>{ try{localStorage.setItem('chopMB','0');}catch(e){} return 'mediabunny filmstrip OFF — reopen a project'; };
 const _mbStats={path:'none',frames:0,ms:0,msPerFrame:0,source:'none',rotation:null,fails:0,lastError:null};
