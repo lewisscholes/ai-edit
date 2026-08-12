@@ -2783,7 +2783,11 @@ function addFiles(list){
     queue.push(q); added.push(q);
   }
   renderQueue();
-  added.forEach(q=>materialize(q));
+  /* One at a time. materialize() reads the whole video into an ArrayBuffer and
+     then copies it again as a Blob; doing that for several clips at once is
+     ~1GB of allocations on a phone, and iOS responds by reclaiming the file
+     handles — which surfaces later as "iOS let go of that clip". */
+  (async()=>{ for(const q of added){ await materialize(q); } })();
 }
 /* iOS hands over lazy file handles from the photo library — force the bytes
    in NOW so thumbnails, analysis and upload all work on real data */
