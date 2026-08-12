@@ -1560,10 +1560,48 @@ function loop(ts){
     }
   }
   if(t>=rawDur()-0.02&&state.playing) player.pause();
+  if(state.playing&&!_pb.running){ try{ pbStart(); }catch(e){} }   /* observer only; the player object stays untouched */
   if(_uiTime===null) paintTime(t);   /* a live drag owns the UI; don't overwrite it */
 }
 requestAnimationFrame(loop);
-function flashCut(){ $('cutflash').classList.add('show'); clearTimeout(flashT); flashT=setTimeout(()=>$('cutflash').classList.remove('show'),450); }
+/* Playback smoothness meter. In edited mode every cut is executed as a seek,
+   and on iOS a seek flushes the decoder. This counts real frame-delivery
+   stalls during continuous playback and attributes each one to the cut-seek
+   that preceded it, so the cost is measured rather than assumed. */
+const _pb={on:true,frames:0,stalls:0,worst:0,cuts:0,afterCut:0,lostMs:0,lastFrame:0,lastCut:-9e9,started:0,running:false};
+window.chopPlaybackStats=()=>({
+  seconds:+(((performance.now()-_pb.started)/1000)||0).toFixed(1),
+  frames:_pb.frames, cutSeeks:_pb.cuts, stalls:_pb.stalls,
+  stallsRightAfterACut:_pb.afterCut, worstStallMs:Math.round(_pb.worst),
+  totalFrozenMs:Math.round(_pb.lostMs)
+});
+function pbStart(){
+  const v=$('vid'); if(!v||!v.requestVideoFrameCallback||_pb.running) return;
+  _pb.running=true; _pb.frames=0; _pb.stalls=0; _pb.worst=0; _pb.cuts=0;
+  _pb.afterCut=0; _pb.lostMs=0; _pb.lastFrame=0; _pb.lastCut=-9e9; _pb.started=performance.now();
+  const tick=()=>{
+    if(!state.playing){ _pb.running=false; pbReport(); return; }
+    const now=performance.now();
+    if(_pb.lastFrame){
+      const gap=now-_pb.lastFrame;
+      if(gap>90){                       /* ~3 missed frames = a visible hitch */
+        _pb.stalls++; _pb.lostMs+=gap-33;
+        if(gap>_pb.worst) _pb.worst=gap;
+        if(now-_pb.lastCut<700) _pb.afterCut++;
+      }
+    }
+    _pb.lastFrame=now; _pb.frames++;
+    try{ v.requestVideoFrameCallback(tick); }catch(e){ _pb.running=false; }
+  };
+  try{ v.requestVideoFrameCallback(tick); }catch(e){ _pb.running=false; }
+}
+function pbReport(){
+  const secs=(performance.now()-_pb.started)/1000;
+  if(secs<2||!_pb.frames) return;
+  const s=chopPlaybackStats();
+  if(dgOn()) toast(s.stalls+' freezes in '+s.seconds+'s \u00b7 '+s.cutSeeks+' cuts \u00b7 '+s.stallsRightAfterACut+' right after a cut \u00b7 worst '+s.worstStallMs+'ms');
+}
+function flashCut(){ _pb.lastCut=performance.now(); _pb.cuts++; $('cutflash').classList.add('show'); clearTimeout(flashT); flashT=setTimeout(()=>$('cutflash').classList.remove('show'),450); }
 
 let lastActiveId=null;
 function paintTime(t){
