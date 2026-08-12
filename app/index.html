@@ -3928,8 +3928,10 @@ function renderKanban(){
   $('exportAllLbl').textContent='Export all ready ('+readyN+')';
   $('exportAllBtn').disabled=readyN===0;
   const cur=currentJobName&&jobByName(currentJobName);
-  $('backEditBtn').classList.toggle('hidden',!cur||!cur.payload);
-  if(cur) $('backEditLbl').textContent='Back to my edit — '+cur.name;
+  /* only offer this while a job is genuinely mid-edit — not one you finished */
+  const midEdit = cur && cur.payload && (cur.status==='review');
+  $('backEditBtn').classList.toggle('hidden',!midEdit);
+  if(midEdit) $('backEditLbl').textContent='Back to my edit — '+cur.name;
 }
 function openKanban(){ saveCurrentJob(); renderKanban(); showView('queue'); }
 function applyJobToState(j){
@@ -4584,7 +4586,7 @@ $('exportBtn').onclick=()=>{
   $('edlBox').textContent=JSON.stringify(buildEdl(),null,2);
   $('exportModal').classList.remove('hidden');
 };
-$('backEditBtn').onclick=()=>{ const j=currentJobName&&jobByName(currentJobName); if(j&&j.payload) openJob(j); };
+$('backEditBtn').onclick=()=>{ const j=currentJobName&&jobByName(currentJobName); if(j&&j.payload&&j.status==='review') openJob(j); };
 $('exportAllBtn').onclick=exportAllReady;
 $('mClose').onclick=()=>$('exportModal').classList.add('hidden');
 $('exportModal').addEventListener('click',e=>{ if(e.target===$('exportModal')) $('exportModal').classList.add('hidden'); });
