@@ -1559,7 +1559,7 @@ function loop(ts){
     }
   }
   if(t>=rawDur()-0.02&&state.playing) player.pause();
-  paintTime(t);
+  if(_uiTime===null) paintTime(t);   /* a live drag owns the UI; don't overwrite it */
 }
 requestAnimationFrame(loop);
 function flashCut(){ $('cutflash').classList.add('show'); clearTimeout(flashT); flashT=setTimeout(()=>$('cutflash').classList.remove('show'),450); }
@@ -1584,7 +1584,7 @@ function paintTime(t){
   const bub=$('qeBub');
   if(bub&&_qeStrip&&_qeStrip.n){
     const fi=Math.min(_qeStrip.n-1,Math.floor(t/rdv*_qeStrip.n));
-    bub.style.backgroundImage='url('+_qeStrip.url+')';
+    if(bub._imgSrc!==_qeStrip.url){ bub.style.backgroundImage='url('+_qeStrip.url+')'; bub._imgSrc=_qeStrip.url; }
     bub.style.backgroundSize=(_qeStrip.n*30)+'px 100%';
     bub.style.backgroundPosition=(-fi*30)+'px 0';
   }
@@ -1907,6 +1907,78 @@ function qeSelect(i){
   if(i!==null) state.qeGap=null;
   renderStrip();
 }
+/* ---- mobile scrub ownership + seek coalescing -------------------------
+   The finger owns the UI while a drag is live; the decoder is best-effort.
+   Nothing here changes cut timestamps, state.scale, or the cut-skip seeks in
+   the playback loop — it only changes WHO owns the displayed time and HOW
+   OFTEN we ask Safari to seek. */
+const _mp={dragPaints:0,seeksRequested:0,seeksIssued:0,seeksCollapsed:0,releaseSeeks:0,
+           playRequests:0,playWhileSeeking:0,lastPlayToPlaying:null,lastPlayToFirstFrame:null,
+           rvfcSupported:(typeof HTMLVideoElement!=='undefined'&&typeof HTMLVideoElement.prototype.requestVideoFrameCallback==='function')};
+window.chopMobilePerfStats=()=>Object.assign({},_mp);
+
+let _uiTime=null;                    /* non-null = a gesture owns the displayed time */
+let _seekPending=null,_seekBusy=false,_seekAt=0;
+const SEEK_WATCHDOG=1200;            /* a seek that never reports back must not wedge the channel */
+
+function seekRequest(t){
+  _mp.seeksRequested++;
+  const vid=$('vid');
+  if(!state.useRealVideo||!vid){ player.time=t; return; }
+  if(_seekBusy&&Date.now()-_seekAt>SEEK_WATCHDOG) _seekBusy=false;
+  if(_seekBusy||vid.seeking){          /* latest target wins; intermediates are dropped */
+    if(_seekPending!==null) _mp.seeksCollapsed++;
+    _seekPending=t; return;
+  }
+  _seekBusy=true; _seekAt=Date.now(); _seekPending=null; _mp.seeksIssued++;
+  try{ vid.currentTime=t*state.scale; }catch(e){ _seekBusy=false; }
+}
+function seekSettled(){
+  _seekBusy=false;
+  if(_seekPending===null) return;
+  const t=_seekPending; _seekPending=null;
+  const vid=$('vid'); if(!vid) return;
+  if(Math.abs((vid.currentTime/state.scale)-t)>0.02){
+    _seekBusy=true; _seekAt=Date.now(); _mp.seeksIssued++;
+    try{ vid.currentTime=t*state.scale; }catch(e){ _seekBusy=false; }
+  }
+}
+/* one exact landing seek, replacing anything still queued */
+function seekFinal(t){
+  _seekPending=null; _seekBusy=false; _mp.releaseSeeks++;
+  player.time=t;
+}
+function scrubRelease(){ _uiTime=null; }
+
+/* play must not be stacked on top of an unsettled seek — that is what makes
+   Safari start audio against a frozen frame */
+function markPlayTiming(){
+  const vid=$('vid'); if(!vid) return;
+  const t0=performance.now();
+  _mp.lastPlayToPlaying=null; _mp.lastPlayToFirstFrame=null;
+  const onPlaying=()=>{ _mp.lastPlayToPlaying=Math.round(performance.now()-t0); vid.removeEventListener('playing',onPlaying); };
+  vid.addEventListener('playing',onPlaying);
+  if(_mp.rvfcSupported){
+    try{ vid.requestVideoFrameCallback(()=>{ _mp.lastPlayToFirstFrame=Math.round(performance.now()-t0); }); }catch(e){}
+  }else{
+    const h=()=>{ _mp.lastPlayToFirstFrame=Math.round(performance.now()-t0); vid.removeEventListener('timeupdate',h); };
+    vid.addEventListener('timeupdate',h);
+  }
+}
+function playWhenReady(){
+  _mp.playRequests++;
+  const vid=$('vid');
+  markPlayTiming();
+  if(!state.useRealVideo||!vid||(!vid.seeking&&vid.readyState>=2)){ player.play(); return; }
+  _mp.playWhileSeeking++;
+  let done=false;
+  const go=()=>{ if(done) return; done=true;
+    vid.removeEventListener('seeked',go); vid.removeEventListener('canplay',go); clearTimeout(tm);
+    player.play(); };
+  const tm=setTimeout(go,400);        /* never let the button hang */
+  vid.addEventListener('seeked',go);
+  vid.addEventListener('canplay',go);
+}
 /* ---- mobile gesture safety -------------------------------------------
    iOS can take a pointer away without ever delivering pointerup/pointercancel
    (notification pull-down, incoming call, app switch, system edge gesture).
@@ -2212,6 +2284,7 @@ function qeZoomSet(z){
       el.onpointermove=null;
       pinch=null;
       window._qePanning=false;
+      if(_uiTime!==null){ const land=_uiTime; scrubRelease(); seekFinal(land); }
       if(_qeGestureReset===panReset) _qeGestureReset=null;
     };
     _qeGestureReset=panReset;
@@ -2224,7 +2297,9 @@ function qeZoomSet(z){
       const sl=Math.min(sw,Math.max(0,sl0-dx));
       el.scrollLeft=sl;
       const t=qeXToFrac(sl/sw)*(rawDur()||1);
-      player.time=t; bubShow(); paintTime(t);
+      _uiTime=t;                 /* the finger owns the displayed time */
+      seekRequest(t);            /* preview catches up when Safari can */
+      bubShow(); paintTime(t); _mp.dragPaints++;
     };
     el.onpointermove=mv=>{
       pts.set(mv.pointerId,mv.clientX);
@@ -2247,7 +2322,8 @@ function qeZoomSet(z){
       el.onpointermove=null;
       window._qePanning=false;
       if(_qeGestureReset===panReset) _qeGestureReset=null;
-      if(pinch){ pinch=null; qeZoomSet(state.qeZoom); return; }  /* settle: one clean re-render */
+      if(pinch){ pinch=null; scrubRelease(); qeZoomSet(state.qeZoom); return; }  /* settle: one clean re-render */
+      if(_uiTime!==null){ const land=_uiTime; scrubRelease(); seekFinal(land); paintTime(land); }
       if(!moved){
         const t=document.elementFromPoint(up.clientX,up.clientY);
         const ks=t&&t.closest?t.closest('.kseg'):null;
@@ -2451,7 +2527,7 @@ $('playBtn').onclick=()=>{
   else {
     if(player.time>=rawDur()-0.05) player.time=0;
     if(state.mode==='edited'){ const iv=cutAt(player.time); if(iv) player.time=iv.e+0.005; }
-    player.play();
+    playWhenReady();
   }
 };
 document.addEventListener('keydown',e=>{
@@ -2903,6 +2979,7 @@ function proxyFallback(j,keepTime,wasPlaying){
     if(b){ b.push(ms); if(b.length>200) b.shift(); }
   });
   /* a deferred swap lands when the element itself settles — no change to player */
+  vid.addEventListener('seeked',()=>{ try{ seekSettled(); }catch(e){} });
   vid.addEventListener('pause',()=>{ if(!proxyEnabled()||!_pxPending) return; try{ proxySwapTick(); }catch(e){} });
   vid.addEventListener('error',()=>{
     if(!proxyEnabled()) return;
