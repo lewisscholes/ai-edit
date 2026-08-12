@@ -3289,7 +3289,7 @@ function cloudStrip(j){
   return {status:j.status,payload:j.payload,choices:j.choices||null,manuals:j.manuals||null,settings:j.settings||null,manualCuts:j.manualCuts||null,splits:j.splits||null,thumb:(j.thumb&&j.thumb!=='err')?j.thumb:null,rawSec:j.rawSec||0,editedSec:j.editedSec||0,videoKey:j.videoKey||null,statusAt:j.statusAt||null,proxyKey:j.proxyKey||null,proxyStatus:j.proxyStatus||null,proxyDur:j.proxyDur||null};
 }
 /* background upload of the full video so other devices can stream it */
-const _vidQ=[]; let _vidBusy=false;
+const _vidQ=[]; let _vidBusy=false, _vidStart=0;
 function cloudUploadVideo(j){
   if(!j||!j.file||j.videoKey||j._vidQd||!authUser) return;
   j._vidQd=1; _vidQ.push(j); vidPump();
@@ -3297,19 +3297,28 @@ function cloudUploadVideo(j){
 async function vidPump(){
   if(_vidBusy) return;
   const j=_vidQ.shift(); if(!j) return;
-  _vidBusy=true;
+  _vidBusy=true; _vidStart=Date.now();
   try{
     const p=await api({action:'presign',filename:'sync-'+j.name});
     await new Promise((res,rej)=>{
       const x=new XMLHttpRequest();
+      let settled=false, lastTick=Date.now(), watch=null;
+      const done=(fn,arg)=>{ if(settled) return; settled=true; if(watch) clearInterval(watch); fn(arg); };
       x.open('PUT',p.uploadUrl);
       x.upload.onprogress=e=>{
+        lastTick=Date.now();
         if(!e.total) return;
         j.syncPct=Math.round(e.loaded/e.total*100);
         if(!j._syncT) j._syncT=setTimeout(()=>{ j._syncT=null; renderKanban(); },1500);
       };
-      x.onload=()=>(x.status>=200&&x.status<300)?res():rej(new Error('upload '+x.status));
-      x.onerror=()=>rej(new Error('network'));
+      x.onload=()=>done((x.status>=200&&x.status<300)?res:rej,(x.status>=200&&x.status<300)?undefined:new Error('upload '+x.status));
+      x.onerror=()=>done(rej,new Error('network'));
+      x.onabort=()=>done(rej,new Error('aborted'));
+      /* a silently stalled connection used to hang here forever, leaving _vidBusy
+         true so every later upload queued behind it and never ran */
+      watch=setInterval(()=>{
+        if(Date.now()-lastTick>90000){ try{ x.abort(); }catch(e){} done(rej,new Error('stalled')); }
+      },5000);
       x.send(j.file);
     });
     j.videoKey=p.key; j.syncPct=null;
@@ -3327,6 +3336,8 @@ async function vidPump(){
   _vidBusy=false;
   if(_vidQ.length) vidPump();
 }
+/* last-resort release: if anything ever leaves the pump wedged, unstick it */
+setInterval(()=>{ if(_vidBusy && Date.now()-(_vidStart||0)>15*60*1000){ _vidBusy=false; if(_vidQ.length) vidPump(); } },60000);
 function cloudPutJob(j,ts){
   if(!sb||!authUser||!j.payload||j.status==='error') return;
   clearTimeout(_cloudQ[j.name]);
