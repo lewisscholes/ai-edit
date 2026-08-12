@@ -2386,10 +2386,11 @@ function qeZoomSet(z){
         return; /* once pinching, the rest of this gesture is zoom-only */
       }
       if(Math.abs(mv.clientX-x0)>5){
-        if(!moved&&wasPlaying){ try{ player.pause(); }catch(e){} }   /* stop the fight */
+        if(!moved&&wasPlaying){ try{ player.pause(); }catch(e){} dgArm(); }   /* stop the fight */
         moved=true;
       }
       if(!moved) return;
+      dgWatch();
       panX=mv.clientX;
       if(!panPend){ panPend=true; requestAnimationFrame(panApply); }
     };
@@ -2404,7 +2405,7 @@ function qeZoomSet(z){
       if(_uiTime!==null){ const land=_uiTime; scrubRelease(); seekFinal(land); paintTime(land); }
       /* playWhenReady waits for the seek to settle before calling play(), so
          playback picks up from the landing point instead of stuttering */
-      if(moved&&wasPlaying){ try{ playWhenReady(); }catch(e){} }
+      if(moved&&wasPlaying){ try{ playWhenReady(); dgRelease(); }catch(e){} }
       if(!moved){
         const t=document.elementFromPoint(up.clientX,up.clientY);
         const ks=t&&t.closest?t.closest('.kseg'):null;
@@ -2935,6 +2936,31 @@ function proxyEnabled(){ try{ return localStorage.getItem('chopProxy')!=='0'; }c
 window.chopEnableProxy=()=>{ try{localStorage.setItem('chopProxy','1');}catch(e){} return 'proxy playback ON — reopen a project'; };
 window.chopDisableProxy=()=>{ try{localStorage.setItem('chopProxy','0');}catch(e){} return 'proxy playback OFF — reopen a project'; };
 
+/* Drag diagnostic. Measures what actually happens when you drag the timeline
+   while playing: did the video genuinely stop fighting you, and how long from
+   letting go to the first real frame on screen. On by default so it can be
+   observed on a phone with no console; chopDragDiag(false) silences it. */
+const _dg={on:true,fought:false,releaseAt:0,armed:false,last:null};
+function dgOn(){ try{ return localStorage.getItem('chopDragDiag')!=='0'; }catch(e){ return true; } }
+window.chopDragDiag=(v)=>{ try{ localStorage.setItem('chopDragDiag',v?'1':'0'); }catch(e){} return v?'drag diagnostic ON':'drag diagnostic OFF'; };
+window.chopLastDrag=()=>_dg.last;
+function dgArm(){ _dg.fought=false; _dg.armed=true; }
+function dgWatch(){ if(_dg.armed&&!$('vid').paused) _dg.fought=true; }   /* still running under the finger = still fighting */
+function dgRelease(){
+  if(!_dg.armed) return;
+  _dg.armed=false;
+  const fought=_dg.fought, t0=performance.now(); let done=false;
+  const report=(ms,how)=>{
+    if(done) return; done=true;
+    _dg.last={resumeMs:Math.round(ms),fought:fought,via:how,at:new Date().toISOString()};
+    if(dgOn()) toast((fought?'\u26a0\ufe0f still fighting':'\u2713 paused cleanly')+' \u00b7 resumed in '+Math.round(ms)+'ms');
+  };
+  const v=$('vid');
+  if(v&&v.requestVideoFrameCallback){ try{ v.requestVideoFrameCallback(()=>report(performance.now()-t0,'frame')); }catch(e){} }
+  const onPlaying=()=>{ v.removeEventListener('playing',onPlaying); report(performance.now()-t0,'playing'); };
+  if(v) v.addEventListener('playing',onPlaying);
+  setTimeout(()=>{ if(v) v.removeEventListener('playing',onPlaying); report(performance.now()-t0,'timeout'); },4000);
+}
 const _pxStats={enabled:false,activeSource:'none',proxyStatus:'none',
   swapsAttempted:0,swapsSucceeded:0,swapsFailed:0,swapsDeferred:0,fallbacks:0,
   lastSwapMs:null,lastSwapTimeDelta:null,
