@@ -681,7 +681,7 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
   .mctxbar .qdur{color:var(--mut)}
   .mctxbar .qx{border-color:var(--line);color:var(--mut)}
   /* persistent Done + Queue pills */
-  .mactions{display:flex;order:5;gap:10px;background:var(--panel);padding:2px 14px 12px;border-bottom:1px solid var(--line)}
+  .mactions{display:flex;order:5;gap:10px;background:var(--panel);padding:2px 14px 12px;padding-bottom:calc(12px + env(safe-area-inset-bottom));border-bottom:1px solid var(--line)}
   .mact{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;border-radius:16px;padding:13px 0;font-size:14.5px;font-weight:800}
   .mact.done{background:var(--ink);color:var(--bg)}
   .mact.done.inq{background:var(--green-soft);color:var(--green)}
@@ -1818,7 +1818,20 @@ function renderCuts(){
 const MUTED_CLIP='linear-gradient(180deg,#333a47,#252b36)';
 let _thumbVid=null, _thumbBusy=false, _thumbAgain=false;
 const _thumbCache={};
-function resetThumbs(){ _thumbVid=null; for(const k in _thumbCache) delete _thumbCache[k]; if(typeof _qeStrip!=='undefined') _qeStrip=null; }
+function resetThumbs(){
+  /* iOS allows very few concurrent video decoders. Dropping the reference alone
+     leaves the old element holding one, so release it explicitly first.
+     Only the element is torn down — its src is state.fileUrl, shared with the
+     main player, so the object URL is deliberately NOT revoked here. */
+  if(_thumbVid){
+    const v=_thumbVid; _thumbVid=null;
+    try{ v.onloadedmetadata=null; v.onerror=null; }catch(e){}
+    try{ v.pause(); }catch(e){}
+    try{ v.removeAttribute('src'); v.load(); }catch(e){}
+  }
+  for(const k in _thumbCache) delete _thumbCache[k];
+  if(typeof _qeStrip!=='undefined') _qeStrip=null;
+}
 /* seek the scratch decoder to t and hand back the element — callers either encode
    it (card thumbnails) or draw straight from it (the filmstrip) */
 async function thumbSeek(t){
@@ -1894,6 +1907,21 @@ function qeSelect(i){
   if(i!==null) state.qeGap=null;
   renderStrip();
 }
+/* ---- mobile gesture safety -------------------------------------------
+   iOS can take a pointer away without ever delivering pointerup/pointercancel
+   (notification pull-down, incoming call, app switch, system edge gesture).
+   Both gesture families now expose an idempotent reset so an interrupted drag
+   can never leave _qePanning stuck true or a full-screen trim overlay behind.
+   The drag/trim maths is untouched — this only clears state. */
+let _qeGestureReset=null;   /* set by the filmstrip while a gesture is armed */
+let _qeTrimReset=null;      /* set by a trim cap while a trim is armed */
+function qeReleaseGestures(){
+  try{ if(_qeTrimReset) _qeTrimReset(); }catch(e){}
+  try{ if(_qeGestureReset) _qeGestureReset(); }catch(e){}
+}
+document.addEventListener('visibilitychange',()=>{ if(document.hidden) qeReleaseGestures(); });
+window.addEventListener('blur',qeReleaseGestures);
+window.addEventListener('pointercancel',qeReleaseGestures);
 function qeSelectGap(iv){
   state.qeGap=iv?{s:iv.s,e:iv.e}:null;
   if(iv) state.qeSel=null;
@@ -2056,7 +2084,7 @@ function qeFrame(el,its,bRaw,rd){
     const cap=f.querySelector('.cap.'+cls);
     cap.onpointerdown=ev=>{
       ev.stopPropagation(); ev.preventDefault();
-      cap.setPointerCapture(ev.pointerId);
+      try{ cap.setPointerCapture(ev.pointerId); }catch(e){}
       const orig={s:bRaw.s,e:bRaw.e}; const cur={s:orig.s,e:orig.e};
       const ov=document.createElement('div'); ov.className='gtrim'; el.appendChild(ov);
       const rawToX=t=>it.x+((t/rd-it.s)/(it.e-it.s))*it.w;
@@ -2089,8 +2117,19 @@ function qeFrame(el,its,bRaw,rd){
         chip.textContent=fmt1(cur.e-cur.s);
       };
       cap.onpointermove=mv=>{ lastX=mv.clientX; if(!pend){ pend=true; requestAnimationFrame(apply); } };
+      /* idempotent teardown: safe to call twice, safe to call from anywhere */
+      const trimTeardown=()=>{
+        cap.onpointermove=null; cap.onpointerup=null; cap.onpointercancel=null;
+        try{ if(cap.hasPointerCapture&&cap.hasPointerCapture(ev.pointerId)) cap.releasePointerCapture(ev.pointerId); }catch(e){}
+        try{ ov.remove(); }catch(e){}
+        if(_qeTrimReset===trimAbort) _qeTrimReset=null;
+      };
+      /* interrupted mid-trim: drop the overlay, keep the footage as it was */
+      const trimAbort=()=>{ trimTeardown(); try{ renderStrip(); }catch(e){} };
+      _qeTrimReset=trimAbort;
+      cap.onpointercancel=trimAbort;
       cap.onpointerup=()=>{
-        cap.onpointermove=null; ov.remove();
+        trimTeardown();
         const tl=key==='s'&&cur.s>orig.s+0.02, tr=key==='e'&&cur.e<orig.e-0.02;
         if(tl||tr){
           pushHist();
@@ -2155,7 +2194,7 @@ function qeZoomSet(z){
   }
   el.onpointerdown=ev=>{
     if(ev.target.closest('.cap')) return;
-    el.setPointerCapture(ev.pointerId);
+    try{ el.setPointerCapture(ev.pointerId); }catch(e){}   /* capture is an optimisation, not a prerequisite */
     pts.set(ev.pointerId,ev.clientX);
     if(pts.size===2){
       const v=[...pts.values()];
@@ -2166,6 +2205,16 @@ function qeZoomSet(z){
     const x0=ev.clientX, sl0=el.scrollLeft; let moved=false;
     window._qePanning=true;
     state.snippet=null; state.rtPreview=null;
+    /* idempotent: clears the pointer map so a lost pointer can't wedge the strip */
+    const panReset=()=>{
+      try{ pts.forEach((_,id)=>{ if(el.hasPointerCapture&&el.hasPointerCapture(id)) el.releasePointerCapture(id); }); }catch(e){}
+      pts.clear();
+      el.onpointermove=null;
+      pinch=null;
+      window._qePanning=false;
+      if(_qeGestureReset===panReset) _qeGestureReset=null;
+    };
+    _qeGestureReset=panReset;
     let panPend=false,panX=x0;
     const panApply=()=>{
       panPend=false;
@@ -2193,9 +2242,11 @@ function qeZoomSet(z){
     };
     el.onpointerup=up=>{
       pts.delete(up.pointerId);
+      try{ if(el.hasPointerCapture&&el.hasPointerCapture(up.pointerId)) el.releasePointerCapture(up.pointerId); }catch(e){}
       if(pts.size>0) return;         /* wait for all fingers */
       el.onpointermove=null;
       window._qePanning=false;
+      if(_qeGestureReset===panReset) _qeGestureReset=null;
       if(pinch){ pinch=null; qeZoomSet(state.qeZoom); return; }  /* settle: one clean re-render */
       if(!moved){
         const t=document.elementFromPoint(up.clientX,up.clientY);
@@ -2840,16 +2891,21 @@ function proxyFallback(j,keepTime,wasPlaying){
 (function(){
   const vid=$('vid'); if(!vid) return;
   let t0=0;
-  vid.addEventListener('seeking',()=>{ t0=performance.now(); });
+  /* attached once, but they return immediately unless the flag is on, so a
+     normal user pays nothing per seek — and toggling the flag never stacks
+     another pair of listeners */
+  vid.addEventListener('seeking',()=>{ if(!proxyEnabled()) return; t0=performance.now(); });
   vid.addEventListener('seeked',()=>{
     if(!t0) return;
     const ms=performance.now()-t0; t0=0;
+    if(!proxyEnabled()) return;
     const b=_pxStats.seeks[_pxStats.activeSource];
     if(b){ b.push(ms); if(b.length>200) b.shift(); }
   });
   /* a deferred swap lands when the element itself settles — no change to player */
-  vid.addEventListener('pause',()=>{ try{ proxySwapTick(); }catch(e){} });
+  vid.addEventListener('pause',()=>{ if(!proxyEnabled()||!_pxPending) return; try{ proxySwapTick(); }catch(e){} });
   vid.addEventListener('error',()=>{
+    if(!proxyEnabled()) return;
     if(_pxStats.activeSource!=='proxy') return;
     const j=currentJobName&&jobByName(currentJobName);
     if(j) proxyFallback(j,player.time,false);
