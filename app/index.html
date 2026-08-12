@@ -3066,16 +3066,31 @@ window.chopDisableProxy=()=>{ try{localStorage.setItem('chopProxy','0');}catch(e
 const _dg={on:true,fought:false,releaseAt:0,armed:false,last:null};
 function dgOn(){ try{ return localStorage.getItem('chopDragDiag')==='1'; }catch(e){ return false; } }
 window.chopDragDiag=(v)=>{ try{ localStorage.setItem('chopDragDiag',v?'1':'0'); }catch(e){} return v?'drag diagnostic ON':'drag diagnostic OFF'; };
-/* ?diag=1 / ?diag=0 — enable from a phone, then drop it out of the URL */
+/* URL switches, so a phone with no console can toggle the experimental paths:
+     ?diag=1   drag + smoothness meters
+     ?proxy=0  disable proxy playback   (Lewis's chopDisableProxy)
+     ?mb=0     disable Mediabunny filmstrip (chopDisableMB)
+     ?reset=1  clear all three back to defaults
+   Use these to bisect a broken editor: turn one off, reopen the project. */
 (function(){
   try{
-    const q=new URLSearchParams(location.search), d=q.get('diag');
-    if(d===null) return;
-    localStorage.setItem('chopDragDiag', d==='0'?'0':'1');
-    q.delete('diag');
+    const q=new URLSearchParams(location.search);
+    const map={diag:'chopDragDiag', proxy:'chopProxy', mb:'chopMB'};
+    const done=[];
+    if(q.get('reset')!==null){
+      Object.values(map).forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
+      q.delete('reset'); done.push('all flags reset');
+    }
+    Object.keys(map).forEach(k=>{
+      const v=q.get(k); if(v===null) return;
+      localStorage.setItem(map[k], v==='0'?'0':'1');
+      q.delete(k);
+      done.push(k+(v==='0'?' off':' on'));
+    });
+    if(!done.length) return;
     const qs=q.toString();
     history.replaceState(null,'',location.pathname+(qs?'?'+qs:''));
-    setTimeout(()=>{ try{ toast(d==='0'?'Diagnostics off':'Diagnostics on — play, then pause'); }catch(e){} },600);
+    setTimeout(()=>{ try{ toast(done.join(' · ')+' — reopen your project'); }catch(e){} },600);
   }catch(e){}
 })();
 window.chopLastDrag=()=>_dg.last;
