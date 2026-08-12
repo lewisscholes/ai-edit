@@ -2095,6 +2095,63 @@ function renderStrip(){
   qeSyncUI(bandsRaw);
   if(typeof player!=='undefined') paintTime(player.time);
 }
+/* ---- filmstrip via Mediabunny (WebCodecs) — behind localStorage.chopMB ----
+   Replaces ONLY how strip frames are obtained. The {name,url,n} contract is
+   unchanged, so renderStrip/qePaintThumbs/paintTime need no changes at all.
+   CanvasSink does the scaling AND defaults rotation to the file's metadata,
+   which is what makes iPhone footage come out upright. Any failure falls
+   straight through to the existing <video> seek loop. */
+function mbEnabled(){ try{ return localStorage.getItem('chopMB')==='1'; }catch(e){ return false; } }
+window.chopEnableMB=()=>{ try{localStorage.setItem('chopMB','1');}catch(e){} return 'mediabunny filmstrip ON — reopen a project'; };
+window.chopDisableMB=()=>{ try{localStorage.setItem('chopMB','0');}catch(e){} return 'mediabunny filmstrip OFF — reopen a project'; };
+const _mbStats={path:'none',frames:0,ms:0,msPerFrame:0,source:'none',rotation:null,fails:0,lastError:null};
+window.chopStripStats=()=>Object.assign({},_mbStats);
+
+let _mbMod=null;
+async function mbLoad(){
+  if(_mbMod) return _mbMod;
+  if(typeof VideoDecoder!=='function') throw new Error('WebCodecs unavailable');
+  _mbMod=await import('https://cdn.jsdelivr.net/npm/mediabunny@1/+esm');
+  return _mbMod;
+}
+/* local file first (no network), then the proxy (3MB not 200MB), then remote */
+async function mbSource(M){
+  if(state.file) return {kind:'local',src:new M.BlobSource(state.file)};
+  const j=currentJobName&&jobByName(currentJobName);
+  if(j&&j.proxyStatus==='ready'&&j.proxyKey&&j.videoKey){
+    try{ const g=await proxyApi({action:'proxy_get',key:j.videoKey});
+         if(g&&g.url) return {kind:'proxy',src:new M.UrlSource(g.url)}; }catch(e){}
+  }
+  if(state.fileUrl&&/^https?:/.test(state.fileUrl)) return {kind:'remote',src:new M.UrlSource(state.fileUrl)};
+  return null;
+}
+async function qeStripViaMB(nm,n,rd,fw,fh){
+  const t0=performance.now();
+  const M=await mbLoad();
+  const picked=await mbSource(M);
+  if(!picked) throw new Error('no readable source');
+  const input=new M.Input({source:picked.src,formats:M.ALL_FORMATS});
+  const track=await input.getPrimaryVideoTrack();
+  if(!track) throw new Error('no video track');
+  let rot=null; try{ rot=await track.getRotation(); }catch(e){}
+  /* width/height/fit here means we never scale by hand; rotation defaults to
+     the file metadata, so a -90 iPhone clip arrives upright */
+  const sink=new M.CanvasSink(track,{width:fw,height:fh,fit:'cover',poolSize:1});
+  const c=document.createElement('canvas'); c.width=fw*n; c.height=fh;
+  const x=c.getContext('2d');
+  const stamps=[]; for(let i=0;i<n;i++) stamps.push(Math.max(0,Math.min(rd-0.1,(i+0.5)/n*rd)));
+  let i=0,got=0;
+  for await (const w of sink.canvasesAtTimestamps(stamps)){
+    if(w&&w.canvas){ try{ x.drawImage(w.canvas,i*fw,0,fw,fh); got++; }catch(e){} }
+    if(++i>=n) break;
+  }
+  if(!got) throw new Error('no frames decoded');
+  const ms=Math.round(performance.now()-t0);
+  _mbStats.path='mediabunny'; _mbStats.frames=got; _mbStats.ms=ms;
+  _mbStats.msPerFrame=+(ms/got).toFixed(1); _mbStats.source=picked.kind;
+  _mbStats.rotation=rot; _mbStats.lastError=null;
+  return {name:nm,url:c.toDataURL('image/jpeg',0.62),n};
+}
 /* filmstrip thumbnails painted onto the kept bands */
 let _qeStrip=null,_qeStripBusy=false;
 async function qeEnsureStrip(){
@@ -2111,6 +2168,13 @@ async function qeEnsureStrip(){
     const n=mob ? Math.min(18,Math.max(8,Math.round(rd/4)))
                 : Math.min(36,Math.max(10,Math.round(rd/2.5)));
     const fw=34,fh=56;
+    if(mbEnabled()){
+      try{ _qeStrip=await qeStripViaMB(nm,n,rd,fw,fh); }
+      catch(e){ _mbStats.fails++; _mbStats.path='fallback'; _mbStats.lastError=(e&&e.message)||String(e);
+                logErr('mediabunny strip failed: '+_mbStats.lastError,'strip.mb:'+nm); }
+      if(_qeStrip){ _qeStripBusy=false; renderStrip(); return; }
+    }
+    _mbStats.path='video-element';
     const c=document.createElement('canvas'); c.width=fw*n; c.height=fh;
     const x=c.getContext('2d');
     for(let i=0;i<n;i++){
