@@ -663,7 +663,7 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
 .setlab{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--mut);font-weight:800;margin:18px 0 8px 4px}
 .setlab.danger{color:var(--rose)}
 .setgrp{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
-.setrow{display:flex;align-items:center;gap:10px;padding:13px 15px;width:100%;background:none;border:0;border-top:1px solid var(--line);font:inherit;color:var(--ink);text-align:left;cursor:pointer}
+.setrow{display:flex;align-items:center;gap:10px;padding:13px 15px;width:100%;background:none;border:0;border-top:1px solid var(--line);font:inherit;color:var(--ink);text-align:left;cursor:pointer;text-decoration:none;box-sizing:border-box}
 .setrow:first-child{border-top:0}
 .setrow:hover{background:var(--soft2)}
 .setrow .k{font-size:13.5px;color:var(--mut);width:112px;flex:none}
@@ -888,6 +888,7 @@ body.qegap #mSplitBtn,body.qegap #mDelBtn{display:none!important}
     <div class="setgrp">
       <div class="setrow static"><span class="v">Dark mode</span><span class="setsw" id="stDark"><i></i></span></div>
       <button class="setrow" id="stLab"><span class="v">Cut Lab defaults</span><svg class="ic chev" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M9 5l7 7-7 7"/></svg></button>
+      <a class="setrow" href="/privacy.html" target="_blank" rel="noopener"><span class="v">Privacy policy</span><svg class="ic chev" viewBox="0 0 24 24" style="width:16px;height:16px"><path d="M9 5l7 7-7 7"/></svg></a>
     </div>
 
     <button class="setout" id="stSignout">Sign out</button>
