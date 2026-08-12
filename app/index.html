@@ -2345,6 +2345,12 @@ function qeZoomSet(z){
     }
     const x0=ev.clientX, sl0=el.scrollLeft; let moved=false;
     window._qePanning=true;
+    /* If it was playing, the video used to carry on running forward while the
+       finger dragged backward — and the loop kept doing its cut-skips at the
+       same time. Three things pulling at one decoder. Pause on the first real
+       movement (never on a tap, so tap-to-select still works) and resume on
+       release once the landing seek has settled. */
+    const wasPlaying=state.playing;
     state.snippet=null; state.rtPreview=null;
     /* idempotent: clears the pointer map so a lost pointer can't wedge the strip */
     const panReset=()=>{
@@ -2379,7 +2385,10 @@ function qeZoomSet(z){
         }
         return; /* once pinching, the rest of this gesture is zoom-only */
       }
-      if(Math.abs(mv.clientX-x0)>5) moved=true;
+      if(Math.abs(mv.clientX-x0)>5){
+        if(!moved&&wasPlaying){ try{ player.pause(); }catch(e){} }   /* stop the fight */
+        moved=true;
+      }
       if(!moved) return;
       panX=mv.clientX;
       if(!panPend){ panPend=true; requestAnimationFrame(panApply); }
@@ -2393,6 +2402,9 @@ function qeZoomSet(z){
       if(_qeGestureReset===panReset) _qeGestureReset=null;
       if(pinch){ pinch=null; scrubRelease(); qeZoomSet(state.qeZoom); return; }  /* settle: one clean re-render */
       if(_uiTime!==null){ const land=_uiTime; scrubRelease(); seekFinal(land); paintTime(land); }
+      /* playWhenReady waits for the seek to settle before calling play(), so
+         playback picks up from the landing point instead of stuttering */
+      if(moved&&wasPlaying){ try{ playWhenReady(); }catch(e){} }
       if(!moved){
         const t=document.elementFromPoint(up.clientX,up.clientY);
         const ks=t&&t.closest?t.closest('.kseg'):null;
