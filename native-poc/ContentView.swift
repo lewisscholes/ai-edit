@@ -10,6 +10,7 @@
 import SwiftUI
 import AVFoundation
 import UIKit
+import Combine
 
 // MARK: - Metrics
 
@@ -25,6 +26,13 @@ struct Samples {
         return s[min(s.count - 1, Int(Double(s.count) * p))]
     }
 }
+
+// A simulated Chop edit on the 60s clip: 10 kept clips, 9 cuts.
+// This is the exact shape that forces a decoder flush per cut in Safari.
+let DEMO_KEPT: [(Double, Double)] = [
+    (0.0, 3.2), (4.1, 9.4), (10.0, 14.8), (15.6, 21.0), (21.9, 27.5),
+    (28.2, 33.0), (33.9, 39.5), (40.3, 46.0), (46.8, 52.0), (52.9, 58.5)
+]
 
 // MARK: - Engine
 
@@ -109,6 +117,66 @@ final class VideoEngine: NSObject, ObservableObject {
             let d = try? await asset.load(.duration)
             await MainActor.run { self.duration = max(0.1, d?.seconds ?? 1) }
         }
+
+        displayLink?.invalidate()
+        let link = CADisplayLink(target: self, selector: #selector(onFrameTick))
+        link.add(to: .main, forMode: .common)
+        displayLink = link
+
+        resetMetrics()
+    }
+
+    /// The test that actually matters: build an AVMutableComposition from kept
+    /// clips and play it as ONE continuous asset. If this is smooth, the
+    /// seek-per-cut problem simply doesn't exist natively.
+    func loadComposition(_ filename: String, ext: String, kept: [(Double, Double)]) {
+        guard let url = Bundle.main.url(forResource: filename, withExtension: ext) else {
+            sourceName = "MISSING FROM BUNDLE: \(filename).\(ext)"
+            return
+        }
+        let src = AVURLAsset(url: url)
+        let comp = AVMutableComposition()
+
+        guard let srcV = src.tracks(withMediaType: .video).first,
+              let vTrack = comp.addMutableTrack(withMediaType: .video,
+                                                preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            sourceName = "no video track"
+            return
+        }
+        let srcA = src.tracks(withMediaType: .audio).first
+        let aTrack = comp.addMutableTrack(withMediaType: .audio,
+                                          preferredTrackID: kCMPersistentTrackID_Invalid)
+
+        var cursor = CMTime.zero
+        for clip in kept {
+            let start = CMTime(seconds: clip.0, preferredTimescale: 600)
+            let dur   = CMTime(seconds: max(0, clip.1 - clip.0), preferredTimescale: 600)
+            let range = CMTimeRange(start: start, duration: dur)
+            do {
+                try vTrack.insertTimeRange(range, of: srcV, at: cursor)
+                if let srcA = srcA, let aTrack = aTrack {
+                    try aTrack.insertTimeRange(range, of: srcA, at: cursor)
+                }
+                cursor = CMTimeAdd(cursor, dur)
+            } catch {
+                sourceName = "composition failed: \(error.localizedDescription)"
+                return
+            }
+        }
+        vTrack.preferredTransform = srcV.preferredTransform
+
+        let newItem = AVPlayerItem(asset: comp)
+        newItem.preferredForwardBufferDuration = 2
+
+        let attrs: [String: Any] = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        let out = AVPlayerItemVideoOutput(pixelBufferAttributes: attrs)
+        newItem.add(out)
+        videoOutput = out
+
+        player.replaceCurrentItem(with: newItem)
+
+        sourceName = "COMPOSITION · \(kept.count) clips · \(kept.count - 1) cuts"
+        duration = max(0.1, cursor.seconds)
 
         displayLink?.invalidate()
         let link = CADisplayLink(target: self, selector: #selector(onFrameTick))
@@ -255,20 +323,24 @@ final class PlayerUIView: UIView {
 
 struct ContentView: View {
     @StateObject private var engine = VideoEngine()
-    @State private var useProxy = false
+    @State private var sourceIdx = 0
 
     var body: some View {
         VStack(spacing: 12) {
 
-            Picker("Source", selection: $useProxy) {
-                Text("Original 4K HEVC").tag(false)
-                Text("540p proxy").tag(true)
+            Picker("Source", selection: $sourceIdx) {
+                Text("4K original").tag(0)
+                Text("540p proxy").tag(1)
+                Text("Cuts").tag(2)
             }
             .pickerStyle(.segmented)
             .padding(.horizontal)
-            .onChange(of: useProxy) { _, proxy in
-                engine.load(proxy ? "IMG_5521_proxy" : "IMG_5521_original",
-                            ext: proxy ? "mp4" : "MOV")
+            .onChange(of: sourceIdx) { _, idx in
+                switch idx {
+                case 1:  engine.load("IMG_5521_proxy", ext: "mp4")
+                case 2:  engine.loadComposition("IMG_5521_original", ext: "MOV", kept: DEMO_KEPT)
+                default: engine.load("IMG_5521_original", ext: "MOV")
+                }
             }
 
             PlayerLayerView(player: engine.player)
