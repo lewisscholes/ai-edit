@@ -946,6 +946,7 @@ struct ChopRootView: View {
     @StateObject private var api = ChopAPI()
     @State private var showImport = false
     @State private var showSettings = false
+    @State private var showBilling = false
     @State private var showOOC = false
     @State private var tab = 0
     @State private var showAuth = false
@@ -984,6 +985,7 @@ struct ChopRootView: View {
                 case "lab":        api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; tab = 2
                 case "proc":       api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; showImport = true
                 case "settings":   api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; showSettings = true
+                case "billing":    api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; showBilling = true
                 default: break
                 }
             }
@@ -1013,6 +1015,7 @@ struct ChopRootView: View {
                 .toolbar(.hidden, for: .navigationBar)
                 .sheet(isPresented: $showImport) { ImportSheet(api: api) }
                 .sheet(isPresented: $showSettings) { ChopSettingsView(api: api) { theme = $0 } }
+                .sheet(isPresented: $showBilling) { ChopBillingView(api: api) }
                 .sheet(isPresented: $showOOC) { OutOfCreditsSheet() }
                 .onChange(of: api.credits) { _, c in if c <= 0 && api.signedIn { showOOC = true } }
                 .refreshable { await api.loadJobs() }
@@ -2677,6 +2680,130 @@ struct ChopMovie: Transferable {
 }
 
 
+// MARK: - Billing (web viewBilling parity; StoreKit purchase pending App Store setup)
+
+struct ChopBillingView: View {
+    @ObservedObject var api: ChopAPI
+    @Environment(\.dismiss) private var dismiss
+    @State private var n: Double = 50
+    @State private var note = ""
+
+    /// line-for-line port of web perCredit(): £1 → 85p (50+) → 75p (100+),
+    /// −5p per extra 50, floor 60p
+    private func perCredit(_ n: Int) -> Double {
+        if n < 50 { return 1.00 }
+        if n < 100 { return 0.85 }
+        return max(0.60, 0.75 - 0.05 * Double((n - 100) / 50))
+    }
+    private func gbp(_ v: Double) -> String { String(format: "£%.2f", (v * 100).rounded() / 100) }
+    private func perLabel(_ v: Double) -> String { v < 1 ? "\(Int((v * 100).rounded()))p" : gbp(v) }
+
+    var body: some View {
+        let count = Int(n)
+        let per = perCredit(count)
+        let total = Double(count) * per
+        let save = Double(count) * 1.0 - total
+
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+
+                    // hero
+                    Text("Billing").font(.system(size: 30, weight: .bold)).foregroundStyle(ChopColor.ink)
+                    Text("Buy credits to chop your videos. One credit edits one video, any length up to 10 minutes.")
+                        .font(.system(size: 15.5)).foregroundStyle(ChopColor.muted)
+
+                    // balance card (web .bal)
+                    HStack(spacing: 14) {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 17, weight: .bold)).foregroundStyle(ChopColor.blue)
+                            .frame(width: 44, height: 44)
+                            .background(ChopColor.blueSoft, in: RoundedRectangle(cornerRadius: 12))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(api.credits) credits")
+                                .font(.system(size: 17, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                            Text("Your current balance")
+                                .font(.system(size: 12.5)).foregroundStyle(ChopColor.muted)
+                        }
+                        Spacer()
+                    }
+                    .padding(16)
+                    .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 16))
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.chopLine, lineWidth: 1))
+
+                    // slide card (web .slidecard)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("How many videos do you want to chop?")
+                            .font(.system(size: 16, weight: .bold)).foregroundStyle(ChopColor.ink)
+                        Text("One credit chops one video. The more you buy, the less each video costs.")
+                            .font(.system(size: 13)).foregroundStyle(ChopColor.muted)
+
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text("\(count)").font(.system(size: 44, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                            Text("credits").font(.system(size: 15)).foregroundStyle(ChopColor.muted)
+                        }
+                        .padding(.top, 6)
+
+                        Slider(value: $n, in: 1...300, step: 1).tint(ChopColor.blue)
+
+                        HStack {
+                            ForEach(["£1.00", "85p", "75p", "70p", "65p", "60p"], id: \.self) { t in
+                                Text(t).font(.system(size: 11, weight: .bold)).foregroundStyle(ChopColor.muted)
+                                if t != "60p" { Spacer() }
+                            }
+                        }
+
+                        HStack(spacing: 10) {
+                            crStat("Per video", perLabel(per), ChopColor.ink)
+                            crStat("Total", gbp(total), ChopColor.ink)
+                            crStat("You save", save > 0 ? gbp(save) : "—", ChopColor.green)
+                        }
+                        .padding(.top, 8)
+
+                        Button {
+                            // Purchases ship with the App Store release (consumable IAP).
+                            // No StoreKit products exist yet — honest state, no dead ends.
+                            note = "Purchases aren’t available in this build yet — they arrive with the App Store release."
+                        } label: {
+                            Text("Buy \(count) credit\(count == 1 ? "" : "s") for \(gbp(total))")
+                                .font(.system(size: 15, weight: .heavy))
+                                .frame(maxWidth: .infinity).padding(.vertical, 14)
+                                .background(ChopColor.blue, in: RoundedRectangle(cornerRadius: 14))
+                                .foregroundStyle(.white)
+                        }
+                        .padding(.top, 12)
+
+                        if !note.isEmpty {
+                            Text(note).font(.system(size: 12.5)).foregroundStyle(ChopColor.amber)
+                        }
+                    }
+                    .padding(20)
+                    .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 18))
+                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.chopLine, lineWidth: 1))
+
+                    Text("Credits never expire · VAT included")
+                        .font(.system(size: 12.5)).foregroundStyle(ChopColor.muted)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 4)
+                }
+                .padding(20)
+            }
+            .background(ChopColor.bg)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+        }
+    }
+
+    private func crStat(_ label: String, _ value: String, _ tint: Color) -> some View {
+        VStack(spacing: 3) {
+            Text(label).font(.system(size: 11.5)).foregroundStyle(ChopColor.muted)
+            Text(value).font(.system(size: 16, weight: .heavy)).foregroundStyle(tint)
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 12)
+        .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 12))
+    }
+}
+
 // MARK: - Settings
 
 struct ChopSettingsView: View {
@@ -2685,6 +2812,7 @@ struct ChopSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var theme = ChopTheme.current
     @State private var showProfile = false
+    @State private var showBilling = false
     @State private var confirming = false
     @State private var deleting = false
     @State private var failed = ""
@@ -2749,13 +2877,9 @@ struct ChopSettingsView: View {
                     group("Account") {
                         staticRow("Email", value: api.email.isEmpty ? "—" : api.email)
                         divider
-                        HStack {
-                            Text("Credits").font(ChopFont.body).foregroundStyle(ChopColor.muted)
-                                .frame(width: 108, alignment: .leading)
-                            Text("\(api.credits)").font(ChopFont.body).foregroundStyle(ChopColor.ink)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 15).padding(.vertical, 13)
+                        row("Credits", value: "\(api.credits)", chevron: true) { showBilling = true }
+                        divider
+                        row("Billing", action: "Buy credits", chevron: true) { showBilling = true }
                         divider
                         staticRow("Member since", value: "—")
                         divider
@@ -2846,6 +2970,7 @@ struct ChopSettingsView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
             .sheet(isPresented: $showProfile) { ChopProfileView(api: api) }
+            .sheet(isPresented: $showBilling) { ChopBillingView(api: api) }
             .alert("Delete your account?", isPresented: $confirming) {
                 Button("Cancel", role: .cancel) {}
                 Button("Delete", role: .destructive) {
