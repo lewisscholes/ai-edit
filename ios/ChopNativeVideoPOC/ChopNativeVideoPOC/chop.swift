@@ -2210,19 +2210,24 @@ struct ChopPlayerScreen: View {
                     .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 1))
                     .padding(.top, 10)
 
-                    // web parity: undo/redo as glass circles top-right of the video
+                    // web .backrail — glass back circle top-left of the video
                     HStack(spacing: 6) {
+                        glassCircle("arrow.left", enabled: true) { dismiss() }
+                        Spacer()
+                        // web parity: undo/redo glass circles top-right
                         glassCircle("arrow.uturn.backward", enabled: p.canUndo) { p.undo() }
                         glassCircle("arrow.uturn.forward", enabled: p.canRedo) { p.redo() }
                     }
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding(.top, 10).padding(.trailing, 10)
+                    .padding(.top, 10).padding(.horizontal, 10)
                 }
                 .frame(height: p.ready ? geo.size.height * (compact ? 0.24 : 0.50)
                                        : geo.size.height * 0.50)
                 .clipped()
                 .animation(.easeInOut(duration: 0.35), value: compact)
-                .onTapGesture { if compact { compact = false } } // tap video to bring it back
+                .onTapGesture {
+                    if compact { compact = false }        // bring the video back first
+                    else if p.ready { p.togglePlay() }    // CapCut: tap preview = play/pause
+                }
 
                 if p.ready {
                     playBar
@@ -2270,13 +2275,7 @@ struct ChopPlayerScreen: View {
             }
         }
         .background(Color.chopBg)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text(job.name).font(.footnote.weight(.medium))
-                    .foregroundStyle(Color.chopMuted).lineLimit(1)
-            }
-        }
+        .toolbar(.hidden, for: .navigationBar)   // no title bar — the editor gets every pixel
         .task { await p.open(job: job, api: api) }
         .task {
             // -screen editor-sel / editor-compact: pose states for design review
@@ -2676,6 +2675,7 @@ struct ChopTimeline: View {
     @State private var zoom: CGFloat = 1.5
     @State private var zoomStart: CGFloat? = nil
     @State private var dragStartTime: Double? = nil
+    @State private var pressStart: (Date, CGPoint)? = nil   // hold-to-select
     // live trim: (band, side 0=left/1=right, proposed edge in EDIT time)
     @State private var trimLive: (band: Int, side: Int, t: Double)? = nil
 
@@ -2733,6 +2733,27 @@ struct ChopTimeline: View {
             }
             .frame(height: stripH)
             .contentShape(Rectangle())
+            // tap = play/pause (CapCut) · hold a clip = select · drag = scrub ·
+            // pinch = zoom. Pan needs 10pt of travel, which frees up pinch.
+            .gesture(SpatialTapGesture()
+                .onEnded { _ in p.togglePlay() })
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { g in
+                        if pressStart == nil { pressStart = (Date(), g.location) }
+                    }
+                    .onEnded { g in
+                        defer { pressStart = nil }
+                        guard let ps = pressStart, zoomStart == nil, dragStartTime == nil,
+                              Date().timeIntervalSince(ps.0) > 0.35,
+                              abs(g.translation.width) < 8, abs(g.translation.height) < 8,
+                              let bind = selected else { return }
+                        let t = Double((ps.1.x - offsetX) / pps)
+                        if t >= 0, t <= p.duration, let i = p.bandIndex(atEditTime: t) {
+                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                            bind.wrappedValue = (bind.wrappedValue == i) ? nil : i
+                        }
+                    })
             .gesture(panGesture(vw: vw, pps: pps, offsetX: offsetX)
                 .simultaneously(with: pinchGesture()))
         }
@@ -2740,7 +2761,8 @@ struct ChopTimeline: View {
         .padding(.vertical, 8)   // room for the frame's ±7px overhang
     }
 
-    // band filmstrip: a window into the full strip image row
+    // band filmstrip: FIXED-ASPECT tiles (34:56, like the web) that repeat as
+    // you zoom — frames never stretch, more tiles just appear
     @ViewBuilder
     private func bandThumbs(span: (start: Double, end: Double),
                             width: CGFloat, pps: CGFloat, dur: Double) -> some View {
@@ -2749,17 +2771,19 @@ struct ChopTimeline: View {
                                     Color(red: 0.15, green: 0.17, blue: 0.21)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
         } else {
-            let fullW = CGFloat(dur) * pps
-            let thumbW = fullW / CGFloat(p.strip.count)
+            let tileW = stripH * (34.0 / 56.0)      // web thumb aspect
+            let count = max(1, Int(ceil(width / tileW)))
             HStack(spacing: 0) {
-                ForEach(Array(p.strip.enumerated()), id: \.offset) { _, img in
-                    Image(uiImage: img).resizable().scaledToFill()
-                        .frame(width: thumbW, height: stripH)
+                ForEach(0..<count, id: \.self) { k in
+                    // the frame whose time sits at this tile's centre
+                    let t = span.start + (Double(k) + 0.5) * Double(tileW / pps)
+                    let idx = min(p.strip.count - 1,
+                                  max(0, Int(t / dur * Double(p.strip.count))))
+                    Image(uiImage: p.strip[idx]).resizable().scaledToFill()
+                        .frame(width: tileW, height: stripH)
                         .clipped()
                 }
             }
-            .frame(width: fullW, height: stripH, alignment: .leading)
-            .offset(x: -CGFloat(span.start) * pps)
             .frame(width: width, height: stripH, alignment: .leading)
         }
     }
@@ -2850,7 +2874,7 @@ struct ChopTimeline: View {
 
     // drag = pan the strip under the fixed stick (web TikTok navigation)
     private func panGesture(vw: CGFloat, pps: CGFloat, offsetX: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 0)
+        DragGesture(minimumDistance: 10)
             .onChanged { g in
                 guard zoomStart == nil else { return }   // pinching: zoom-only
                 if dragStartTime == nil { dragStartTime = p.time; p.scrubbing = true }
@@ -2858,23 +2882,12 @@ struct ChopTimeline: View {
                 p.time = t
                 p.seek(to: t)
             }
-            .onEnded { g in
+            .onEnded { _ in
                 let started = dragStartTime
                 dragStartTime = nil
                 p.scrubbing = false
-                guard zoomStart == nil else { return }
-                if abs(g.translation.width) < 6 {
-                    // tap: select the band under the finger
-                    p.seekExact(to: p.time)
-                    if let bind = selected {
-                        let t = Double((g.location.x - offsetX) / pps)
-                        if let i = p.bandIndex(atEditTime: max(0, min(p.duration, t))) {
-                            bind.wrappedValue = (bind.wrappedValue == i) ? nil : i
-                        }
-                    }
-                } else if started != nil {
-                    p.seekExact(to: p.time)
-                }
+                guard zoomStart == nil, started != nil else { return }
+                p.seekExact(to: p.time)
             }
     }
 
@@ -4656,25 +4669,31 @@ struct FallbackWelcome: View {
         ZStack(alignment: .top) {
             LandBackdrop()
 
-            ScrollViewReader { sp in
-                let jump: (String) -> Void = { key in
-                    withAnimation(.easeInOut) { sp.scrollTo(key, anchor: .top) }
-                }
-                ScrollView {
-                    VStack(spacing: 0) {
-                        LandHero(signup: signup, jump: jump)
-                        LandMarquee().padding(.top, 46)
-                        LandTransform().padding(.top, 64)
-                        LandFeatures().padding(.top, 64).id("feat")
-                        LandPricing(signup: signup).padding(.top, 64).id("price")
-                        LandFAQ().padding(.top, 64).id("faq")
-                        LandOffer(state: offer, signup: signup).padding(.top, 64)
-                        LandFooter(signin: signin, jump: jump).padding(.top, 64)
+            GeometryReader { screen in
+                ScrollViewReader { sp in
+                    let jump: (String) -> Void = { key in
+                        withAnimation(.easeInOut) { sp.scrollTo(key, anchor: .top) }
                     }
-                    .padding(.top, 56)
-                }
-                .overlay(alignment: .top) {
-                    LandNav(signup: signup)
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            LandHero(signup: signup, jump: jump)
+                            LandMarquee().padding(.top, 46)
+                            LandTransform().padding(.top, 64)
+                            LandFeatures().padding(.top, 64).id("feat")
+                            LandPricing(signup: signup).padding(.top, 64).id("price")
+                            LandFAQ().padding(.top, 64).id("faq")
+                            LandOffer(state: offer, signup: signup).padding(.top, 64)
+                            LandFooter(signin: signin, jump: jump).padding(.top, 64)
+                        }
+                        .padding(.top, 84)   // clear the fixed nav bar
+                        // pin everything to the phone's width — a wide child (the
+                        // marquee) must never stretch the page past the screen
+                        .frame(width: screen.size.width)
+                        .clipped()
+                    }
+                    .overlay(alignment: .top) {
+                        LandNav(signup: signup)
+                    }
                 }
             }
         }
