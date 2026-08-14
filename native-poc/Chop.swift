@@ -2050,13 +2050,22 @@ final class ChopPlayer: ObservableObject {
     func retune() { rebuildKeepingTime() }
 
     /// Rebuild but land the playhead back where the finger left it (raw-anchored).
+    /// Time is written synchronously and the clock muted briefly, so the UI
+    /// never renders a stale frame between rebuild and seek.
     private func rebuildKeepingTime() {
         let anchor = raw(fromEdit: time)
+        scrubbing = true
         rebuild()
+        let target: Double
         if let a = anchor, let t = editTime(fromRaw: a) {
-            seekExact(to: min(t, max(0, duration - 0.05)))
+            target = min(t, max(0, duration - 0.05))
         } else {
-            seekExact(to: min(time, max(0, duration - 0.05)))
+            target = min(time, max(0, duration - 0.05))
+        }
+        time = target
+        seekExact(to: target)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.scrubbing = false
         }
     }
 
@@ -2080,12 +2089,18 @@ final class ChopPlayer: ObservableObject {
         let b = bs[i]
         e.manualCuts.append(ChopClip(start: b.start, end: b.end))
         edit = e
+        scrubbing = true
         rebuild()
         // the deleted band's end now maps to the join between the neighbours
         let join = editTime(fromRaw: b.end + 0.01)
             ?? editTime(fromRaw: b.start - 0.01)
             ?? min(time, max(0, duration - 0.05))
-        seekExact(to: max(0, min(join, duration)))
+        let target = max(0, min(join, duration))
+        time = target
+        seekExact(to: target)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.scrubbing = false
+        }
     }
 
     /// How far a band edge can be pulled OUT (extend), in seconds — only into
@@ -2143,14 +2158,18 @@ final class ChopPlayer: ObservableObject {
             }
         }
         edit = e
+        // freeze the clock so the observer can't paint a stale frame mid-swap
+        scrubbing = true
         rebuild()
         // TikTok: the cursor lands exactly on the cut you just made
         let edgeRaw = side == 0 ? b.start + deltaSeconds + 0.005
                                 : b.end - deltaSeconds - 0.005
-        if let t = editTime(fromRaw: edgeRaw) {
-            seekExact(to: max(0, min(t, max(0, duration - 0.02))))
-        } else {
-            seekExact(to: min(time, max(0, duration - 0.02)))
+        let target = editTime(fromRaw: edgeRaw).map { max(0, min($0, max(0, duration - 0.02))) }
+            ?? min(time, max(0, duration - 0.02))
+        time = target              // stick lands in the SAME render pass — no flicker
+        seekExact(to: target)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            self?.scrubbing = false
         }
     }
 
