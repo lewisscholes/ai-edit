@@ -963,6 +963,45 @@ struct ChopRootView: View {
     @State private var showImport = false
     @State private var showSettings = false
     @State private var showBilling = false
+    @State private var demoJob: ChopJob? = nil   // -screen editor design preview
+
+    /// Fake processed job pointing at a local test video — design preview only.
+    static func makeDemoJob() -> ChopJob {
+        func seg(_ s: Double, _ e: Double, _ k: String, text: String = "",
+                 retake: String? = nil, pair: Int? = nil, soft: Bool = false) -> [String: Any] {
+            var d: [String: Any] = ["start": s, "end": e, "kind": k, "soft": soft]
+            if !text.isEmpty { d["text"] = text }
+            if let retake { d["retake"] = retake }
+            if let pair { d["pair"] = pair }
+            return d
+        }
+        let segments: [[String: Any]] = [
+            seg(0, 2.5, "speech", text: "Okay so this is the demo clip for the native editor"),
+            seg(2.5, 3.8, "silence"),
+            seg(3.8, 4.2, "filler", text: "um"),
+            seg(4.2, 9.0, "speech", text: "This serum has honestly changed my whole routine", retake: "a", pair: 0),
+            seg(9.0, 10.2, "silence"),
+            seg(10.2, 16.0, "speech", text: "This serum has genuinely changed my entire routine", retake: "b", pair: 0),
+            seg(16.0, 17.0, "silence"),
+            seg(17.0, 24.0, "speech", text: "You only need two drops morning and night"),
+            seg(24.0, 25.4, "silence"),
+            seg(25.4, 32.0, "speech", text: "And it absorbs in seconds with zero sticky feeling"),
+            seg(32.0, 33.0, "silence"),
+            seg(33.0, 40.0, "speech", text: "Grab it from the link below while the sale is on"),
+            seg(40.0, 41.5, "silence"),
+            seg(41.5, 48.0, "speech", text: "Honestly the glow is unreal after a week"),
+            seg(48.0, 49.0, "silence"),
+            seg(49.0, 56.0, "speech", text: "That's it — don't forget to follow for more"),
+            seg(56.0, 60.0, "silence"),
+        ]
+        let payload: [String: Any] = [
+            "segments": segments,
+            "pairs": [["sim": 0.88, "weak": false]],
+        ]
+        return ChopJob(name: "Demo footage.mp4", status: "review", videoKey: nil,
+                       rawSec: 60, editedSec: 0, hasAnalysis: true,
+                       data: ["payload": payload, "demoPath": "/tmp/chop-demo.mp4"])
+    }
     @State private var showOOC = false
     @State private var tab = 0
     @State private var showAuth = false
@@ -1002,6 +1041,9 @@ struct ChopRootView: View {
                 case "proc":       api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; showImport = true
                 case "settings":   api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; showSettings = true
                 case "billing":    api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; showBilling = true
+                case let s where s.hasPrefix("editor"):
+                    api.signedIn = true; api.profileName = "Lewis"; api.credits = 169
+                    demoJob = ChopRootView.makeDemoJob()
                 default: break
                 }
             }
@@ -1032,6 +1074,9 @@ struct ChopRootView: View {
                 .sheet(isPresented: $showImport) { ImportSheet(api: api) }
                 .sheet(isPresented: $showSettings) { ChopSettingsView(api: api) { theme = $0 } }
                 .sheet(isPresented: $showBilling) { ChopBillingView(api: api) }
+                .fullScreenCover(item: $demoJob) { j in
+                    NavigationStack { ChopPlayerScreen(job: j, api: api) }
+                }
                 .sheet(isPresented: $showOOC) { OutOfCreditsSheet() }
                 .onChange(of: api.credits) { _, c in if c <= 0 && api.signedIn { showOOC = true } }
                 .refreshable { await api.loadJobs() }
@@ -1591,6 +1636,19 @@ final class ChopPlayer: ObservableObject {
 
     /// Downloads the source once, then plays the edit as a single composition.
     func open(job: ChopJob, api: ChopAPI) async {
+        // demo mode (design preview only): local file, no network — additive branch
+        if let demo = job.data["demoPath"] as? String {
+            let e = ChopEdit(job: job)
+            minSil = e.settings.minSil
+            fillers = e.settings.fillers
+            softFillers = e.settings.soft
+            edit = e
+            pairs = e.pairs
+            segments = e.segments
+            localURL = URL(fileURLWithPath: demo)
+            rebuild()
+            return
+        }
         var e = ChopEdit(job: job)
         // a job with no saved settings inherits the creator's Cut Lab default
         if (job.data["settings"] as? [String: Any]) == nil { e.settings = ChopPresets.saved }
@@ -2163,6 +2221,17 @@ struct ChopPlayerScreen: View {
             }
         }
         .task { await p.open(job: job, api: api) }
+        .task {
+            // -screen editor-sel / editor-compact: pose states for design review
+            let a = ProcessInfo.processInfo.arguments
+            guard let i = a.firstIndex(of: "-screen"), i + 1 < a.count else { return }
+            let flag = a[i + 1]
+            guard flag.hasPrefix("editor-") else { return }
+            while !p.ready { try? await Task.sleep(nanoseconds: 200_000_000) }
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            if flag == "editor-sel", p.clipSpans.count > 1 { selected = 1 }
+            if flag == "editor-compact" { compact = true }
+        }
         .onChange(of: p.clipCount) { _, _ in selected = nil } // spans shift after any edit
         .onDisappear { p.player.pause() }
     }
@@ -2200,8 +2269,9 @@ struct ChopPlayerScreen: View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: icon).font(.system(size: 12, weight: .semibold))
-                Text(label).font(.system(size: 12, weight: .bold))
+                Text(label).font(.system(size: 12, weight: .bold)).lineLimit(1)
             }
+            .fixedSize()
             .padding(.horizontal, 13).padding(.vertical, 9)
             .background(ChopColor.soft2)
             .foregroundStyle(tint)
