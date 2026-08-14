@@ -2230,12 +2230,10 @@ struct ChopPlayerScreen: View {
                     .padding(.top, 10)
 
                     // web .backrail — glass back circle top-left of the video
+                    // (undo/redo live in the play bar now, TikTok style)
                     HStack(spacing: 6) {
                         glassCircle("arrow.left", enabled: true) { dismiss() }
                         Spacer()
-                        // web parity: undo/redo glass circles top-right
-                        glassCircle("arrow.uturn.backward", enabled: p.canUndo) { p.undo() }
-                        glassCircle("arrow.uturn.forward", enabled: p.canRedo) { p.redo() }
                     }
                     .padding(.top, 10).padding(.horizontal, 10)
                 }
@@ -2251,7 +2249,7 @@ struct ChopPlayerScreen: View {
                 if p.ready {
                     playBar
                     ChopTimeline(p: p, selected: $selected)
-                        .frame(height: 76)
+                        .frame(height: 100)   // strip + TikTok scrub pad
                         .zIndex(2)   // the white selection frame overhangs — draw above neighbours
 
                     // selection swaps the toolbar for Split/Delete/Restore — web body.qesel
@@ -2385,24 +2383,41 @@ struct ChopPlayerScreen: View {
             .onTapGesture { showEdited = (label == "Edited") }
     }
 
+    // TikTok play bar: time left · small centred play · undo/redo right
     private var playBar: some View {
-        HStack(spacing: 16) {
+        ZStack {
+            HStack(spacing: 8) {
+                Text("\(clock(p.time)) / \(clock(p.duration))")
+                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(Color.chopMuted)
+                if p.duration > 0, job.rawSec > 0 {
+                    Text("\(Int((1 - p.duration / job.rawSec) * 100))% shorter")
+                        .font(.system(size: 11, weight: .bold)).foregroundStyle(Color.chopGreen)
+                }
+                Spacer()
+                Button { p.undo() } label: {
+                    Image(systemName: "arrow.uturn.backward")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(p.canUndo ? Color.chopInk : Color.chopMuted.opacity(0.45))
+                        .frame(width: 34, height: 34)
+                }
+                .disabled(!p.canUndo)
+                Button { p.redo() } label: {
+                    Image(systemName: "arrow.uturn.forward")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(p.canRedo ? Color.chopInk : Color.chopMuted.opacity(0.45))
+                        .frame(width: 34, height: 34)
+                }
+                .disabled(!p.canRedo)
+            }
             Button { p.togglePlay() } label: {
                 Image(systemName: p.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(.black)
-                    .frame(width: 38, height: 38)
-                    .background(Color.white, in: Circle())
-            }
-            Text("\(clock(p.time)) / \(clock(p.duration))")
-                .font(.caption.monospacedDigit()).foregroundStyle(Color.chopMuted)
-            Spacer()
-            if p.duration > 0, job.rawSec > 0 {
-                Text("\(Int((1 - p.duration / job.rawSec) * 100))% shorter")
-                    .font(.caption.weight(.semibold)).foregroundStyle(Color.chopGreen)
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundStyle(Color.chopInk)
+                    .frame(width: 40, height: 34)
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 10)
+        .padding(.horizontal, 14).padding(.vertical, 4)
     }
 
     /// Split, trim and delete at the playhead — the web app's quick-edit tools.
@@ -2445,7 +2460,7 @@ struct ChopPlayerScreen: View {
             }
             .padding(.horizontal, 12)
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
         .background(ChopColor.card)
     }
 
@@ -2457,12 +2472,12 @@ struct ChopPlayerScreen: View {
             panel = on ? nil : key
         } label: {
             ZStack(alignment: .topTrailing) {
-                VStack(spacing: 4) {
+                VStack(spacing: 3) {
                     Image(systemName: icon)
-                        .font(.system(size: 17, weight: .medium))
-                    Text(label).font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: 16, weight: .medium))
+                    Text(label).font(.system(size: 9.5, weight: .semibold))
                 }
-                .frame(width: 64, height: 62)
+                .frame(width: 60, height: 52)
                 .background(on ? ChopColor.blueSoft : ChopColor.soft2,
                             in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14)
@@ -2502,10 +2517,10 @@ struct ChopPlayerScreen: View {
                     Text(marking ? "Saving…" : "Done")
                 }
                 .font(.subheadline.weight(.bold))
-                .frame(maxWidth: .infinity).padding(.vertical, 13)
+                .frame(maxWidth: .infinity).padding(.vertical, 9)
                 .background(Color.white)
                 .foregroundStyle(.black)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
             }
             .disabled(marking)
 
@@ -2515,11 +2530,11 @@ struct ChopPlayerScreen: View {
                     Text("Queue")
                 }
                 .font(.subheadline.weight(.bold))
-                .frame(maxWidth: .infinity).padding(.vertical, 13)
+                .frame(maxWidth: .infinity).padding(.vertical, 9)
                 .background(Color.chopPanel)
                 .foregroundStyle(Color.chopInk)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.chopLine, lineWidth: 1))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.chopLine, lineWidth: 1))
             }
         }
         .padding(.horizontal, 14)
@@ -2786,6 +2801,7 @@ struct ChopTimeline: View {
     @State private var trimLive: (band: Int, side: Int, t: Double)? = nil
 
     private let stripH: CGFloat = 56
+    private let scrubH: CGFloat = 28   // TikTok thumb-scrub pad under the strip
 
     var body: some View {
         GeometryReader { geo in
@@ -2831,30 +2847,36 @@ struct ChopTimeline: View {
                 // clips slide together smoothly when a section is deleted
                 .animation(.easeInOut(duration: 0.25), value: spans.map(\.start))
 
-                // ---- centre-locked stick (web .qestick) ----
+                // ---- centre-locked stick — runs down through the scrub pad ----
                 RoundedRectangle(cornerRadius: 3)
                     .fill(Color.white)
-                    .frame(width: 3, height: stripH + 9)
+                    .frame(width: 3, height: stripH + 8 + scrubH)
                     .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
                     .offset(x: vw / 2 - 1.5, y: -6)
                     .allowsHitTesting(false)
             }
-            .frame(height: stripH)
-            .contentShape(Rectangle())
-            // tap = select a section (web) · drag = scrub · pinch = zoom.
-            // Pan needs 10pt of travel before it grabs, which keeps pinch easy.
+            .frame(height: stripH + scrubH, alignment: .top)
+            .contentShape(Rectangle())   // the pad below the strip scrubs too
+            // tap a clip = pause + snap to its start (Aaron's behaviour) ·
+            // drag = scrub · pinch = zoom. Pan needs 10pt, which keeps pinch easy.
             .gesture(SpatialTapGesture()
                 .onEnded { g in
-                    guard let bind = selected else { return }
+                    guard let bind = selected, g.location.y <= stripH else { return }
                     let t = Double((g.location.x - offsetX) / pps)
                     if t >= 0, t <= p.duration, let i = p.bandIndex(atEditTime: t) {
-                        bind.wrappedValue = (bind.wrappedValue == i) ? nil : i
+                        if bind.wrappedValue == i {
+                            bind.wrappedValue = nil
+                        } else {
+                            bind.wrappedValue = i
+                            p.player.pause()
+                            p.seekExact(to: min(p.bandSpansEdit[i].start + 0.001, p.duration))
+                        }
                     }
                 })
             .gesture(panGesture(vw: vw, pps: pps, offsetX: offsetX)
                 .simultaneously(with: pinchGesture()))
         }
-        .frame(height: stripH)
+        .frame(height: stripH + scrubH)
         .padding(.vertical, 8)   // room for the frame's ±7px overhang
     }
 
