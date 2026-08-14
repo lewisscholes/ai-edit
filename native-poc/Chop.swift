@@ -2019,6 +2019,14 @@ struct ChopPlayerScreen: View {
                 .background(.ultraThinMaterial, in: Capsule())
                 .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 1))
                 .padding(.top, 10)
+
+                // web parity: undo/redo as glass circles top-right of the video
+                HStack(spacing: 6) {
+                    glassCircle("arrow.uturn.backward", enabled: p.canUndo) { p.undo() }
+                    glassCircle("arrow.uturn.forward", enabled: p.canRedo) { p.redo() }
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.top, 10).padding(.trailing, 10)
             }
             .frame(maxHeight: .infinity)
 
@@ -2050,6 +2058,19 @@ struct ChopPlayerScreen: View {
         }
         .task { await p.open(job: job, api: api) }
         .onDisappear { p.player.pause() }
+    }
+
+    /// web .udwrap .iconbtn — 38px glass circle
+    private func glassCircle(_ icon: String, enabled: Bool, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 38, height: 38)
+                .background(Color(red: 10/255, green: 12/255, blue: 18/255).opacity(0.5), in: Circle())
+                .background(.ultraThinMaterial, in: Circle())
+        }
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.4)
     }
 
     private func modePill(_ label: String, on: Bool) -> some View {
@@ -2084,25 +2105,24 @@ struct ChopPlayerScreen: View {
     /// Split, trim and delete at the playhead — the web app's quick-edit tools.
     private var clipTools: some View {
         HStack(spacing: 8) {
-            clipTool("Trim start", "arrow.right.to.line") { p.trimAtPlayhead(keepAfter: false) }
-            clipTool("Trim end", "arrow.left.to.line") { p.trimAtPlayhead(keepAfter: true) }
-            clipTool("Delete", "trash") { p.deleteClipAtPlayhead() }
-            if p.canUndo { clipTool("Undo", "arrow.uturn.backward") { p.undo() } }
-            if p.canRedo { clipTool("Redo", "arrow.uturn.forward") { p.redo() } }
+            clipTool("Trim start", "arrow.right.to.line", Color.chopInk) { p.trimAtPlayhead(keepAfter: false) }
+            clipTool("Trim end", "arrow.left.to.line", Color.chopInk) { p.trimAtPlayhead(keepAfter: true) }
+            clipTool("Delete", "trash", ChopColor.rose) { p.deleteClipAtPlayhead() }
         }
         .padding(.horizontal, 14)
         .padding(.bottom, 10)
     }
 
-    private func clipTool(_ label: String, _ icon: String, _ action: @escaping () -> Void) -> some View {
+    /// web .qtool — soft2 bg, line border, rose for delete
+    private func clipTool(_ label: String, _ icon: String, _ tint: Color, _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: icon).font(.system(size: 11, weight: .semibold))
                 Text(label).font(.system(size: 11, weight: .semibold))
             }
             .frame(maxWidth: .infinity).padding(.vertical, 9)
-            .background(Color.chopPanel)
-            .foregroundStyle(Color.chopInk)
+            .background(ChopColor.soft2)
+            .foregroundStyle(tint)
             .clipShape(RoundedRectangle(cornerRadius: 11))
             .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.chopLine, lineWidth: 1))
         }
@@ -2111,41 +2131,46 @@ struct ChopPlayerScreen: View {
     // ---- the icon-square toolbar, same shape as the web editor ----
     private var toolbar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 tool("retakes", "rectangle.on.rectangle", "Retakes", badge: p.undecided)
                 tool("cuts", "scissors", "Cuts")
                 tool("script", "text.alignleft", "Script")
+                tool("text", "textformat", "Text")          // web: SOON panel
+                tool("image", "photo", "Image")             // web: SOON panel
+                tool("subtitles", "captions.bubble", "Captions") // web: SOON panel
                 tool("export", "square.and.arrow.down", "Export")
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 12)
         }
-        .padding(.bottom, 10)
+        .padding(.vertical, 8)
+        .background(ChopColor.card)
     }
 
+    /// web mobile .rail .rbtn — 64×62 r14 square, icon+label inside,
+    /// on = blue-soft bg + blue border + blue text
     private func tool(_ key: String, _ icon: String, _ label: String, badge: Int = 0) -> some View {
         let on = panel == key
         return Button {
             panel = on ? nil : key
         } label: {
-            VStack(spacing: 5) {
-                ZStack(alignment: .topTrailing) {
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(on ? Color.chopBlue : Color.chopPanel)
-                        .frame(width: 54, height: 54)
-                        .overlay(RoundedRectangle(cornerRadius: 14)
-                            .stroke(on ? Color.clear : Color.chopLine, lineWidth: 1))
-                        .overlay(Image(systemName: icon)
-                            .font(.system(size: 19, weight: .medium))
-                            .foregroundStyle(on ? Color.chopInk : Color.chopMuted))
-                    if badge > 0 {
-                        Text("\(badge)")
-                            .font(.system(size: 10, weight: .bold)).foregroundStyle(.black)
-                            .padding(4).background(Color.orange, in: Circle())
-                            .offset(x: 5, y: -5)
-                    }
+            ZStack(alignment: .topTrailing) {
+                VStack(spacing: 4) {
+                    Image(systemName: icon)
+                        .font(.system(size: 17, weight: .medium))
+                    Text(label).font(.system(size: 10, weight: .semibold))
                 }
-                Text(label).font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(on ? Color.chopInk : Color.chopMuted)
+                .frame(width: 64, height: 62)
+                .background(on ? ChopColor.blueSoft : ChopColor.soft2,
+                            in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14)
+                    .stroke(on ? ChopColor.blue : Color.chopLine, lineWidth: 1))
+                .foregroundStyle(on ? ChopColor.blue : Color.chopMuted)
+                if badge > 0 {
+                    Text("\(badge)")
+                        .font(.system(size: 10, weight: .bold)).foregroundStyle(.black)
+                        .padding(4).background(Color.orange, in: Circle())
+                        .offset(x: 4, y: -4)
+                }
             }
         }
     }
@@ -2207,20 +2232,43 @@ struct ChopPlayerScreen: View {
                     }
                 case "cuts":
                     HStack {
-                        Text("Remove silences over").font(.subheadline)
+                        Text("Remove silences over").font(.subheadline.weight(.bold))
                         Spacer()
                         Text("\(String(format: "%.2f", p.minSil))s")
-                            .font(.subheadline.monospacedDigit()).foregroundStyle(Color.chopMuted)
+                            .font(.subheadline.monospacedDigit()).foregroundStyle(ChopColor.blue)
                     }
-                    Slider(value: $p.minSil, in: 0.05...1.0, step: 0.05)
+                    Slider(value: $p.minSil, in: 0.01...2.0, step: 0.01)
                         .tint(Color.chopBlue)
                         .onChange(of: p.minSil) { _, _ in p.rebuild() }
-                    Toggle("Remove filler words", isOn: $p.fillers)
-                        .font(.subheadline).tint(Color.chopBlue)
-                        .onChange(of: p.fillers) { _, _ in p.rebuild() }
-                    Toggle("Also soft fillers", isOn: $p.softFillers)
-                        .font(.subheadline).tint(Color.chopBlue)
-                        .onChange(of: p.softFillers) { _, _ in p.rebuild() }
+                    Text("Any pause longer than this is cut automatically. Lower removes more dead air.")
+                        .font(.system(size: 12)).foregroundStyle(Color.chopMuted)
+                    Toggle(isOn: $p.fillers) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Remove filler words").font(.subheadline.weight(.bold))
+                            Text("um, uh, hmm…").font(.system(size: 12)).foregroundStyle(Color.chopMuted)
+                        }
+                    }
+                    .tint(Color.chopBlue)
+                    .onChange(of: p.fillers) { _, _ in p.rebuild() }
+                    Toggle(isOn: $p.softFillers) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Also soft fillers").font(.subheadline.weight(.bold))
+                            Text("like, you know, I mean — only when isolated")
+                                .font(.system(size: 12)).foregroundStyle(Color.chopMuted)
+                        }
+                    }
+                    .tint(Color.chopBlue)
+                    .onChange(of: p.softFillers) { _, _ in p.rebuild() }
+                case "text", "image", "subtitles":
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Coming soon").font(.subheadline.weight(.bold))
+                        Text("We’re building this — it’ll land in a future update.")
+                            .font(.system(size: 12.5)).foregroundStyle(Color.chopMuted)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 14))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.chopLine, lineWidth: 1))
                 case "script":
                     ForEach(Array(p.segments.enumerated()), id: \.offset) { i, seg in
                         if seg.kind == "speech" && !seg.text.isEmpty {
