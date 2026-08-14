@@ -282,6 +282,15 @@ struct ChopJob: Identifiable {
         guard rawSec > 0, editedSec > 0 else { return 0 }
         return Int(((rawSec - editedSec) / rawSec) * 100)
     }
+
+    /// Undecided retakes — same maths as the web's jobStats(): total pairs
+    /// minus non-null choices.
+    var pendingRetakes: Int {
+        let payload = data["payload"] as? [String: Any]
+        let total = (payload?["pairs"] as? [[String: Any]])?.count ?? 0
+        let decided = ((data["choices"] as? [Any]) ?? []).filter { !($0 is NSNull) }.count
+        return max(0, total - decided)
+    }
 }
 
 
@@ -971,6 +980,8 @@ struct ChopRootView: View {
                 case "auth-up":    showAuth = true; authMode = 1
                 case "auth-reset": showAuth = true; authStage = 1
                 case "dash":       api.signedIn = true; api.profileName = "Lewis"; api.credits = 169
+                case "queue":      api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; tab = 1
+                case "lab":        api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; tab = 2
                 default: break
                 }
             }
@@ -2849,91 +2860,145 @@ struct ChopQueueBody: View {
         }
     }
 
+    // web copy, verbatim — app/index.html renderKanban()
     private let titles = ["Processing", "Ready to review", "Ready to export", "Downloaded"]
     private let empties = [
-        "Nothing processing",
+        "Nothing processing — drop more videos on the dashboard",
         "Nothing waiting for review",
-        "Press Done in the editor to move a video here",
+        "Press the green Done button in the editor to move a video here",
         "Exported videos land here so you never download twice"
     ]
 
     var body: some View {
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
+                VStack(alignment: .leading, spacing: 16) {
+
+                    Text("Review queue")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(ChopColor.ink)
+                        .padding(.bottom, 4)
+
                     ForEach(0..<4, id: \.self) { i in
                         let list = api.jobs.filter { bucket($0) == i }
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Text(titles[i]).font(.subheadline.weight(.bold))
+                        // .kcol — soft2 column container, uppercase header + count pill
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(spacing: 8) {
+                                if i == 0 && !list.isEmpty { ProgressView().controlSize(.mini) }
+                                Text(titles[i].uppercased())
+                                    .font(.system(size: 12, weight: .heavy))
+                                    .kerning(0.96)
+                                    .foregroundStyle(ChopColor.muted)
                                 Text("\(list.count)")
-                                    .font(.caption2.weight(.bold))
-                                    .padding(.horizontal, 7).padding(.vertical, 2)
-                                    .background(Color.chopPanel, in: Capsule())
-                                    .foregroundStyle(Color.chopMuted)
+                                    .font(.system(size: 11, weight: .heavy))
+                                    .foregroundStyle(ChopColor.ink)
+                                    .padding(.horizontal, 9).padding(.vertical, 1)
+                                    .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 10))
                                 Spacer()
                             }
                             if list.isEmpty {
-                                Text(empties[i]).font(.caption)
-                                    .foregroundStyle(Color.chopMuted)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(14)
-                                    .background(Color.chopPanel.opacity(0.5))
-                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                Text(empties[i])
+                                    .font(.system(size: 12.5))
+                                    .foregroundStyle(ChopColor.muted)
+                                    .multilineTextAlignment(.center)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 18).padding(.horizontal, 6)
                             } else {
                                 ForEach(list) { job in
                                     NavigationLink { ChopPlayerScreen(job: job, api: api) } label: {
-                                        QueueCard(job: job)
+                                        QueueCard(job: job, current: false)
                                     }
+                                    .buttonStyle(.plain)
                                 }
                             }
                         }
+                        .padding(14)
+                        .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 16))
                     }
                 }
                 .padding(16)
-                .padding(.bottom, 90)
+                .padding(.bottom, 110)
             }
     }
 }
 
 struct QueueCard: View {
     let job: ChopJob
+    var current: Bool = false
+
+    // web kanbanCard() sub line, verbatim construction
+    private func fmt(_ sec: Double) -> String {
+        let t = Int(sec.rounded()); return "\(t / 60):" + String(format: "%02d", t % 60)
+    }
+    private var subLine: String {
+        if job.status == "processing" { return "processing…" }
+        if job.status == "queued" { return "waiting" }
+        if job.status == "error" { return (job.data["err"] as? String) ?? "failed" }
+        var s = "\(fmt(job.rawSec)) → \(fmt(job.editedSec))"
+        let pending = job.pendingRetakes
+        s += pending > 0 ? " · \(pending) retake\(pending > 1 ? "s" : "") to decide" : " · no retakes pending"
+        if job.videoKey == nil { s += " · sync queued" }
+        return s
+    }
+    private var chip: (String, Color, Color)? {   // text, fg, bg
+        switch job.status {
+        case "processing": return ("PROCESSING", ChopColor.muted, ChopColor.card)
+        case "queued":     return ("QUEUED", ChopColor.muted, ChopColor.card)
+        case "error":      return ("FAILED", ChopColor.rose, ChopColor.roseSoft)
+        case "review":     return current ? ("EDITING NOW", ChopColor.blue, ChopColor.blueSoft)
+                                          : ("NEEDS REVIEW", ChopColor.amber, ChopColor.amberSoft)
+        case "approved":   return ("APPROVED", ChopColor.green, ChopColor.greenSoft)
+        case "exported":   return ("EXPORTED", ChopColor.green, ChopColor.greenSoft)
+        default:           return nil
+        }
+    }
+    private var sinceLine: String? {   // .kwhen — "In this column since 18:42 · 14 Aug"
+        guard let ms = job.data["statusAt"] as? Double else { return nil }
+        let d = Date(timeIntervalSince1970: ms / 1000)
+        let t = DateFormatter(); t.dateFormat = "HH:mm"
+        let dd = DateFormatter(); dd.dateFormat = "d MMM"
+        return "In this column since \(t.string(from: d)) · \(dd.string(from: d))"
+    }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 11) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10).fill(Color.black)
+                LinearGradient(colors: [Color(red: 0.24, green: 0.27, blue: 0.33),
+                                        Color(red: 0.13, green: 0.14, blue: 0.17)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
                 if let img = job.thumbnail {
                     Image(uiImage: img).resizable().scaledToFill()
-                } else {
-                    Image(systemName: "film").foregroundStyle(Color.chopMuted)
                 }
             }
-            .frame(width: 46, height: 60)
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .frame(width: 44, height: 44 * 16 / 9)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(job.name).font(.subheadline.weight(.medium))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(job.name)
+                    .font(.system(size: 12.5, weight: .bold))
                     .lineLimit(1).foregroundStyle(Color.chopInk)
-                HStack(spacing: 6) {
-                    if job.savedPct > 0 {
-                        Text("\(job.savedPct)% shorter")
-                            .font(.caption2.weight(.semibold)).foregroundStyle(Color.chopGreen)
-                    }
-                    if job.videoKey == nil {
-                        Text("syncing…").font(.caption2).foregroundStyle(.orange)
-                    }
-                    if !job.hasAnalysis {
-                        Text("no analysis").font(.caption2).foregroundStyle(.orange)
-                    }
+                Text(subLine)
+                    .font(.system(size: 11))
+                    .foregroundStyle(ChopColor.muted)
+                    .lineLimit(2)
+                if let c = chip {
+                    Text(c.0)
+                        .font(.system(size: 9.5, weight: .heavy))
+                        .foregroundStyle(c.1)
+                        .padding(.horizontal, 8).padding(.vertical, 2)
+                        .background(c.2, in: RoundedRectangle(cornerRadius: 9))
+                }
+                if let since = sinceLine {
+                    Text(since).font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(ChopColor.muted)
                 }
             }
-            Spacer()
+            Spacer(minLength: 0)
             Image(systemName: "chevron.right").font(.caption).foregroundStyle(Color.chopMuted)
         }
         .padding(10)
-        .background(Color.chopPanel)
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.chopLine, lineWidth: 1))
+        .background(ChopColor.card)
+        .clipShape(RoundedRectangle(cornerRadius: 13))
+        .overlay(RoundedRectangle(cornerRadius: 13).stroke(Color.chopLine, lineWidth: 1))
     }
 }
 
