@@ -813,6 +813,74 @@ final class ChopAPI: ObservableObject {
     }
 }
 
+// MARK: - Dashboard artwork + edit cards (web parity)
+
+/// The web drop-zone cloud: app/index.html line 943, 24×24 viewBox.
+struct DropCloudIcon: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = rect.width / 24.0
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * s, y: y * s) }
+        var p = Path()
+        // cloud outline (approximation of the two-arc path)
+        p.move(to: pt(7, 18.5))
+        p.addCurve(to: pt(7.9, 9.6), control1: pt(2.6, 18.5), control2: pt(2.9, 10.4))
+        p.addCurve(to: pt(18.6, 11), control1: pt(9.6, 5.0), control2: pt(16.6, 5.8))
+        p.addCurve(to: pt(18, 18.5), control1: pt(22.2, 11.8), control2: pt(21.6, 18.5))
+        p.addLine(to: pt(7, 18.5))
+        // up arrow
+        p.move(to: pt(12, 15.8)); p.addLine(to: pt(12, 10.8))
+        p.move(to: pt(9.4, 13.4)); p.addLine(to: pt(12, 10.8)); p.addLine(to: pt(14.6, 13.4))
+        return p
+    }
+}
+
+/// .ecard — thumbnail card in the "Your edits" grid.
+struct EditCard: View {
+    let job: ChopJob
+
+    private var thumb: UIImage? {
+        guard let s = job.data["thumb"] as? String, s.hasPrefix("data:image"),
+              let comma = s.firstIndex(of: ","),
+              let d = Data(base64Encoded: String(s[s.index(after: comma)...])) else { return nil }
+        return UIImage(data: d)
+    }
+    private func fmt(_ sec: Double) -> String {
+        let t = Int(sec.rounded()); return "\(t / 60):" + String(format: "%02d", t % 60)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if let img = thumb {
+                    Image(uiImage: img).resizable().scaledToFill()
+                } else {
+                    LinearGradient(colors: [Color(red: 0.24, green: 0.27, blue: 0.33),
+                                            Color(red: 0.13, green: 0.14, blue: 0.17)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .aspectRatio(9.0/13.0, contentMode: .fill)
+            .clipped()
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(job.name)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(ChopColor.ink)
+                    .lineLimit(1)
+                Text(job.rawSec > 0 ? "\(fmt(job.rawSec)) → \(fmt(job.editedSec))" : "—")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(ChopColor.muted)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(ChopColor.card)
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(ChopColor.line, lineWidth: 1))
+    }
+}
+
 // MARK: - Auth artwork (web SVG paths, not SF Symbols — SPEC_02_AUTH)
 
 /// The four benefit icons from app/index.html lines 824–827, redrawn as Paths
@@ -902,6 +970,7 @@ struct ChopRootView: View {
                 case "auth":       showAuth = true; authMode = 0
                 case "auth-up":    showAuth = true; authMode = 1
                 case "auth-reset": showAuth = true; authStage = 1
+                case "dash":       api.signedIn = true; api.profileName = "Lewis"; api.credits = 169
                 default: break
                 }
             }
@@ -1353,8 +1422,12 @@ struct ChopRootView: View {
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
                     .padding(16)
-                    .background(Color.chopBlue)
+                    .background(  // web: linear-gradient(135deg,#1a6dff,#4e8dff) + blue shadow
+                        LinearGradient(colors: [Color(red: 0x1a/255, green: 0x6d/255, blue: 1.0),
+                                                Color(red: 0x4e/255, green: 0x8d/255, blue: 1.0)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing))
                     .clipShape(RoundedRectangle(cornerRadius: 18))
+                    .shadow(color: Color.chopBlue.opacity(0.35), radius: 12, y: 5)
 
                     statCard("\(api.jobs.count)", "Videos edited")
                 }
@@ -1364,32 +1437,36 @@ struct ChopRootView: View {
                 }
 
                 Button { showImport = true } label: {
-                    VStack(spacing: 10) {
-                        Image(systemName: "icloud.and.arrow.up")
-                            .font(.system(size: 22, weight: .medium))
-                            .foregroundStyle(Color.chopBlue)
-                            .frame(width: 58, height: 58)
-                            .background(Color.chopBlue.opacity(0.14), in: Circle())
+                    VStack(spacing: 0) {
+                        DropCloudIcon()   // the web's cloud SVG, not an SF Symbol
+                            .stroke(ChopColor.blue, style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+                            .frame(width: 26, height: 26)
+                            .frame(width: 54, height: 54)
+                            .background(ChopColor.blueSoft, in: Circle())
+                            .padding(.bottom, 12)
                         Text("Drop your videos here to edit")
                             .font(.system(size: 18, weight: .bold)).foregroundStyle(Color.chopInk)
                         HStack(spacing: 4) {
-                            Text("or").font(.system(size: 14)).foregroundStyle(ChopColor.muted)
+                            Text("or").font(.system(size: 13)).foregroundStyle(ChopColor.muted)
                             Text("click to browse")
-                                .font(.system(size: 14, weight: .heavy)).foregroundStyle(ChopColor.blue)
+                                .font(.system(size: 13, weight: .bold)).foregroundStyle(ChopColor.blue)
                         }
+                        .padding(.top, 6)
                         Text("MP4 or MOV · up to 2 GB each (1 GB on mobile)")
-                            .font(.system(size: 11.5)).foregroundStyle(ChopColor.muted)
+                            .font(.system(size: 13)).foregroundStyle(ChopColor.muted)
+                            .padding(.top, 6)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 26)
+                    .padding(.vertical, 48).padding(.horizontal, 24)
+                    .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 18))
                     .overlay(RoundedRectangle(cornerRadius: 18)
-                        .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [7, 6]))
+                        .strokeBorder(style: StrokeStyle(lineWidth: 2, dash: [7, 6]))
                         .foregroundStyle(Color.chopLine))
                 }
-                .padding(.top, 4)
+                .padding(.top, 8)
 
-                Text("Consistency").font(ChopFont.h2(19))
-                    .foregroundStyle(ChopColor.ink).padding(.top, 12)
+                Text("Consistency").font(ChopFont.h2(24))
+                    .foregroundStyle(ChopColor.ink).padding(.top, 28)
 
                 ChopRing(edits: api.jobs.count, active30: activeLast30,
                          streak: streak, peakDay: peakDay)
@@ -1398,12 +1475,20 @@ struct ChopRootView: View {
                              longest: longestStreak, active30: activeLast30)
                     .padding(.top, 6)
 
-                HStack {
-                    Text("Your edits").font(.title3.weight(.bold))
+                // .edits-h — uppercase eyebrow + count pill, web parity
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text("YOUR EDITS")
+                        .font(.system(size: 12, weight: .heavy))
+                        .kerning(1.1)
+                        .foregroundStyle(ChopColor.muted)
+                    Text("\(api.jobs.count)")
+                        .font(.system(size: 11.5, weight: .heavy))
+                        .foregroundStyle(ChopColor.blue)
+                        .padding(.horizontal, 9).padding(.vertical, 2)
+                        .background(ChopColor.blueSoft, in: Capsule())
                     Spacer()
-                    Text("\(api.jobs.count)").font(.subheadline).foregroundStyle(Color.chopMuted)
                 }
-                .padding(.top, 10)
+                .padding(.top, 30)
 
                 if api.jobs.isEmpty && !api.busy {
                     Text("Videos you edit will show up here.")
@@ -1411,9 +1496,13 @@ struct ChopRootView: View {
                         .padding(.vertical, 22)
                 }
 
-                ForEach(api.jobs) { job in
-                    NavigationLink { ChopPlayerScreen(job: job, api: api) } label: {
-                        QueueCard(job: job)
+                // .egrid — thumbnail cards, two-up like the web grid on phone
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
+                    ForEach(api.jobs) { job in
+                        NavigationLink { ChopPlayerScreen(job: job, api: api) } label: {
+                            EditCard(job: job)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
