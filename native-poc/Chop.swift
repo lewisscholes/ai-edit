@@ -2091,20 +2091,60 @@ final class ChopPlayer: ObservableObject {
         seekExact(to: max(0, min(join, duration)))
     }
 
-    /// Web trim caps: cut the trimmed-away edge, playhead stays put.
-    func trimBand(_ i: Int, newStartRaw: Double? = nil, newEndRaw: Double? = nil) {
-        let bs = bands; guard i < bs.count, var e = edit else { return }
+    /// How far a band edge can be pulled OUT (extend), in seconds — only into
+    /// footage that a manual trim removed. Auto cuts stay Cut-Lab territory.
+    func bandExtendLeft(_ i: Int) -> Double {
+        guard let e = edit, i < bands.count else { return 0 }
+        let b = bands[i]
+        if let c = e.manualCuts.first(where: { abs($0.end - b.start) < 0.05 }) {
+            return max(0, c.end - c.start - 0.02)
+        }
+        return 0
+    }
+    func bandExtendRight(_ i: Int) -> Double {
+        guard let e = edit, i < bands.count else { return 0 }
+        let b = bands[i]
+        if let c = e.manualCuts.first(where: { abs($0.start - b.end) < 0.05 }) {
+            return max(0, c.end - c.start - 0.02)
+        }
+        return 0
+    }
+
+    /// TikTok caps: drag IN = trim (manual cut over the edge), drag OUT =
+    /// extend (shrink the adjacent manual cut back). Playhead stays put.
+    func resizeBand(_ i: Int, side: Int, deltaSeconds: Double) {
+        let bs = bands; guard i < bs.count, var e = edit, abs(deltaSeconds) > 0.02 else { return }
         let b = bs[i]
-        var cuts: [ChopClip] = []
-        if let ns = newStartRaw, ns > b.start + 0.02 {
-            cuts.append(ChopClip(start: b.start, end: min(ns, b.end - 0.05)))
-        }
-        if let ne = newEndRaw, ne < b.end - 0.02 {
-            cuts.append(ChopClip(start: max(ne, b.start + 0.05), end: b.end))
-        }
-        guard !cuts.isEmpty else { return }
         pushHistory()
-        e.manualCuts.append(contentsOf: cuts)
+        if side == 0 {
+            if deltaSeconds > 0 {          // trim the front
+                e.manualCuts.append(ChopClip(start: b.start,
+                                             end: min(b.start + deltaSeconds, b.end - 0.05)))
+            } else {                       // extend the front into the adjacent trim
+                var need = -deltaSeconds
+                if let idx = e.manualCuts.firstIndex(where: { abs($0.end - b.start) < 0.05 }) {
+                    let c = e.manualCuts[idx]
+                    need = min(need, max(0, c.end - c.start - 0.01))
+                    let newEnd = c.end - need
+                    if newEnd - c.start < 0.02 { e.manualCuts.remove(at: idx) }
+                    else { e.manualCuts[idx] = ChopClip(start: c.start, end: newEnd) }
+                }
+            }
+        } else {
+            if deltaSeconds > 0 {          // trim the back
+                e.manualCuts.append(ChopClip(start: max(b.end - deltaSeconds, b.start + 0.05),
+                                             end: b.end))
+            } else {                       // extend the back
+                var need = -deltaSeconds
+                if let idx = e.manualCuts.firstIndex(where: { abs($0.start - b.end) < 0.05 }) {
+                    let c = e.manualCuts[idx]
+                    need = min(need, max(0, c.end - c.start - 0.01))
+                    let newStart = c.start + need
+                    if c.end - newStart < 0.02 { e.manualCuts.remove(at: idx) }
+                    else { e.manualCuts[idx] = ChopClip(start: newStart, end: c.end) }
+                }
+            }
+        }
         edit = e
         rebuildKeepingTime()
     }
@@ -2200,7 +2240,6 @@ struct ChopPlayerScreen: View {
     @StateObject private var p = ChopPlayer()
     @State private var panel: String? = "retakes"
     @State private var showEdited = true
-    @State private var showQueue = false
     @State private var marking = false
     @State private var selected: Int? = nil   // selected timeline section
     @State private var compact = false        // web body.stagecompact: 50dvh ↔ 24dvh
@@ -2229,11 +2268,27 @@ struct ChopPlayerScreen: View {
                     .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 1))
                     .padding(.top, 10)
 
-                    // web .backrail — glass back circle top-left of the video
-                    // (undo/redo live in the play bar now, TikTok style)
+                    // back (doubles as Queue) top-left · green Done tick top-right
                     HStack(spacing: 6) {
                         glassCircle("arrow.left", enabled: true) { dismiss() }
                         Spacer()
+                        Button {
+                            doneTapped()
+                        } label: {
+                            Group {
+                                if marking {
+                                    ProgressView().scaleEffect(0.65).tint(ChopColor.green)
+                                } else {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 15, weight: .heavy))
+                                        .foregroundStyle(ChopColor.green)
+                                }
+                            }
+                            .frame(width: 38, height: 38)
+                            .background(Color(red: 10/255, green: 12/255, blue: 18/255).opacity(0.5), in: Circle())
+                            .background(.ultraThinMaterial, in: Circle())
+                        }
+                        .disabled(marking)
                     }
                     .padding(.top, 10).padding(.horizontal, 10)
                 }
@@ -2258,7 +2313,6 @@ struct ChopPlayerScreen: View {
                     } else {
                         toolbar
                     }
-                    actions
 
                     // ---- panel: fills the rest; grabber swipes video small/big ----
                     if let panel {
@@ -2311,7 +2365,8 @@ struct ChopPlayerScreen: View {
         .onDisappear { api.editorOpen = false; p.player.pause() }
     }
 
-    // web .mctxbar — Split / Delete / Restore · duration · ✕
+    // Split / Delete / Restore stretched across the row — deselect via the
+    // thumb pad, duration lives on the clip chip (TikTok style)
     private func selBar(_ sel: Int) -> some View {
         let span = p.bandSpansEdit[sel]
         return HStack(spacing: 8) {
@@ -2330,15 +2385,6 @@ struct ChopPlayerScreen: View {
             ctxTool("Restore", "arrow.uturn.backward", ChopColor.green) {
                 p.undo(); selected = nil
             }
-            Spacer()
-            Text(String(format: "%.1fs", span.end - span.start))
-                .font(.system(size: 12, weight: .heavy)).foregroundStyle(Color.chopMuted)
-            Button { selected = nil } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .bold)).foregroundStyle(Color.chopMuted)
-                    .frame(width: 32, height: 32)
-                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.chopLine, lineWidth: 1.5))
-            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -2352,8 +2398,8 @@ struct ChopPlayerScreen: View {
                 Image(systemName: icon).font(.system(size: 12, weight: .semibold))
                 Text(label).font(.system(size: 12, weight: .bold)).lineLimit(1)
             }
-            .fixedSize()
-            .padding(.horizontal, 13).padding(.vertical, 9)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 9)
             .background(ChopColor.soft2)
             .foregroundStyle(tint)
             .clipShape(RoundedRectangle(cornerRadius: 11))
@@ -2494,52 +2540,21 @@ struct ChopPlayerScreen: View {
     }
 
     // ---- persistent Done / Queue pills ----
-    private var actions: some View {
-        HStack(spacing: 10) {
-            Button {
-                // web approveBtn: pending retakes → open the panel + toast, never a dead button
-                let pend = p.undecided
-                if pend > 0 {
-                    panel = "retakes"
-                    ChopToasts.shared.show("\(pend) retake\(pend > 1 ? "s" : "") still need\(pend > 1 ? "" : "s") a decision")
-                    return
-                }
-                marking = true
-                Task {
-                    await api.setStatus(job, to: "approved")
-                    marking = false
-                    ChopToasts.shared.show("Moved to Ready to export ✓ — pick your next video")
-                    showQueue = true
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "checkmark").font(.footnote.weight(.bold))
-                    Text(marking ? "Saving…" : "Done")
-                }
-                .font(.subheadline.weight(.bold))
-                .frame(maxWidth: .infinity).padding(.vertical, 9)
-                .background(Color.white)
-                .foregroundStyle(.black)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-            }
-            .disabled(marking)
-
-            Button { showQueue = true } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "square.grid.2x2").font(.footnote.weight(.bold))
-                    Text("Queue")
-                }
-                .font(.subheadline.weight(.bold))
-                .frame(maxWidth: .infinity).padding(.vertical, 9)
-                .background(Color.chopPanel)
-                .foregroundStyle(Color.chopInk)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.chopLine, lineWidth: 1))
-            }
+    /// Green tick on the video — web's approve flow. Back arrow = queue.
+    private func doneTapped() {
+        let pend = p.undecided
+        if pend > 0 {
+            panel = "retakes"
+            ChopToasts.shared.show("\(pend) retake\(pend > 1 ? "s" : "") still need\(pend > 1 ? "" : "s") a decision")
+            return
         }
-        .padding(.horizontal, 14)
-        .padding(.bottom, 8)
-        .sheet(isPresented: $showQueue) { NavigationStack { ChopQueueBody(api: api).background(Color.chopBg).navigationTitle("Review queue").navigationBarTitleDisplayMode(.inline) }.preferredColorScheme(.dark) }
+        marking = true
+        Task {
+            await api.setStatus(job, to: "approved")
+            marking = false
+            ChopToasts.shared.show("Moved to Ready to export ✓")
+            dismiss()
+        }
     }
 
     // web renderCuts(): grouped list of everything currently cut, with Restore
@@ -2843,6 +2858,7 @@ struct ChopTimeline: View {
                     }
                 }
                 .frame(width: contentW, height: stripH, alignment: .topLeading)
+                .coordinateSpace(name: "chopstrip")   // stable space for cap drags
                 .offset(x: offsetX)
                 // clips slide together smoothly when a section is deleted
                 .animation(.easeInOut(duration: 0.25), value: spans.map(\.start))
@@ -2861,7 +2877,9 @@ struct ChopTimeline: View {
             // drag = scrub · pinch = zoom. Pan needs 10pt, which keeps pinch easy.
             .gesture(SpatialTapGesture()
                 .onEnded { g in
-                    guard let bind = selected, g.location.y <= stripH else { return }
+                    guard let bind = selected else { return }
+                    // tap in the thumb-scrub pad = deselect everything
+                    guard g.location.y <= stripH else { bind.wrappedValue = nil; return }
                     let t = Double((g.location.x - offsetX) / pps)
                     if t >= 0, t <= p.duration, let i = p.bandIndex(atEditTime: t) {
                         if bind.wrappedValue == i {
@@ -2869,7 +2887,12 @@ struct ChopTimeline: View {
                         } else {
                             bind.wrappedValue = i
                             p.player.pause()
-                            p.seekExact(to: min(p.bandSpansEdit[i].start + 0.001, p.duration))
+                            // TikTok: only jump if the cursor ISN'T already on
+                            // this clip — otherwise pause exactly where it is
+                            let span = p.bandSpansEdit[i]
+                            if !(p.time >= span.start && p.time <= span.end) {
+                                p.seekExact(to: min(span.start + 0.001, p.duration))
+                            }
                         }
                     }
                 })
@@ -2952,7 +2975,9 @@ struct ChopTimeline: View {
         .offset(x: x - capW, y: -7)
     }
 
-    // web .cap — 22px white handle, chevron, draggable to trim
+    // TikTok cap — drag IN to trim, drag OUT to extend. Reads its position from
+    // the strip's own coordinate space, so the moving handle can't jitter.
+    // The clip STAYS selected afterwards, like TikTok.
     private func trimCap(sel: Int, span: (start: Double, end: Double),
                          side: Int, capW: CGFloat, pps: CGFloat) -> some View {
         UnevenRoundedRectangle(
@@ -2964,29 +2989,23 @@ struct ChopTimeline: View {
                 .font(.system(size: 11, weight: .heavy)).foregroundStyle(Color(white: 0.07)))
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 1)
+                DragGesture(minimumDistance: 1, coordinateSpace: .named("chopstrip"))
                     .onChanged { g in
-                        let delta = Double(g.translation.width / pps)
+                        let t = Double(g.location.x / pps)
                         if side == 0 {
-                            let t = min(max(span.start + delta, span.start - 0.001), span.end - 0.08)
-                            trimLive = (sel, 0, max(0, t))
+                            let minT = span.start - p.bandExtendLeft(sel)
+                            trimLive = (sel, 0, max(0, min(max(t, minT), span.end - 0.08)))
                         } else {
-                            let t = max(min(span.end + delta, span.end + 0.001), span.start + 0.08)
-                            trimLive = (sel, 1, t)
+                            let maxT = span.end + p.bandExtendRight(sel)
+                            trimLive = (sel, 1, min(max(min(t, maxT), span.start + 0.08), p.duration + p.bandExtendRight(sel)))
                         }
                     }
                     .onEnded { _ in
                         defer { trimLive = nil }
                         guard let tl = trimLive, tl.band == sel else { return }
-                        if tl.side == 0, tl.t > span.start + 0.03 {
-                            let raw = p.raw(fromEdit: tl.t)
-                            selected?.wrappedValue = nil
-                            p.trimBand(sel, newStartRaw: raw)
-                        } else if tl.side == 1, tl.t < span.end - 0.03 {
-                            let raw = p.raw(fromEdit: tl.t)
-                            selected?.wrappedValue = nil
-                            p.trimBand(sel, newEndRaw: raw)
-                        }
+                        let delta = tl.side == 0 ? tl.t - span.start : span.end - tl.t
+                        // + = trim in, − = extend out; selection is kept
+                        p.resizeBand(sel, side: tl.side, deltaSeconds: delta)
                     }
             )
     }
