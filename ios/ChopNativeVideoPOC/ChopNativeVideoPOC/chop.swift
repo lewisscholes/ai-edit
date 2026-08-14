@@ -2751,8 +2751,34 @@ struct ChopPlayerScreen: View {
                         }
                     }
                 default:
-                    if !p.exportMsg.isEmpty {
-                        Text(p.exportMsg).font(.footnote).foregroundStyle(Color.chopMuted)
+                    // Export: full-quality render from the ORIGINAL, saved to Photos
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Export").font(.system(size: 16, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                        Text("Renders the edited video at full quality and saves it to your camera roll, ready to post.")
+                            .font(.system(size: 12.5)).foregroundStyle(ChopColor.muted)
+                        if p.exporting {
+                            ProgressView(value: p.exportPct)
+                                .tint(ChopColor.blue)
+                            Text(p.exportMsg.isEmpty ? "Exporting…" : p.exportMsg)
+                                .font(.system(size: 12.5)).foregroundStyle(ChopColor.muted)
+                        } else {
+                            Button {
+                                Task { await p.export(job: job, api: api) }
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "square.and.arrow.down")
+                                        .font(.system(size: 13, weight: .bold))
+                                    Text("Export video")
+                                }
+                                .font(.system(size: 14.5, weight: .heavy))
+                                .frame(maxWidth: .infinity).padding(.vertical, 12)
+                                .background(ChopColor.blue, in: RoundedRectangle(cornerRadius: 12))
+                                .foregroundStyle(.white)
+                            }
+                            if !p.exportMsg.isEmpty {
+                                Text(p.exportMsg).font(.system(size: 12.5)).foregroundStyle(ChopColor.amber)
+                            }
+                        }
                     }
                 }
             }
@@ -2812,6 +2838,7 @@ struct ChopTimeline: View {
     // live trim: (band, side 0=left/1=right, proposed edge in EDIT time)
     @State private var trimLive: (band: Int, side: Int, t: Double)? = nil
     @State private var trimSnapped = false   // magnetised to the playhead
+    @State private var baseDur: Double = 0   // pins px-per-second so edits never rescale the strip
 
     private let stripH: CGFloat = 56
     private let scrubH: CGFloat = 28   // TikTok thumb-scrub pad under the strip
@@ -2820,8 +2847,10 @@ struct ChopTimeline: View {
         GeometryReader { geo in
             let vw = max(1, geo.size.width)
             let dur = max(p.duration, 0.001)
-            let contentW = vw * zoom
-            let pps = contentW / dur
+            // px-per-second is pinned to the FIRST duration — trimming must
+            // never rescale the strip (TikTok: the timeline doesn't move)
+            let pps = vw * zoom / CGFloat(max(baseDur > 0 ? baseDur : dur, 0.001))
+            let contentW = CGFloat(dur) * pps
             let spans = p.bandSpansEdit
             let offsetX = vw / 2 - CGFloat(p.time) * pps
 
@@ -2841,7 +2870,8 @@ struct ChopTimeline: View {
                             .offset(x: x)
 
                         // TikTok transition badge on every cut boundary — ▶|◀
-                        if i > 0 {
+                        // (hidden on the selected clip's own edges to keep it clean)
+                        if i > 0, selected?.wrappedValue != i, selected?.wrappedValue != i - 1 {
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(Color.white)
                                 .frame(width: 26, height: 26)
@@ -2903,6 +2933,8 @@ struct ChopTimeline: View {
         }
         .frame(height: stripH + scrubH)
         .padding(.vertical, 8)   // room for the frame's ±7px overhang
+        .onChange(of: p.duration) { _, d in if baseDur == 0, d > 0 { baseDur = d } }
+        .onAppear { if p.duration > 0 { baseDur = p.duration } }
     }
 
     // band filmstrip: FIXED-ASPECT tiles (34:56, like the web) that repeat as
