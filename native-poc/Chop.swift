@@ -982,6 +982,8 @@ struct ChopRootView: View {
                 case "dash":       api.signedIn = true; api.profileName = "Lewis"; api.credits = 169
                 case "queue":      api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; tab = 1
                 case "lab":        api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; tab = 2
+                case "proc":       api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; showImport = true
+                case "settings":   api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; showSettings = true
                 default: break
                 }
             }
@@ -2496,54 +2498,72 @@ struct ImportSheet: View {
     @State private var pickedMany: [PhotosPickerItem] = []
     @Environment(\.dismiss) private var dismiss
 
+    /// debug: `-screen proc` shows the processing card mid-run for review
+    private func debugPreview() {
+        let a = ProcessInfo.processInfo.arguments
+        if let i = a.firstIndex(of: "-screen"), i + 1 < a.count, a[i + 1] == "proc", !imp.busy {
+            imp.busy = true; imp.stepIndex = 2
+        }
+    }
+
     var body: some View {
         VStack(spacing: 18) {
+            let _ = debugPreview()
 
             if imp.busy {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Editing your video…").font(.title3.weight(.bold))
+                // .proc — web parity: card, 20px title, soft step circles, 6px bar
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Editing your video…")
+                        .font(.system(size: 20, weight: .bold)).foregroundStyle(ChopColor.ink)
                     Text("This usually takes a couple of minutes on real footage.")
-                        .font(.footnote).foregroundStyle(Color.chopMuted)
+                        .font(.system(size: 13)).foregroundStyle(Color.chopMuted)
+                        .padding(.bottom, 10)
 
                     VStack(spacing: 0) {
                         ForEach(Array(ChopImporter.steps.enumerated()), id: \.offset) { i, label in
-                            HStack(spacing: 12) {
+                            HStack(spacing: 13) {
                                 ZStack {
                                     Circle()
-                                        .fill(i < imp.stepIndex ? Color.chopGreen
-                                              : i == imp.stepIndex ? Color.chopBlue : Color.chopPanel)
-                                        .frame(width: 26, height: 26)
+                                        .fill(i < imp.stepIndex ? ChopColor.greenSoft
+                                              : i == imp.stepIndex ? ChopColor.blueSoft : ChopColor.soft2)
+                                        .frame(width: 25, height: 25)
                                     if i < imp.stepIndex {
                                         Image(systemName: "checkmark")
-                                            .font(.caption2.weight(.bold)).foregroundStyle(.black)
+                                            .font(.system(size: 11, weight: .heavy))
+                                            .foregroundStyle(ChopColor.green)
                                     } else if i == imp.stepIndex {
-                                        ProgressView().scaleEffect(0.6).tint(.white)
+                                        ProgressView().scaleEffect(0.55).tint(ChopColor.blue)
                                     } else {
-                                        Text("\(i + 1)").font(.caption2.weight(.bold))
-                                            .foregroundStyle(Color.chopMuted)
+                                        Text("\(i + 1)").font(.system(size: 12.5, weight: .heavy))
+                                            .foregroundStyle(ChopColor.muted)
                                     }
                                 }
                                 Text(label)
-                                    .font(.subheadline)
-                                    .foregroundStyle(i <= imp.stepIndex ? .white : Color.chopMuted)
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(ChopColor.ink)
                                 Spacer()
                             }
-                            .padding(.vertical, 7)
+                            .padding(.vertical, 9)
+                            .opacity(i > imp.stepIndex ? 0.45 : 1)   // .pstep.pend
                         }
                     }
 
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
-                            Capsule().fill(Color.chopPanel)
-                            Capsule().fill(chopGradient)
+                            Capsule().fill(ChopColor.soft2)
+                            Capsule().fill(ChopColor.blue)
                                 .frame(width: geo.size.width *
                                        CGFloat(max(0, min(6, imp.stepIndex))) / 6)
                         }
                     }
                     .frame(height: 6)
-
+                    .padding(.top, 18)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 32).padding(.horizontal, 34)
+                .frame(maxWidth: 520, alignment: .leading)
+                .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 18))
+                .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.chopLine, lineWidth: 1))
+                .padding(.top, 24)
             } else if imp.done {
                 Image(systemName: "checkmark.circle.fill").font(.largeTitle).foregroundStyle(.green)
                 Text("Chopped").font(ChopFont.bodyBold)
