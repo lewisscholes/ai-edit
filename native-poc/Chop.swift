@@ -16,18 +16,246 @@ let SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJl
 
 // MARK: - Brand
 
-extension Color {
-    static let chopBg     = Color(red: 0.055, green: 0.063, blue: 0.078)   // #0e1014
-    static let chopPanel  = Color(red: 0.082, green: 0.094, blue: 0.125)   // #151820
-    static let chopLine   = Color(red: 0.149, green: 0.165, blue: 0.200)   // #262a33
-    static let chopBlue   = Color(red: 0.102, green: 0.427, blue: 1.0)     // #1a6dff
-    static let chopViolet = Color(red: 0.486, green: 0.227, blue: 0.929)   // #7c3aed
-    static let chopMuted  = Color(red: 0.541, green: 0.576, blue: 0.647)   // #8a93a5
-    static let chopGreen  = Color(red: 0.184, green: 0.749, blue: 0.561)   // #2fbf8f
+private func dyn(_ light: UInt32, _ dark: UInt32) -> Color {
+    func c(_ hex: UInt32) -> UIColor {
+        UIColor(red: CGFloat((hex >> 16) & 0xff) / 255,
+                green: CGFloat((hex >> 8) & 0xff) / 255,
+                blue: CGFloat(hex & 0xff) / 255, alpha: 1)
+    }
+    return Color(UIColor { $0.userInterfaceStyle == .dark ? c(dark) : c(light) })
 }
 
-let chopGradient = LinearGradient(colors: [.chopBlue, .chopViolet],
+// MARK: - Chop design system
+//
+// Tokens lifted verbatim from :root and html.dark in app/index.html so the
+// native app and the web app cannot drift apart.
+
+enum ChopColor {
+    static let bg         = dyn(0xf6f8fb, 0x0e1014)
+    static let card       = dyn(0xffffff, 0x161922)
+    static let ink        = dyn(0x101319, 0xe9edf5)
+    static let muted      = dyn(0x66707f, 0x8a93a5)
+    static let line       = dyn(0xe4e8ef, 0x262c38)
+    static let blue       = dyn(0x1a6dff, 0x3b82ff)
+    static let blueDk     = dyn(0x0d4fc4, 0xa5c0ff)
+    static let blueSoft   = dyn(0xeaf1ff, 0x1b2a4a)
+    static let violet     = dyn(0x7c3aed, 0xb79bff)
+    static let violetSoft = dyn(0xf1e9ff, 0x271e3d)
+    static let green      = dyn(0x0e9f6e, 0x3ad39c)
+    static let greenSoft  = dyn(0xe2f7ee, 0x12291f)
+    static let rose       = dyn(0xdc2637, 0xf2596b)
+    static let roseSoft   = dyn(0xffe9ec, 0x331a1f)
+    static let amber      = dyn(0xb45309, 0xf0b35c)
+    static let amberSoft  = dyn(0xfff4dd, 0x2c2212)
+    static let soft2      = dyn(0xeef1f6, 0x20242f)
+    static let hover      = dyn(0xf2f5f9, 0x20242f)
+}
+
+/// The web app is very bold — 83 uses of weight 800, 37 of 700, almost nothing
+/// regular. Matching that is most of what makes it read as Chop.
+enum ChopFont {
+    static func h1(_ s: CGFloat = 30) -> Font { .system(size: s, weight: .bold) }
+    static func h2(_ s: CGFloat = 21) -> Font { .system(size: s, weight: .bold) }
+    static let cardBig   = Font.system(size: 30, weight: .bold)
+    static let cardLabel = Font.system(size: 13, weight: .heavy)
+    static let body      = Font.system(size: 14.5, weight: .regular)
+    static let bodyBold  = Font.system(size: 14.5, weight: .heavy)
+    static let label     = Font.system(size: 12.5, weight: .heavy)
+    static let small     = Font.system(size: 11.5, weight: .semibold)
+    static let tiny      = Font.system(size: 10.5, weight: .heavy)
+}
+
+enum ChopRadius {
+    static let sm: CGFloat = 9
+    static let md: CGFloat = 12
+    static let lg: CGFloat = 16
+    static let xl: CGFloat = 20
+    static let pill: CGFloat = 26
+}
+
+let chopGradient = LinearGradient(colors: [ChopColor.blue, ChopColor.violet],
                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+
+// ---- reusable components ----
+
+struct ChopButton: View {
+    enum Kind { case primary, gradient, secondary, ghost, danger }
+    let title: String
+    var icon: String? = nil
+    var kind: Kind = .primary
+    var loading = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if loading { ProgressView().tint(fg) }
+                else if let icon { Image(systemName: icon).font(.system(size: 14, weight: .bold)) }
+                Text(title).font(.system(size: 15, weight: .heavy))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .foregroundStyle(fg)
+            .background(bg)
+            .clipShape(RoundedRectangle(cornerRadius: ChopRadius.md))
+            .overlay(RoundedRectangle(cornerRadius: ChopRadius.md)
+                .stroke(kind == .secondary ? ChopColor.line : .clear, lineWidth: 1))
+        }
+        .disabled(loading)
+    }
+
+    @ViewBuilder private var bg: some View {
+        switch kind {
+        case .primary:   ChopColor.blue
+        case .gradient:  chopGradient
+        case .secondary: ChopColor.card
+        case .ghost:     Color.clear
+        case .danger:    ChopColor.roseSoft
+        }
+    }
+    private var fg: Color {
+        switch kind {
+        case .primary, .gradient: return .white
+        case .danger:             return ChopColor.rose
+        default:                  return ChopColor.ink
+        }
+    }
+}
+
+struct ChopCard<Content: View>: View {
+    var padding: CGFloat = 16
+    @ViewBuilder var content: Content
+    var body: some View {
+        content
+            .padding(padding)
+            .background(ChopColor.card)
+            .clipShape(RoundedRectangle(cornerRadius: ChopRadius.lg))
+            .overlay(RoundedRectangle(cornerRadius: ChopRadius.lg)
+                .stroke(ChopColor.line, lineWidth: 1))
+    }
+}
+
+struct ChopField: View {
+    let label: String
+    var placeholder = ""
+    var secure = false
+    var prefix: String? = nil
+    @Binding var text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(ChopFont.label).foregroundStyle(ChopColor.ink)
+            HStack(spacing: 0) {
+                if let prefix {
+                    Text(prefix).font(ChopFont.bodyBold)
+                        .foregroundStyle(ChopColor.muted).padding(.leading, 14)
+                }
+                Group {
+                    if secure { SecureField(placeholder, text: $text) }
+                    else { TextField(placeholder, text: $text) }
+                }
+                .font(ChopFont.body)
+                .padding(.horizontal, 14).padding(.vertical, 12)
+            }
+            .background(ChopColor.bg)
+            .clipShape(RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11)
+                .stroke(ChopColor.line, lineWidth: 1.5))
+        }
+    }
+}
+
+struct ChopBadge: View {
+    let text: String
+    var tint: Color = ChopColor.blue
+    var soft: Color = ChopColor.blueSoft
+    var body: some View {
+        Text(text)
+            .font(ChopFont.tiny)
+            .foregroundStyle(tint)
+            .padding(.horizontal, 9).padding(.vertical, 4)
+            .background(soft, in: Capsule())
+    }
+}
+
+struct ChopEmptyState: View {
+    let icon: String
+    let title: String
+    var note: String? = nil
+    var body: some View {
+        VStack(spacing: 8) {
+            Image(systemName: icon).font(.system(size: 26)).foregroundStyle(ChopColor.muted)
+            Text(title).font(.system(size: 16, weight: .heavy)).foregroundStyle(ChopColor.ink)
+            if let note {
+                Text(note).font(ChopFont.small).foregroundStyle(ChopColor.muted)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 34)
+    }
+}
+
+/// The web app toasts constantly; the native app was silent.
+@MainActor
+final class ChopToasts: ObservableObject {
+    static let shared = ChopToasts()
+    @Published var message: String?
+    private var task: Task<Void, Never>?
+    func show(_ m: String) {
+        message = m
+        task?.cancel()
+        task = Task { try? await Task.sleep(nanoseconds: 2_600_000_000); message = nil }
+    }
+}
+
+struct ChopToastHost: ViewModifier {
+    @ObservedObject private var toasts = ChopToasts.shared
+    func body(content: Content) -> some View {
+        ZStack(alignment: .bottom) {
+            content
+            if let m = toasts.message {
+                Text(m)
+                    .font(ChopFont.small).foregroundStyle(ChopColor.ink)
+                    .padding(.horizontal, 16).padding(.vertical, 11)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(Capsule().stroke(ChopColor.line, lineWidth: 1))
+                    .padding(.bottom, 100)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(duration: 0.28), value: toasts.message)
+    }
+}
+extension View { func chopToasts() -> some View { modifier(ChopToastHost()) } }
+
+/// System · Light · Dark, remembered between launches.
+enum ChopTheme: String, CaseIterable {
+    case system, light, dark
+    var scheme: ColorScheme? {
+        switch self {
+        case .light: return .light
+        case .dark:  return .dark
+        default:     return nil
+        }
+    }
+    static var current: ChopTheme {
+        ChopTheme(rawValue: UserDefaults.standard.string(forKey: "chopTheme") ?? "dark") ?? .dark
+    }
+    static func set(_ t: ChopTheme) { UserDefaults.standard.set(t.rawValue, forKey: "chopTheme") }
+}
+
+
+extension Color {
+    static let chopBg     = ChopColor.bg
+    static let chopPanel  = ChopColor.card
+    static let chopLine   = ChopColor.line
+    static let chopInk    = ChopColor.ink
+    static let chopMuted  = ChopColor.muted
+    static let chopBlue   = ChopColor.blue
+    static let chopViolet = ChopColor.violet
+    static let chopGreen  = ChopColor.green
+}
 
 // MARK: - Model
 
@@ -444,6 +672,23 @@ final class ChopAPI: ObservableObject {
         _ = try? await URLSession.shared.data(for: req)
     }
 
+    /// Upload a photo to the avatars bucket, same path the web app writes to.
+    /// Returns the public URL to store on the profile.
+    func uploadAvatar(_ jpeg: Data) async -> String? {
+        let path = "\(userId)/avatar.jpg"
+        guard let url = URL(string: "\(SB_URL)/storage/v1/object/avatars/\(path)") else { return nil }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        req.setValue("image/jpeg", forHTTPHeaderField: "Content-Type")
+        req.setValue("true", forHTTPHeaderField: "x-upsert")
+        req.httpBody = jpeg
+        guard let (_, resp) = try? await URLSession.shared.upload(for: req, from: jpeg),
+              let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return nil }
+        return "\(SB_URL)/storage/v1/object/public/avatars/\(path)?v=\(Int(Date().timeIntervalSince1970))"
+    }
+
     /// Write the profile back — same chop_profiles row the web app uses.
     func saveProfile(name: String, tiktok: String, avatar: String) async -> Bool {
         guard let url = URL(string: "\(SB_URL)/rest/v1/chop_profiles") else { return false }
@@ -509,13 +754,26 @@ struct ChopRootView: View {
     @State private var showSettings = false
     @State private var showOOC = false
     @State private var tab = 0
+    @State private var showAuth = false
+    @State private var authMode = 0
+    @State private var theme = ChopTheme.current
 
     var body: some View {
         Group {
-            if api.signedIn { app } else { signIn.background(Color.chopBg) }
+            if api.signedIn {
+                app
+            } else {
+                ChopWelcomeView(api: api, showAuth: $showAuth, authMode: $authMode)
+                    .sheet(isPresented: $showAuth) {
+                        NavigationStack { signIn.background(Color.chopBg) }
+                            .presentationDetents([.large])
+                            .preferredColorScheme(theme.scheme)
+                    }
+            }
         }
-        .preferredColorScheme(.dark)
-        .tint(Color.chopBlue)
+        .preferredColorScheme(theme.scheme)
+        .tint(ChopColor.blue)
+        .chopToasts()
     }
 
     private var reviewCount: Int {
@@ -540,7 +798,7 @@ struct ChopRootView: View {
                 .background(Color.chopBg)
                 .toolbar(.hidden, for: .navigationBar)
                 .sheet(isPresented: $showImport) { ImportSheet(api: api) }
-                .sheet(isPresented: $showSettings) { ChopSettingsView(api: api) }
+                .sheet(isPresented: $showSettings) { ChopSettingsView(api: api) { theme = $0 } }
                 .sheet(isPresented: $showOOC) { OutOfCreditsSheet() }
                 .onChange(of: api.credits) { _, c in if c <= 0 && api.signedIn { showOOC = true } }
                 .refreshable { await api.loadJobs() }
@@ -550,112 +808,59 @@ struct ChopRootView: View {
     }
 
     private var signIn: some View {
-        VStack(spacing: 16) {
-            Spacer()
+        VStack(spacing: 18) {
             Group {
                 if UIImage(named: "ChopMark") != nil {
                     Image("ChopMark").resizable().scaledToFit()
-                } else {
-                    RoundedRectangle(cornerRadius: 22).fill(chopGradient)
-                        .overlay(Text("C").font(.system(size: 46, weight: .bold))
-                        .foregroundStyle(.white))
-                }
+                } else { RoundedRectangle(cornerRadius: 18).fill(chopGradient) }
             }
-            .frame(width: 84, height: 84)
-            .clipShape(RoundedRectangle(cornerRadius: 20))
-            .padding(.bottom, 4)
-            Text("Chop").font(.largeTitle.weight(.bold))
-            Text("Don't edit, just film.")
-                .font(.subheadline).foregroundStyle(Color.chopMuted)
-                .padding(.bottom, 8)
+            .frame(width: 64, height: 64)
+            .clipShape(RoundedRectangle(cornerRadius: 18))
+            .padding(.top, 26)
 
-            TextField("Email", text: $api.email)
-                .textContentType(.emailAddress)
-                .keyboardType(.emailAddress)
+            Text(authMode == 1 ? "Create your account" : "Welcome back")
+                .font(ChopFont.h2()).foregroundStyle(ChopColor.ink)
+            Text(authMode == 1 ? "Three free videos are waiting." : "Sign in to keep chopping.")
+                .font(ChopFont.small).foregroundStyle(ChopColor.muted)
+
+            ChopField(label: "Email", placeholder: "you@example.com", text: $api.email)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
-                .textFieldStyle(.roundedBorder)
+                .keyboardType(.emailAddress)
+            ChopField(label: "Password", placeholder: "••••••••", secure: true, text: $api.password)
 
-            SecureField("Password", text: $api.password)
-                .textFieldStyle(.roundedBorder)
-
-            Button {
+            ChopButton(title: authMode == 1 ? "Create account" : "Sign in",
+                       kind: .primary, loading: api.busy) {
                 Task { await api.signIn() }
-            } label: {
-                if api.busy { ProgressView() } else { Text("Sign in").frame(maxWidth: .infinity) }
             }
-            .buttonStyle(.borderedProminent)
-            .disabled(api.busy || api.email.isEmpty || api.password.isEmpty)
+            .disabled(api.email.isEmpty || api.password.isEmpty)
 
             if !api.error.isEmpty {
-                Text(api.error).font(.footnote).foregroundStyle(.red)
+                Text(api.error).font(ChopFont.small).foregroundStyle(ChopColor.rose)
                     .multilineTextAlignment(.center)
             }
-            Spacer(); Spacer()
-        }
-        .padding(28)
-    }
 
-
-
-    private var chopHeader: some View {
-        HStack(spacing: 10) {
-            Group {
-                if UIImage(named: "ChopMark") != nil {
-                    Image("ChopMark").resizable().scaledToFit()
-                } else {
-                    RoundedRectangle(cornerRadius: 9).fill(chopGradient)
-                }
+            if authMode == 1 {
+                ChopBadge(text: "✦ NEW ACCOUNTS GET 3 FREE VIDEOS",
+                          tint: ChopColor.violet, soft: ChopColor.violetSoft)
             }
-            .frame(width: 34, height: 34)
-            .clipShape(RoundedRectangle(cornerRadius: 9))
 
-            Text("Chop").font(.title3.weight(.bold))
+            Button(authMode == 1 ? "I already have an account" : "Create an account instead") {
+                authMode = authMode == 1 ? 0 : 1
+                api.error = ""
+            }
+            .font(ChopFont.small).foregroundStyle(ChopColor.blue)
 
             Spacer()
-
-            HStack(spacing: 5) {
-                Image(systemName: "bolt.fill").font(.system(size: 11, weight: .bold))
-                Text("\(api.credits) credits").font(.system(size: 14, weight: .bold))
-            }
-            .foregroundStyle(Color.chopBlue)
-            .padding(.horizontal, 13).padding(.vertical, 8)
-            .background(Color.chopBlue.opacity(0.14), in: Capsule())
-
-            Button { showSettings = true } label: {
-                Text(avatarEmoji)
-                    .font(.system(size: 17))
-                    .frame(width: 36, height: 36)
-                    .background(LinearGradient(colors: avatarColours,
-                                startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .clipShape(Circle())
-            }
         }
-        .padding(.horizontal, 16).padding(.vertical, 10)
-    }
-
-    private var avatarEmoji: String {
-        let a = api.profileAvatar
-        if a.hasPrefix("e:") {
-            let parts = a.split(separator: ":")
-            if parts.count > 1 { return String(parts[1]) }
-        }
-        return "💸"
-    }
-    private var avatarColours: [Color] {
-        let a = api.profileAvatar
-        var idx = 0
-        if a.hasPrefix("e:") {
-            let parts = a.split(separator: ":")
-            if parts.count > 2 { idx = Int(parts[2]) ?? 0 }
-        }
-        return CHOP_AV_COLOURS[idx % CHOP_AV_COLOURS.count]
+        .padding(24)
+        .background(ChopColor.bg)
     }
 
     private func statCard(_ value: String, _ label: String, sub: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(value).font(.system(size: 30, weight: .bold)).foregroundStyle(Color.chopBlue)
-            Text(label).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+            Text(value).font(ChopFont.cardBig).foregroundStyle(ChopColor.blue)
+            Text(label).font(ChopFont.cardLabel).foregroundStyle(ChopColor.ink)
                 .fixedSize(horizontal: false, vertical: true)
             if let sub { Text(sub).font(.caption2).foregroundStyle(Color.chopMuted) }
         }
@@ -685,6 +890,39 @@ struct ChopRootView: View {
             return f.string(from: d)
         }
     }
+    private var editDayCounts: [String: Int] {
+        var out: [String: Int] = [:]
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        for j in api.jobs {
+            guard let ms = j.data["statusAt"] as? Double else { continue }
+            let k = f.string(from: Date(timeIntervalSince1970: ms / 1000))
+            out[k, default: 0] += 1
+        }
+        return out
+    }
+    private var longestStreak: Int {
+        let keys = editDayCounts.keys.sorted()
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        var best = 0, run = 0
+        var prev: Date?
+        for k in keys {
+            guard let d = f.date(from: k) else { continue }
+            if let p = prev, Calendar.current.dateComponents([.day], from: p, to: d).day == 1 { run += 1 }
+            else { run = 1 }
+            best = max(best, run); prev = d
+        }
+        return best
+    }
+    private var activeLast30: Int {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        var n = 0
+        for i in 0..<30 {
+            let d = Calendar.current.date(byAdding: .day, value: -i, to: Date()) ?? Date()
+            if editDayCounts[f.string(from: d)] != nil { n += 1 }
+        }
+        return n
+    }
+
     private var streak: Int {
         let set = Set(editDays)
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
@@ -702,7 +940,7 @@ struct ChopRootView: View {
             LazyVStack(alignment: .leading, spacing: 14) {
 
                 Text("Hey \(api.profileName.isEmpty ? "there" : api.profileName), let's chop 👋")
-                    .font(.system(size: 30, weight: .bold))
+                    .font(ChopFont.h1())
                     .fixedSize(horizontal: false, vertical: true)
                 Text("An overview of how your chopping is going.")
                     .font(.subheadline).foregroundStyle(Color.chopMuted)
@@ -711,9 +949,8 @@ struct ChopRootView: View {
                 // 2x2, hero first — same arrangement as the web dashboard
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(savedLabel).font(.system(size: 30, weight: .bold))
-                        Text("Time saved editing")
-                            .font(.system(size: 14, weight: .semibold))
+                        Text(savedLabel).font(ChopFont.cardBig)
+                        Text("Time saved editing").font(ChopFont.cardLabel)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .foregroundStyle(.white)
@@ -737,7 +974,7 @@ struct ChopRootView: View {
                             .frame(width: 58, height: 58)
                             .background(Color.chopBlue.opacity(0.14), in: Circle())
                         Text("Drop your videos here to edit")
-                            .font(.system(size: 18, weight: .bold)).foregroundStyle(.white)
+                            .font(.system(size: 18, weight: .bold)).foregroundStyle(Color.chopInk)
                         Text("or click to browse")
                             .font(.subheadline.weight(.semibold)).foregroundStyle(Color.chopBlue)
                         Text("MP4 or MOV · straight from your camera roll")
@@ -751,6 +988,10 @@ struct ChopRootView: View {
                 }
                 .padding(.top, 4)
 
+                ChopActivity(days: editDayCounts, current: streak,
+                             longest: longestStreak, active30: activeLast30)
+                    .padding(.top, 6)
+
                 HStack {
                     Text("Your edits").font(.title3.weight(.bold))
                     Spacer()
@@ -759,9 +1000,8 @@ struct ChopRootView: View {
                 .padding(.top, 10)
 
                 if api.jobs.isEmpty && !api.busy {
-                    Text("Videos you edit will show up here.")
-                        .font(.footnote).foregroundStyle(Color.chopMuted)
-                        .padding(.vertical, 20)
+                    ChopEmptyState(icon: "film", title: "No edits yet",
+                                   note: "Videos you chop will show up here.")
                 }
 
                 ForEach(api.jobs) { job in
@@ -806,6 +1046,20 @@ final class ChopPlayer: ObservableObject {
     private var composition: AVMutableComposition?
     private var timeObserver: Any?
     private var stripTask: Task<Void, Never>?
+
+    /// Undo stack, same idea as the web app's snap()/applySnap.
+    private struct Snapshot {
+        var pairs: [ChopPair]
+        var segments: [ChopSegment]
+        var manualCuts: [ChopClip]
+        var minSil: Double
+        var fillers: Bool
+        var soft: Bool
+    }
+    private var past: [Snapshot] = []
+    private var future: [Snapshot] = []
+    @Published var canUndo = false
+    @Published var canRedo = false
 
     /// Downloads the source once, then plays the edit as a single composition.
     func open(job: ChopJob, api: ChopAPI) async {
@@ -956,6 +1210,7 @@ final class ChopPlayer: ObservableObject {
         exportMsg = "Saving to your camera roll…"
         let ok = await saveToPhotos(out)
         exportMsg = ok ? "Saved to your camera roll" : "Couldn't save — check Photos permission in Settings"
+        ChopToasts.shared.show(ok ? "Saved to your camera roll ✓" : "Couldn't save to Photos")
     }
 
     private func saveToPhotos(_ url: URL) async -> Bool {
@@ -1031,9 +1286,41 @@ final class ChopPlayer: ObservableObject {
         }
     }
 
+    private func snap() -> Snapshot {
+        Snapshot(pairs: pairs, segments: segments,
+                 manualCuts: edit?.manualCuts ?? [],
+                 minSil: minSil, fillers: fillers, soft: softFillers)
+    }
+    private func apply(_ s: Snapshot) {
+        pairs = s.pairs; segments = s.segments
+        minSil = s.minSil; fillers = s.fillers; softFillers = s.soft
+        if var e = edit { e.manualCuts = s.manualCuts; edit = e }
+        rebuild()
+    }
+    /// Call before anything that changes the edit.
+    func pushHistory() {
+        past.append(snap())
+        if past.count > 40 { past.removeFirst() }
+        future.removeAll()
+        canUndo = true; canRedo = false
+    }
+    func undo() {
+        guard let last = past.popLast() else { return }
+        future.append(snap())
+        apply(last)
+        canUndo = !past.isEmpty; canRedo = true
+    }
+    func redo() {
+        guard let next = future.popLast() else { return }
+        past.append(snap())
+        apply(next)
+        canUndo = true; canRedo = !future.isEmpty
+    }
+
     /// Pick a take for one pair, then rebuild. nil = undecided (keeps both).
     func choose(pair idx: Int, take: String?) {
         guard idx < pairs.count else { return }
+        pushHistory()
         pairs[idx].choice = take
         rebuild()
     }
@@ -1050,6 +1337,7 @@ final class ChopPlayer: ObservableObject {
     /// Tap a line to force it in or out — the web app's manual override.
     func toggleSegment(_ i: Int) {
         guard i < segments.count else { return }
+        pushHistory()
         let wasCut = cut(i)
         segments[i].manual = !wasCut
         rebuild()
@@ -1083,6 +1371,7 @@ final class ChopPlayer: ObservableObject {
     /// Delete the clip under the playhead by adding a manual cut over it.
     func deleteClipAtPlayhead() {
         guard let e = edit, let i = clipIndexAtPlayhead else { return }
+        pushHistory()
         let clips = e.keptClips()
         guard i < clips.count else { return }
         var ed = e
@@ -1094,6 +1383,7 @@ final class ChopPlayer: ObservableObject {
     /// Trim everything before, or after, the playhead within the current clip.
     func trimAtPlayhead(keepAfter: Bool) {
         guard let e = edit, let i = clipIndexAtPlayhead else { return }
+        pushHistory()
         let clips = e.keptClips()
         guard i < clips.count else { return }
         let clip = clips[i]
@@ -1288,9 +1578,8 @@ struct ChopPlayerScreen: View {
             clipTool("Trim start", "arrow.right.to.line") { p.trimAtPlayhead(keepAfter: false) }
             clipTool("Trim end", "arrow.left.to.line") { p.trimAtPlayhead(keepAfter: true) }
             clipTool("Delete", "trash") { p.deleteClipAtPlayhead() }
-            if p.manualCutCount > 0 {
-                clipTool("Undo", "arrow.uturn.backward") { p.undoManualCuts() }
-            }
+            if p.canUndo { clipTool("Undo", "arrow.uturn.backward") { p.undo() } }
+            if p.canRedo { clipTool("Redo", "arrow.uturn.forward") { p.redo() } }
         }
         .padding(.horizontal, 14)
         .padding(.bottom, 10)
@@ -1304,7 +1593,7 @@ struct ChopPlayerScreen: View {
             }
             .frame(maxWidth: .infinity).padding(.vertical, 9)
             .background(Color.chopPanel)
-            .foregroundStyle(.white)
+            .foregroundStyle(Color.chopInk)
             .clipShape(RoundedRectangle(cornerRadius: 11))
             .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.chopLine, lineWidth: 1))
         }
@@ -1338,7 +1627,7 @@ struct ChopPlayerScreen: View {
                             .stroke(on ? Color.clear : Color.chopLine, lineWidth: 1))
                         .overlay(Image(systemName: icon)
                             .font(.system(size: 19, weight: .medium))
-                            .foregroundStyle(on ? .white : Color.chopMuted))
+                            .foregroundStyle(on ? Color.chopInk : Color.chopMuted))
                     if badge > 0 {
                         Text("\(badge)")
                             .font(.system(size: 10, weight: .bold)).foregroundStyle(.black)
@@ -1347,7 +1636,7 @@ struct ChopPlayerScreen: View {
                     }
                 }
                 Text(label).font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(on ? .white : Color.chopMuted)
+                    .foregroundStyle(on ? Color.chopInk : Color.chopMuted)
             }
         }
     }
@@ -1383,7 +1672,7 @@ struct ChopPlayerScreen: View {
                 .font(.subheadline.weight(.bold))
                 .frame(maxWidth: .infinity).padding(.vertical, 13)
                 .background(Color.chopPanel)
-                .foregroundStyle(.white)
+                .foregroundStyle(Color.chopInk)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
                 .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.chopLine, lineWidth: 1))
             }
@@ -1666,6 +1955,7 @@ final class ChopImporter: ObservableObject {
         await api.spendCredit()
         await api.saveJob(name: name, payload: payload, rawSec: rawSec, videoKey: nil)
         await api.loadJobs()
+        ChopToasts.shared.show("Chopped and saved ✓")
         stepIndex = 6
         done = true
         step = ""
@@ -1677,7 +1967,10 @@ final class ChopImporter: ObservableObject {
             guard ok else { return }
             await api.saveJob(name: name, payload: payload, rawSec: rawSec, videoKey: vKey)
             await api.loadJobs()
-            await MainActor.run { self?.syncMsg = "Full quality video synced — export is ready" }
+            await MainActor.run {
+                self?.syncMsg = "Full quality video synced — export is ready"
+                ChopToasts.shared.show("Full quality video synced")
+            }
         }
     }
 
@@ -1697,7 +1990,7 @@ final class ChopImporter: ObservableObject {
 struct ImportSheet: View {
     @ObservedObject var api: ChopAPI
     @StateObject private var imp = ChopImporter()
-    @State private var picked: PhotosPickerItem?
+    @State private var pickedMany: [PhotosPickerItem] = []
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -1766,8 +2059,8 @@ struct ImportSheet: View {
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button("Close") { dismiss() }
             } else {
-                PhotosPicker(selection: $picked, matching: .videos) {
-                    Label("Choose a video", systemImage: "video.badge.plus")
+                PhotosPicker(selection: $pickedMany, maxSelectionCount: 5, matching: .videos) {
+                    Label("Choose videos", systemImage: "video.badge.plus")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
@@ -1781,16 +2074,19 @@ struct ImportSheet: View {
         }
         .padding(24)
         .background(Color.chopBg)
-        .onChange(of: picked) { _, item in
-            guard let item = item else { return }
+        .onChange(of: pickedMany) { _, items in
+            guard !items.isEmpty else { return }
             Task {
-                guard let movie = try? await item.loadTransferable(type: ChopMovie.self) else {
-                    imp.failed = "Couldn't read that video"; return
+                // one at a time — parallel imports exhaust memory on a phone
+                for (n, item) in items.enumerated() {
+                    guard let movie = try? await item.loadTransferable(type: ChopMovie.self) else {
+                        imp.failed = "Couldn't read that video"; continue
+                    }
+                    let df = DateFormatter(); df.dateFormat = "d MMM, HH.mm"
+                    var friendly = "Chop " + df.string(from: Date())
+                    if items.count > 1 { friendly += " (\(n + 1))" }
+                    await imp.run(pickedURL: movie.url, name: friendly + ".mp4", api: api)
                 }
-                let df = DateFormatter()
-                df.dateFormat = "d MMM, HH.mm"
-                let friendly = "Chop " + df.string(from: Date()) + ".mp4"
-                await imp.run(pickedURL: movie.url, name: friendly, api: api)
             }
         }
     }
@@ -1818,6 +2114,8 @@ struct ChopMovie: Transferable {
 
 struct ChopSettingsView: View {
     @ObservedObject var api: ChopAPI
+    var onThemeChange: ((ChopTheme) -> Void)? = nil
+    @State private var theme = ChopTheme.current
     @Environment(\.dismiss) private var dismiss
     @State private var confirming = false
     @State private var showProfile = false
@@ -1838,6 +2136,16 @@ struct ChopSettingsView: View {
                             .foregroundStyle(.secondary) }
                     HStack { Text("Credits"); Spacer()
                         Text("\(api.credits)").foregroundStyle(.secondary) }
+                }
+
+                Section("Appearance") {
+                    Picker("Theme", selection: $theme) {
+                        Text("System").tag(ChopTheme.system)
+                        Text("Light").tag(ChopTheme.light)
+                        Text("Dark").tag(ChopTheme.dark)
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: theme) { _, t in ChopTheme.set(t); onThemeChange?(t) }
                 }
 
                 Section {
@@ -1965,7 +2273,7 @@ struct QueueCard: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(job.name).font(.subheadline.weight(.medium))
-                    .lineLimit(1).foregroundStyle(.white)
+                    .lineLimit(1).foregroundStyle(Color.chopInk)
                 HStack(spacing: 6) {
                     if job.savedPct > 0 {
                         Text("\(job.savedPct)% shorter")
@@ -2077,6 +2385,8 @@ struct ChopLabBody: View {
                                note: "Negative trims tighter after each clip.")
                     }
 
+                    ChopLabPreview(settings: s)
+
                     Button {
                         ChopPresets.save(s)
                         savedNote = true
@@ -2104,7 +2414,7 @@ struct ChopLabBody: View {
         let on = s.matches(v)
         return Button { s = v; savedNote = false } label: {
             VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.caption.weight(.bold)).foregroundStyle(on ? .white : Color.chopMuted)
+                Text(title).font(.caption.weight(.bold)).foregroundStyle(on ? Color.chopInk : Color.chopMuted)
                 Text(desc).font(.system(size: 9)).foregroundStyle(Color.chopMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -2158,6 +2468,21 @@ let CHOP_AV_COLOURS: [[Color]] = [
     [Color(red:0.96,green:0.62,blue:0.04), Color(red:0.94,green:0.27,blue:0.27)]
 ]
 
+
+/// Centre-crop to a square and compress, matching the web app's 160px canvas.
+func squareJPEG(_ img: UIImage, side: CGFloat = 320) -> Data? {
+    let w = img.size.width, h = img.size.height
+    let s = min(w, h)
+    let rect = CGRect(x: (w - s) / 2, y: (h - s) / 2, width: s, height: s)
+    guard let cg = img.cgImage?.cropping(to: rect) else { return img.jpegData(compressionQuality: 0.85) }
+    let square = UIImage(cgImage: cg, scale: img.scale, orientation: img.imageOrientation)
+    let fmt = UIGraphicsImageRendererFormat(); fmt.scale = 1
+    let out = UIGraphicsImageRenderer(size: CGSize(width: side, height: side), format: fmt).image { _ in
+        square.draw(in: CGRect(x: 0, y: 0, width: side, height: side))
+    }
+    return out.jpegData(compressionQuality: 0.85)
+}
+
 struct ChopProfileView: View {
     @ObservedObject var api: ChopAPI
     @Environment(\.dismiss) private var dismiss
@@ -2166,6 +2491,8 @@ struct ChopProfileView: View {
     @State private var avatar = "e:💸:0"
     @State private var saving = false
     @State private var failed = ""
+    @State private var photoItem: PhotosPickerItem?
+    @State private var photo: UIImage?
 
     var body: some View {
         NavigationStack {
@@ -2195,6 +2522,39 @@ struct ChopProfileView: View {
                     }
 
                     field("Profile picture") {
+                        HStack(spacing: 14) {
+                            ZStack {
+                                if let photo {
+                                    Image(uiImage: photo).resizable().scaledToFill()
+                                } else if avatar.hasPrefix("http") {
+                                    AsyncImage(url: URL(string: avatar)) { img in
+                                        img.resizable().scaledToFill()
+                                    } placeholder: { ChopColor.soft2 }
+                                } else {
+                                    LinearGradient(colors: CHOP_AV_COLOURS[0],
+                                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                                    Text(avatar.hasPrefix("e:")
+                                         ? String(avatar.split(separator: ":")[1]) : "💸")
+                                        .font(.system(size: 26))
+                                }
+                            }
+                            .frame(width: 72, height: 72)
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(ChopColor.line, lineWidth: 1))
+
+                            PhotosPicker(selection: $photoItem, matching: .images) {
+                                Text(photo == nil && !avatar.hasPrefix("http")
+                                     ? "Upload a photo" : "Change photo")
+                                    .font(ChopFont.label).foregroundStyle(ChopColor.blue)
+                                    .padding(.horizontal, 14).padding(.vertical, 9)
+                                    .background(ChopColor.blueSoft, in: Capsule())
+                            }
+                            Spacer()
+                        }
+                        .padding(.bottom, 10)
+
+                        Text("or pick an icon").font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(ChopColor.muted).padding(.bottom, 4)
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 5),
                                   spacing: 10) {
                             ForEach(Array(CHOP_AVATARS.enumerated()), id: \.offset) { i, em in
@@ -2208,7 +2568,7 @@ struct ChopProfileView: View {
                                                 startPoint: .topLeading, endPoint: .bottomTrailing))
                                     .clipShape(Circle())
                                     .overlay(Circle().stroke(on ? Color.white : Color.clear, lineWidth: 2.5))
-                                    .onTapGesture { avatar = key }
+                                    .onTapGesture { avatar = key; photo = nil }
                             }
                         }
                     }
@@ -2216,7 +2576,12 @@ struct ChopProfileView: View {
                     Button {
                         saving = true
                         Task {
-                            let ok = await api.saveProfile(name: name, tiktok: tiktok, avatar: avatar)
+                            var av = avatar
+                            if let photo, let jpeg = squareJPEG(photo) {
+                                if let url = await api.uploadAvatar(jpeg) { av = url }
+                                else { failed = "Couldn't upload that photo"; saving = false; return }
+                            }
+                            let ok = await api.saveProfile(name: name, tiktok: tiktok, avatar: av)
                             saving = false
                             if ok { dismiss() } else { failed = "Couldn't save — try again." }
                         }
@@ -2239,6 +2604,13 @@ struct ChopProfileView: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Cancel") { dismiss() } } }
         }
         .preferredColorScheme(.dark)
+        .onChange(of: photoItem) { _, item in
+            guard let item else { return }
+            Task {
+                if let d = try? await item.loadTransferable(type: Data.self),
+                   let img = UIImage(data: d) { photo = img }
+            }
+        }
         .onAppear {
             name = api.profileName
             tiktok = api.profileTiktok
@@ -2310,7 +2682,7 @@ struct OutOfCreditsSheet: View {
                             .font(.system(size: 8, weight: .black))
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(chopGradient, in: Capsule())
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color.chopInk)
                     }
                 }
                 Text(sub).font(.caption2).foregroundStyle(Color.chopMuted)
@@ -2360,17 +2732,317 @@ struct ChopGlassNav: View {
                 Text(label)
                     .font(.system(size: 13.5, weight: .bold))
                     .fixedSize()
-                    .foregroundStyle(on ? .white : Color.chopMuted)
+                    .foregroundStyle(on ? Color.chopInk : Color.chopMuted)
                 if badge > 0 {
                     Text("\(badge)")
                         .font(.system(size: 10, weight: .black))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color.chopInk)
                         .frame(minWidth: 17, minHeight: 17)
                         .background(Color.chopBlue, in: Capsule())
                 }
             }
             .padding(.horizontal, 15).padding(.vertical, 11)
             .background(on ? Color.white.opacity(0.10) : .clear, in: Capsule())
+        }
+    }
+}
+
+
+// MARK: - Welcome
+//
+// The landing page, natively. New users land here rather than on a bare
+// sign-in form, which is what made the app feel like it started mid-sentence.
+
+struct ChopWelcomeView: View {
+    @ObservedObject var api: ChopAPI
+    @Binding var showAuth: Bool
+    @Binding var authMode: Int
+
+    var body: some View {
+        FallbackWelcome(showAuth: $showAuth, authMode: $authMode)
+    }
+}
+
+struct FallbackWelcome: View {
+    @Binding var showAuth: Bool
+    @Binding var authMode: Int
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+
+                HStack(spacing: 10) {
+                    Group {
+                        if UIImage(named: "ChopMark") != nil {
+                            Image("ChopMark").resizable().scaledToFit()
+                        } else { RoundedRectangle(cornerRadius: 9).fill(chopGradient) }
+                    }
+                    .frame(width: 34, height: 34)
+                    .clipShape(RoundedRectangle(cornerRadius: 9))
+                    Text("Chop").font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(ChopColor.ink)
+                    Spacer()
+                    Button { authMode = 0; showAuth = true } label: {
+                        Text("Sign in").font(ChopFont.label)
+                            .foregroundStyle(ChopColor.ink)
+                            .padding(.horizontal, 16).padding(.vertical, 9)
+                            .background(ChopColor.card, in: Capsule())
+                            .overlay(Capsule().stroke(ChopColor.line, lineWidth: 1))
+                    }
+                }
+                .padding(.horizontal, 18).padding(.top, 8).padding(.bottom, 26)
+
+                Text("BUILT FOR TIKTOK SHOP AFFILIATES")
+                    .font(.system(size: 11, weight: .heavy)).tracking(1.7)
+                    .foregroundStyle(ChopColor.muted)
+
+                VStack(spacing: 0) {
+                    Text("Don't edit,")
+                        .font(.system(size: 42, weight: .bold))
+                        .foregroundStyle(ChopColor.ink)
+                    Text("just film.")
+                        .font(.system(size: 42, weight: .bold)).italic()
+                        .foregroundStyle(chopGradient)
+                }
+                .padding(.top, 14)
+
+                Text("Chop cuts the dead air, filler words and messed-up takes out of your talking-head videos — automatically. Film once, review in seconds, post everywhere.")
+                    .font(.system(size: 15.5))
+                    .foregroundStyle(ChopColor.muted)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
+                    .padding(.horizontal, 26).padding(.top, 16)
+
+                VStack(spacing: 10) {
+                    ChopButton(title: "Chop your first video free", kind: .gradient) {
+                        authMode = 1; showAuth = true
+                    }
+                    ChopButton(title: "Sign in", kind: .secondary) {
+                        authMode = 0; showAuth = true
+                    }
+                }
+                .padding(.horizontal, 22).padding(.top, 26)
+
+                Text("3 free videos · no card · works on your phone")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(ChopColor.muted)
+                    .padding(.top, 16)
+
+                VStack(spacing: 12) {
+                    feature("scissors", "Dead air, filler words and retakes cut automatically — in seconds")
+                    feature("rectangle.on.rectangle", "Retakes shown side by side — nothing is ever deleted without you")
+                    feature("square.and.arrow.down", "Renders on your device — post straight to TikTok, Reels or Shorts")
+                }
+                .padding(.horizontal, 16).padding(.top, 34).padding(.bottom, 44)
+            }
+        }
+        .background(ChopColor.bg)
+    }
+
+    private func feature(_ icon: String, _ text: String) -> some View {
+        ChopCard {
+            HStack(alignment: .top, spacing: 13) {
+                Image(systemName: icon)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(ChopColor.blue)
+                    .frame(width: 38, height: 38)
+                    .background(ChopColor.blueSoft, in: RoundedRectangle(cornerRadius: 11))
+                Text(text).font(.system(size: 14))
+                    .foregroundStyle(ChopColor.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+        }
+    }
+}
+
+
+
+// MARK: - Consistency
+//
+// The web dashboard's activity block: a 6-month heatmap of edit days, current
+// and longest streak, and 30-day activity. Derived from statusAt on each job.
+
+struct ChopActivity: View {
+    let days: [String: Int]
+    let current: Int
+    let longest: Int
+    let active30: Int
+
+    private static let fmt: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f
+    }()
+
+    private var weeks: [[Date]] {
+        var out: [[Date]] = []
+        let cal = Calendar.current
+        var start = cal.date(byAdding: .day, value: -181, to: Date()) ?? Date()
+        // wind back to the Sunday so columns line up like the web grid
+        while cal.component(.weekday, from: start) != 1 {
+            start = cal.date(byAdding: .day, value: -1, to: start) ?? start
+        }
+        var week: [Date] = []
+        var d = start
+        while d <= Date() {
+            week.append(d)
+            if week.count == 7 { out.append(week); week = [] }
+            d = cal.date(byAdding: .day, value: 1, to: d) ?? d
+        }
+        if !week.isEmpty { out.append(week) }
+        return out
+    }
+
+    private func level(_ d: Date) -> Int { min(4, days[Self.fmt.string(from: d)] ?? 0) }
+
+    private func shade(_ n: Int) -> Color {
+        switch n {
+        case 0: return ChopColor.soft2
+        case 1: return ChopColor.blue.opacity(0.30)
+        case 2: return ChopColor.blue.opacity(0.55)
+        case 3: return ChopColor.blue.opacity(0.78)
+        default: return ChopColor.blue
+        }
+    }
+
+    var body: some View {
+        ChopCard {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Consistency").font(ChopFont.h2(17)).foregroundStyle(ChopColor.ink)
+
+                HStack(spacing: 22) {
+                    stat("\(current)", "Current streak")
+                    stat("\(longest)", "Longest streak")
+                    stat("\(active30)/30", "Active days")
+                }
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 3) {
+                        ForEach(Array(weeks.enumerated()), id: \.offset) { _, week in
+                            VStack(spacing: 3) {
+                                ForEach(Array(week.enumerated()), id: \.offset) { _, day in
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(shade(level(day)))
+                                        .frame(width: 9, height: 9)
+                                }
+                            }
+                        }
+                    }
+                }
+                .defaultScrollAnchor(.trailing)
+
+                HStack(spacing: 5) {
+                    Text("Last 6 months").font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(ChopColor.muted)
+                    Spacer()
+                    Text("Less").font(.system(size: 10)).foregroundStyle(ChopColor.muted)
+                    ForEach(0..<5, id: \.self) { i in
+                        RoundedRectangle(cornerRadius: 2).fill(shade(i))
+                            .frame(width: 9, height: 9)
+                    }
+                    Text("More").font(.system(size: 10)).foregroundStyle(ChopColor.muted)
+                }
+            }
+        }
+    }
+
+    private func stat(_ v: String, _ l: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(v).font(.system(size: 19, weight: .bold)).foregroundStyle(ChopColor.ink)
+            Text(l).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(ChopColor.muted)
+        }
+    }
+}
+
+// MARK: - Cut Lab preview
+//
+// The same 20-second demo the web app uses, so the before/after bar reacts to
+// the sliders exactly as it does on the web.
+
+struct LabSeg { let s: Double; let e: Double; let k: String; var soft = false }
+
+let LP_SEGS: [LabSeg] = [
+    LabSeg(s: 0.0,  e: 0.5,  k: "sil"),  LabSeg(s: 0.5,  e: 3.2,  k: "sp"),
+    LabSeg(s: 3.2,  e: 3.7,  k: "fill"), LabSeg(s: 3.7,  e: 6.4,  k: "sp"),
+    LabSeg(s: 6.4,  e: 7.9,  k: "sil"),  LabSeg(s: 7.9,  e: 10.6, k: "sp"),
+    LabSeg(s: 10.6, e: 11.0, k: "fill", soft: true), LabSeg(s: 11.0, e: 13.8, k: "sp"),
+    LabSeg(s: 13.8, e: 14.9, k: "sil"),  LabSeg(s: 14.9, e: 17.6, k: "sp"),
+    LabSeg(s: 17.6, e: 18.1, k: "fill"), LabSeg(s: 18.1, e: 19.5, k: "sp"),
+    LabSeg(s: 19.5, e: 20.0, k: "sil")
+]
+let LP_DUR = 20.0
+
+struct ChopLabPreview: View {
+    let settings: ChopSettings
+
+    private func isCut(_ g: LabSeg) -> Bool {
+        if g.k == "sil"  { return (g.e - g.s) >= settings.minSil }
+        if g.k == "fill" { return settings.fillers && (!g.soft || settings.soft) }
+        return false
+    }
+    private var keptDur: Double {
+        LP_SEGS.reduce(0) { $0 + (isCut($1) ? 0 : $1.e - $1.s) }
+    }
+    private var cutCount: Int { LP_SEGS.filter(isCut).count }
+    private var pct: Int { Int(((LP_DUR - keptDur) / LP_DUR) * 100) }
+
+    private func clock(_ t: Double) -> String {
+        String(format: "%d:%04.1f", Int(t) / 60, t.truncatingRemainder(dividingBy: 60))
+    }
+
+    var body: some View {
+        ChopCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("See your style in action")
+                    .font(ChopFont.h2(16)).foregroundStyle(ChopColor.ink)
+                Text("Our demo clip, chopped live with your settings.")
+                    .font(.system(size: 11.5)).foregroundStyle(ChopColor.muted)
+
+                row("Original", LP_DUR, cut: false)
+                row("Chopped", keptDur, cut: true)
+
+                HStack(spacing: 10) {
+                    ChopBadge(text: "\(cutCount) CUTS")
+                    ChopBadge(text: "\(pct)% SHORTER",
+                              tint: ChopColor.green, soft: ChopColor.greenSoft)
+                    Spacer()
+                    Text("saving \(String(format: "%.1f", LP_DUR - keptDur))s of dead air")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(ChopColor.muted)
+                }
+            }
+        }
+    }
+
+    private func row(_ label: String, _ dur: Double, cut: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(label).font(.system(size: 11.5, weight: .heavy))
+                    .foregroundStyle(ChopColor.muted)
+                Spacer()
+                Text(clock(dur)).font(.system(size: 11.5, weight: .heavy).monospacedDigit())
+                    .foregroundStyle(cut ? ChopColor.green : ChopColor.ink)
+            }
+            GeometryReader { geo in
+                HStack(spacing: 1) {
+                    ForEach(Array(LP_SEGS.enumerated()), id: \.offset) { _, g in
+                        let w = geo.size.width * (g.e - g.s) / LP_DUR
+                        Rectangle()
+                            .fill(colour(for: g, cut: cut))
+                            .frame(width: max(1, w - 1))
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 5))
+            }
+            .frame(height: 24)
+        }
+    }
+
+    private func colour(for g: LabSeg, cut: Bool) -> Color {
+        if cut && isCut(g) { return ChopColor.soft2 }
+        switch g.k {
+        case "sp":   return ChopColor.blue.opacity(cut ? 0.9 : 0.75)
+        case "fill": return ChopColor.violet.opacity(0.7)
+        default:     return ChopColor.line
         }
     }
 }
