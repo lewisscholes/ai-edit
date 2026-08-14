@@ -9,6 +9,7 @@ import AVFoundation
 import Photos
 import UIKit
 import PhotosUI
+import StoreKit
 
 let SB_URL  = "https://vcrforlyuhapvkewsogq.supabase.co"
 let SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZjcmZvcmx5dWhhcHZrZXdzb2dxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzODk4NzAsImV4cCI6MjA5NTk2NTg3MH0.lcFC5aJFUGYrj4iw8oJ8R1bci4y_-aYKyQg8v9zrMqQ"
@@ -723,6 +724,21 @@ final class ChopAPI: ObservableObject {
     /// One credit per video, same as the web app.
     func spendCredit() async {
         let next = max(0, credits - 1)
+        credits = next
+        guard let url = URL(string: "\(SB_URL)/rest/v1/chop_profiles?id=eq.\(userId)") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "PATCH"
+        req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["credits": next])
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
+    /// Add purchased credits — same chop_profiles row the web app reads,
+    /// so the balance syncs to web instantly.
+    func addCredits(_ n: Int) async {
+        let next = credits + n
         credits = next
         guard let url = URL(string: "\(SB_URL)/rest/v1/chop_profiles?id=eq.\(userId)") else { return }
         var req = URLRequest(url: url)
@@ -2680,10 +2696,91 @@ struct ChopMovie: Transferable {
 }
 
 
+// MARK: - Store (StoreKit 2 — consumable credit packs)
+
+/// Product IDs must match App Store Connect exactly when it's set up.
+/// Credit count is encoded in the ID so granting never needs a lookup table.
+enum ChopPacks {
+    static let ids = [
+        "com.chopedit.credits.10",
+        "com.chopedit.credits.50",
+        "com.chopedit.credits.100",
+        "com.chopedit.credits.200",
+        "com.chopedit.credits.300",
+    ]
+    static func credits(in productID: String) -> Int {
+        Int(productID.split(separator: ".").last.map(String.init) ?? "") ?? 0
+    }
+}
+
+@MainActor
+final class ChopStore: ObservableObject {
+    @Published var products: [Product] = []
+    @Published var buying = false
+    @Published var note = ""
+    @Published var lastGranted = 0
+    private var updatesTask: Task<Void, Never>?
+
+    /// Load packs. Empty result = ASC not configured yet (or no StoreKit
+    /// config attached in dev) — the UI shows an honest fallback.
+    func load() async {
+        guard products.isEmpty else { return }
+        products = ((try? await Product.products(for: ChopPacks.ids)) ?? [])
+            .sorted { ChopPacks.credits(in: $0.id) < ChopPacks.credits(in: $1.id) }
+        startListener()
+    }
+
+    /// Finishes transactions that complete outside the purchase flow
+    /// (Ask to Buy approvals, interrupted purchases, cross-device).
+    private func startListener() {
+        guard updatesTask == nil else { return }
+        updatesTask = Task { [weak self] in
+            for await update in Transaction.updates {
+                if case .verified(let t) = update {
+                    await self?.grant(t)
+                }
+            }
+        }
+    }
+
+    func buy(_ product: Product, api: ChopAPI) async {
+        buying = true; note = ""; lastGranted = 0
+        defer { buying = false }
+        do {
+            switch try await product.purchase() {
+            case .success(.verified(let t)):
+                await grant(t, api: api)
+            case .success(.unverified):
+                note = "Purchase couldn’t be verified — contact support if you were charged."
+            case .userCancelled:
+                break
+            case .pending:
+                note = "Purchase pending approval — credits land automatically once approved."
+            @unknown default:
+                note = "That didn’t work — try again."
+            }
+        } catch {
+            note = "That didn’t work — try again."
+        }
+    }
+
+    private weak var grantAPI: ChopAPI?
+    private func grant(_ t: StoreKit.Transaction, api: ChopAPI? = nil) async {
+        if let api { grantAPI = api }
+        let n = ChopPacks.credits(in: t.productID)
+        if n > 0, let target = grantAPI {
+            await target.addCredits(n)
+            lastGranted = n
+        }
+        await t.finish()
+    }
+}
+
 // MARK: - Billing (web viewBilling parity; StoreKit purchase pending App Store setup)
 
 struct ChopBillingView: View {
     @ObservedObject var api: ChopAPI
+    @StateObject private var store = ChopStore()
     @Environment(\.dismiss) private var dismiss
     @State private var n: Double = 50
     @State private var note = ""
@@ -2760,21 +2857,63 @@ struct ChopBillingView: View {
                         }
                         .padding(.top, 8)
 
-                        Button {
-                            // Purchases ship with the App Store release (consumable IAP).
-                            // No StoreKit products exist yet — honest state, no dead ends.
-                            note = "Purchases aren’t available in this build yet — they arrive with the App Store release."
-                        } label: {
-                            Text("Buy \(count) credit\(count == 1 ? "" : "s") for \(gbp(total))")
-                                .font(.system(size: 15, weight: .heavy))
-                                .frame(maxWidth: .infinity).padding(.vertical, 14)
-                                .background(ChopColor.blue, in: RoundedRectangle(cornerRadius: 14))
-                                .foregroundStyle(.white)
-                        }
-                        .padding(.top, 12)
-
-                        if !note.isEmpty {
-                            Text(note).font(.system(size: 12.5)).foregroundStyle(ChopColor.amber)
+                        if store.products.isEmpty {
+                            // Purchases go live with the App Store release —
+                            // honest state until IAP products exist.
+                            Button {
+                                note = "Purchases aren’t available in this build yet — they arrive with the App Store release."
+                            } label: {
+                                Text("Buy \(count) credit\(count == 1 ? "" : "s") for \(gbp(total))")
+                                    .font(.system(size: 15, weight: .heavy))
+                                    .frame(maxWidth: .infinity).padding(.vertical, 14)
+                                    .background(ChopColor.blue, in: RoundedRectangle(cornerRadius: 14))
+                                    .foregroundStyle(.white)
+                            }
+                            .padding(.top, 12)
+                            if !note.isEmpty {
+                                Text(note).font(.system(size: 12.5)).foregroundStyle(ChopColor.amber)
+                            }
+                        } else {
+                            // live App Store packs — the slider highlights the closest one
+                            VStack(spacing: 8) {
+                                ForEach(store.products, id: \.id) { product in
+                                    let pc = ChopPacks.credits(in: product.id)
+                                    let closest = store.products.min {
+                                        abs(ChopPacks.credits(in: $0.id) - count) < abs(ChopPacks.credits(in: $1.id) - count)
+                                    }?.id == product.id
+                                    Button {
+                                        Task { await store.buy(product, api: api) }
+                                    } label: {
+                                        HStack {
+                                            Text("\(pc) credits").font(.system(size: 14.5, weight: .heavy))
+                                            Spacer()
+                                            Text(product.displayPrice).font(.system(size: 14.5, weight: .heavy))
+                                        }
+                                        .padding(.horizontal, 16).padding(.vertical, 13)
+                                        .background(closest ? ChopColor.blue : ChopColor.soft2,
+                                                    in: RoundedRectangle(cornerRadius: 14))
+                                        .foregroundStyle(closest ? .white : ChopColor.ink)
+                                        .overlay(RoundedRectangle(cornerRadius: 14)
+                                            .stroke(closest ? Color.clear : Color.chopLine, lineWidth: 1))
+                                    }
+                                    .disabled(store.buying)
+                                }
+                            }
+                            .padding(.top, 12)
+                            if store.buying {
+                                HStack(spacing: 8) {
+                                    ProgressView().scaleEffect(0.7).tint(ChopColor.blue)
+                                    Text("Completing purchase…")
+                                        .font(.system(size: 12.5)).foregroundStyle(ChopColor.muted)
+                                }
+                            }
+                            if store.lastGranted > 0 {
+                                Text("✓ \(store.lastGranted) credits added — happy chopping")
+                                    .font(.system(size: 13, weight: .bold)).foregroundStyle(ChopColor.green)
+                            }
+                            if !store.note.isEmpty {
+                                Text(store.note).font(.system(size: 12.5)).foregroundStyle(ChopColor.amber)
+                            }
                         }
                     }
                     .padding(20)
@@ -2791,6 +2930,7 @@ struct ChopBillingView: View {
             .background(ChopColor.bg)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .task { await store.load() }
         }
     }
 

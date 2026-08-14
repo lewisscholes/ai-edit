@@ -1,0 +1,100 @@
+{
+  "identifier" : "C40P0001-0000-0000-0000-000000000001",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "9.99",
+      "familyShareable" : false,
+      "internalID" : "C40P0001-0000-0000-0000-00000000000A",
+      "localizations" : [
+        {
+          "description" : "Chop 10 videos",
+          "displayName" : "10 credits",
+          "locale" : "en_GB"
+        }
+      ],
+      "productID" : "com.chopedit.credits.10",
+      "referenceName" : "10 credits",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "42.99",
+      "familyShareable" : false,
+      "internalID" : "C40P0001-0000-0000-0000-00000000000B",
+      "localizations" : [
+        {
+          "description" : "Chop 50 videos",
+          "displayName" : "50 credits",
+          "locale" : "en_GB"
+        }
+      ],
+      "productID" : "com.chopedit.credits.50",
+      "referenceName" : "50 credits",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "74.99",
+      "familyShareable" : false,
+      "internalID" : "C40P0001-0000-0000-0000-00000000000C",
+      "localizations" : [
+        {
+          "description" : "Chop 100 videos",
+          "displayName" : "100 credits",
+          "locale" : "en_GB"
+        }
+      ],
+      "productID" : "com.chopedit.credits.100",
+      "referenceName" : "100 credits",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "129.99",
+      "familyShareable" : false,
+      "internalID" : "C40P0001-0000-0000-0000-00000000000D",
+      "localizations" : [
+        {
+          "description" : "Chop 200 videos",
+          "displayName" : "200 credits",
+          "locale" : "en_GB"
+        }
+      ],
+      "productID" : "com.chopedit.credits.200",
+      "referenceName" : "200 credits",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "179.99",
+      "familyShareable" : false,
+      "internalID" : "C40P0001-0000-0000-0000-00000000000E",
+      "localizations" : [
+        {
+          "description" : "Chop 300 videos",
+          "displayName" : "300 credits",
+          "locale" : "en_GB"
+        }
+      ],
+      "productID" : "com.chopedit.credits.300",
+      "referenceName" : "300 credits",
+      "type" : "Consumable"
+    }
+  ],
+  "settings" : {
+    "_askToBuyEnabled" : false,
+    "_billingIssuesEnabled" : false,
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_GB",
+    "_storefront" : "GBR",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}
