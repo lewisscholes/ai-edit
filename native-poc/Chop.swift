@@ -1016,12 +1016,9 @@ struct ChopRootView: View {
             if api.signedIn {
                 app
             } else {
-                ChopWelcomeView(api: api, showAuth: $showAuth, authMode: $authMode)
-                    .sheet(isPresented: $showAuth) {
-                        NavigationStack { signIn.background(Color.chopBg) }
-                            .presentationDetents([.large])
-                            .preferredColorScheme(theme.scheme)
-                    }
+                // straight to Sign in — the marketing landing lives on the web.
+                // Anyone opening the app came from there and wants an account.
+                NavigationStack { signIn.background(Color.chopBg) }
             }
         }
         .preferredColorScheme(theme.scheme)
