@@ -1924,6 +1924,58 @@ final class ChopPlayer: ObservableObject {
         rebuild()
     }
 
+    // MARK: quick-edit selection ops — ADDITIVE, built on the same
+    // manual-cut + rebuild pattern as deleteClipAtPlayhead. Core untouched.
+
+    /// Clip boundaries in EDIT time, for selection highlight + hit-testing.
+    var clipSpans: [(start: Double, end: Double)] {
+        guard let e = edit else { return [] }
+        var acc = 0.0; var out: [(Double, Double)] = []
+        for c in e.keptClips() { let l = c.end - c.start; out.append((acc, acc + l)); acc += l }
+        return out
+    }
+
+    func clipIndex(atEditTime t: Double) -> Int? {
+        for (i, s) in clipSpans.enumerated() where t >= s.start && t <= s.end { return i }
+        return nil
+    }
+
+    private func raw(fromEdit t: Double) -> Double? {
+        guard let e = edit else { return nil }
+        var acc = 0.0
+        for c in e.keptClips() {
+            let l = c.end - c.start
+            if t <= acc + l { return c.start + (t - acc) }
+            acc += l
+        }
+        return nil
+    }
+
+    /// Delete a selected clip (web: select section → Delete).
+    func deleteClip(_ i: Int) {
+        guard let e = edit else { return }
+        let clips = e.keptClips(); guard i < clips.count else { return }
+        pushHistory()
+        var ed = e
+        ed.manualCuts.append(ChopClip(start: clips[i].start, end: clips[i].end))
+        edit = ed
+        rebuild()
+    }
+
+    /// Split a selected clip at the playhead (web: select section → Split).
+    /// A 1ms manual cut creates the boundary — imperceptible on playback.
+    func splitClip(_ i: Int, atEditTime t: Double) {
+        guard let e = edit else { return }
+        let clips = e.keptClips(); guard i < clips.count else { return }
+        guard let at = raw(fromEdit: t),
+              at > clips[i].start + 0.05, at < clips[i].end - 0.05 else { return }
+        pushHistory()
+        var ed = e
+        ed.manualCuts.append(ChopClip(start: at, end: at + 0.001))
+        edit = ed
+        rebuild()
+    }
+
     var manualCutCount: Int { edit?.manualCuts.count ?? 0 }
 
     func undoManualCuts() {
@@ -2015,6 +2067,8 @@ struct ChopPlayerScreen: View {
     @State private var showEdited = true
     @State private var showQueue = false
     @State private var marking = false
+    @State private var selected: Int? = nil   // selected timeline section
+    @State private var compact = false        // web body.stagecompact: 50dvh ↔ 24dvh
     @Environment(\.dismiss) private var dismiss
 
     private func clock(_ t: Double) -> String {
@@ -2022,49 +2076,82 @@ struct ChopPlayerScreen: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        GeometryReader { geo in
+            VStack(spacing: 0) {
 
-            // ---- video, with the liquid-glass Raw|Edited pill on top ----
-            ZStack(alignment: .top) {
-                PlayerLayerView(player: p.player)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.black)
+                // ---- video stage: 50% of the screen, 24% when the panel is up ----
+                ZStack(alignment: .top) {
+                    PlayerLayerView(player: p.player)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.black)
 
-                HStack(spacing: 2) {
-                    modePill("Raw", on: !showEdited)
-                    modePill("Edited", on: showEdited)
+                    HStack(spacing: 2) {
+                        modePill("Raw", on: !showEdited)
+                        modePill("Edited", on: showEdited)
+                    }
+                    .padding(3)
+                    .background(.ultraThinMaterial, in: Capsule())
+                    .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 1))
+                    .padding(.top, 10)
+
+                    // web parity: undo/redo as glass circles top-right of the video
+                    HStack(spacing: 6) {
+                        glassCircle("arrow.uturn.backward", enabled: p.canUndo) { p.undo() }
+                        glassCircle("arrow.uturn.forward", enabled: p.canRedo) { p.redo() }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.top, 10).padding(.trailing, 10)
                 }
-                .padding(3)
-                .background(.ultraThinMaterial, in: Capsule())
-                .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 1))
-                .padding(.top, 10)
+                .frame(height: p.ready ? geo.size.height * (compact ? 0.24 : 0.50)
+                                       : geo.size.height * 0.50)
+                .clipped()
+                .animation(.easeInOut(duration: 0.35), value: compact)
+                .onTapGesture { if compact { compact = false } } // tap video to bring it back
 
-                // web parity: undo/redo as glass circles top-right of the video
-                HStack(spacing: 6) {
-                    glassCircle("arrow.uturn.backward", enabled: p.canUndo) { p.undo() }
-                    glassCircle("arrow.uturn.forward", enabled: p.canRedo) { p.redo() }
+                if p.ready {
+                    playBar
+                    ChopTimeline(p: p, selected: $selected)
+                        .frame(height: 58)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 8)
+
+                    // selection swaps the toolbar for Split/Delete/Restore — web body.qesel
+                    if let sel = selected, sel < p.clipSpans.count {
+                        selBar(sel)
+                    } else {
+                        toolbar
+                    }
+                    actions
+
+                    // ---- panel: fills the rest; grabber swipes video small/big ----
+                    if let panel {
+                        VStack(spacing: 0) {
+                            Capsule().fill(Color.chopMuted.opacity(0.5))
+                                .frame(width: 40, height: 4.5)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .background(ChopColor.card)
+                                .contentShape(Rectangle())
+                                .gesture(
+                                    DragGesture(minimumDistance: 12)
+                                        .onEnded { g in
+                                            if g.translation.height < -24 { compact = true }
+                                            if g.translation.height > 24 { compact = false }
+                                        }
+                                )
+                            panelBody(panel)
+                        }
+                        .frame(maxHeight: .infinity)
+                    } else {
+                        Spacer(minLength: 0)
+                    }
+                } else {
+                    Spacer()
+                    ProgressView().tint(Color.chopBlue)
+                    Text(p.status).font(.footnote).foregroundStyle(Color.chopMuted)
+                        .multilineTextAlignment(.center).padding(.top, 8).padding(.horizontal, 24)
+                    Spacer()
                 }
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.top, 10).padding(.trailing, 10)
-            }
-            .frame(maxHeight: .infinity)
-
-            if p.ready {
-                playBar
-                ChopTimeline(p: p)
-                    .frame(height: 58)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
-                clipTools
-                toolbar
-                actions
-                if let panel { panelBody(panel) }
-            } else {
-                Spacer()
-                ProgressView().tint(Color.chopBlue)
-                Text(p.status).font(.footnote).foregroundStyle(Color.chopMuted)
-                    .multilineTextAlignment(.center).padding(.top, 8).padding(.horizontal, 24)
-                Spacer()
             }
         }
         .background(Color.chopBg)
@@ -2076,7 +2163,51 @@ struct ChopPlayerScreen: View {
             }
         }
         .task { await p.open(job: job, api: api) }
+        .onChange(of: p.clipCount) { _, _ in selected = nil } // spans shift after any edit
         .onDisappear { p.player.pause() }
+    }
+
+    // web .mctxbar — Split / Delete / Restore · duration · ✕
+    private func selBar(_ sel: Int) -> some View {
+        let span = p.clipSpans[sel]
+        return HStack(spacing: 8) {
+            ctxTool("Split", "scissors", Color.chopInk) {
+                p.splitClip(sel, atEditTime: p.time); selected = nil
+            }
+            ctxTool("Delete", "trash", ChopColor.rose) {
+                p.deleteClip(sel); selected = nil
+            }
+            ctxTool("Restore", "arrow.uturn.backward", ChopColor.green) {
+                p.undo(); selected = nil
+            }
+            Spacer()
+            Text(String(format: "%.1fs", span.end - span.start))
+                .font(.system(size: 12, weight: .heavy)).foregroundStyle(Color.chopMuted)
+            Button { selected = nil } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold)).foregroundStyle(Color.chopMuted)
+                    .frame(width: 32, height: 32)
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.chopLine, lineWidth: 1.5))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(ChopColor.card)
+    }
+
+    private func ctxTool(_ label: String, _ icon: String, _ tint: Color,
+                         _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon).font(.system(size: 12, weight: .semibold))
+                Text(label).font(.system(size: 12, weight: .bold))
+            }
+            .padding(.horizontal, 13).padding(.vertical, 9)
+            .background(ChopColor.soft2)
+            .foregroundStyle(tint)
+            .clipShape(RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.chopLine, lineWidth: 1))
+        }
     }
 
     /// web .udwrap .iconbtn — 38px glass circle
@@ -2324,8 +2455,8 @@ struct ChopPlayerScreen: View {
             }
             .padding(16)
         }
-        .frame(maxHeight: 230)
-        .background(Color.chopPanel.opacity(0.5))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(ChopColor.card)
     }
 }
 
@@ -2334,6 +2465,7 @@ struct ChopPlayerScreen: View {
 /// behaviour mobile Safari could never manage.
 struct ChopTimeline: View {
     @ObservedObject var p: ChopPlayer
+    var selected: Binding<Int?>? = nil
 
     var body: some View {
         GeometryReader { geo in
@@ -2357,12 +2489,37 @@ struct ChopTimeline: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .opacity(0.85)
 
+                // clip boundaries (web: gaps between sections)
+                if p.duration > 0 {
+                    ForEach(Array(p.clipSpans.enumerated()), id: \.offset) { _, span in
+                        if span.start > 0.01 {
+                            Rectangle().fill(Color.black.opacity(0.8))
+                                .frame(width: 2)
+                                .offset(x: w * (span.start / p.duration))
+                                .allowsHitTesting(false)
+                        }
+                    }
+                }
+
                 // progress veil
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color.black.opacity(0.35))
                     .frame(width: max(0, w * (1 - frac)))
                     .offset(x: w * frac)
                     .allowsHitTesting(false)
+
+                // selection highlight (web .sel — blue outline on the section)
+                if let sel = selected?.wrappedValue, p.duration > 0,
+                   sel < p.clipSpans.count {
+                    let span = p.clipSpans[sel]
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(ChopColor.blue, lineWidth: 2.5)
+                        .background(RoundedRectangle(cornerRadius: 6)
+                            .fill(ChopColor.blue.opacity(0.18)))
+                        .frame(width: max(4, w * ((span.end - span.start) / p.duration)))
+                        .offset(x: w * (span.start / p.duration))
+                        .allowsHitTesting(false)
+                }
 
                 // playhead
                 RoundedRectangle(cornerRadius: 2)
@@ -2386,6 +2543,13 @@ struct ChopTimeline: View {
                         let f = max(0, min(1, g.location.x / w))
                         p.scrubbing = false
                         p.seekExact(to: f * p.duration)
+                        // tap (not drag) selects the section under the finger — web quick edit
+                        if abs(g.translation.width) < 6, let bind = selected {
+                            let t = f * p.duration
+                            if let i = p.clipIndex(atEditTime: t) {
+                                bind.wrappedValue = (bind.wrappedValue == i) ? nil : i
+                            }
+                        }
                     }
             )
         }
