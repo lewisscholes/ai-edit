@@ -2143,7 +2143,15 @@ final class ChopPlayer: ObservableObject {
             }
         }
         edit = e
-        rebuildKeepingTime()
+        rebuild()
+        // TikTok: the cursor lands exactly on the cut you just made
+        let edgeRaw = side == 0 ? b.start + deltaSeconds + 0.005
+                                : b.end - deltaSeconds - 0.005
+        if let t = editTime(fromRaw: edgeRaw) {
+            seekExact(to: max(0, min(t, max(0, duration - 0.02))))
+        } else {
+            seekExact(to: min(time, max(0, duration - 0.02)))
+        }
     }
 
     var manualCutCount: Int { edit?.manualCuts.count ?? 0 }
@@ -2301,7 +2309,7 @@ struct ChopPlayerScreen: View {
                 if p.ready {
                     playBar
                     ChopTimeline(p: p, selected: $selected)
-                        .frame(height: 100)   // strip + TikTok scrub pad
+                        .frame(height: 116)   // TikTok strip + doubled thumb pad
                         .zIndex(2)   // the white selection frame overhangs — draw above neighbours
 
                     // selection swaps the toolbar for Split/Delete/Restore — web body.qesel
@@ -2840,8 +2848,8 @@ struct ChopTimeline: View {
     @State private var trimSnapped = false   // magnetised to the playhead
     @State private var baseDur: Double = 0   // pins px-per-second so edits never rescale the strip
 
-    private let stripH: CGFloat = 56
-    private let scrubH: CGFloat = 28   // TikTok thumb-scrub pad under the strip
+    private let stripH: CGFloat = 44   // TikTok strip height
+    private let scrubH: CGFloat = 56   // TikTok-sized thumb-scrub pad (doubled)
 
     var body: some View {
         GeometryReader { geo in
@@ -2859,10 +2867,25 @@ struct ChopTimeline: View {
                 // ---- the strip: bands + white split marks, pans under the stick ----
                 ZStack(alignment: .topLeading) {
                     ForEach(Array(spans.enumerated()), id: \.offset) { i, span in
-                        let x = CGFloat(span.start) * pps
-                        let bw = max(3, CGFloat(span.end - span.start) * pps)
+                        // TikTok live trim: the dragged edge moves, neighbours
+                        // slide with it, nothing is "previewed" in red
+                        let tl = trimLive
+                        let s: Double = (tl?.band == i && tl?.side == 0) ? tl!.t : span.start
+                        let e: Double = (tl?.band == i && tl?.side == 1) ? tl!.t : span.end
+                        let shift: CGFloat = {
+                            guard let tl, tl.band != i, tl.band < spans.count else { return 0 }
+                            if tl.side == 0, i < tl.band {
+                                return CGFloat(tl.t - spans[tl.band].start) * pps
+                            }
+                            if tl.side == 1, i > tl.band {
+                                return CGFloat(tl.t - spans[tl.band].end) * pps
+                            }
+                            return 0
+                        }()
+                        let x = CGFloat(s) * pps + shift
+                        let bw = max(3, CGFloat(e - s) * pps)
 
-                        bandThumbs(span: span, width: bw, pps: pps, dur: dur)
+                        bandThumbs(span: (s, e), width: bw, pps: pps, dur: dur)
                             .frame(width: bw, height: stripH)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                             .overlay(RoundedRectangle(cornerRadius: 8)
@@ -2874,12 +2897,12 @@ struct ChopTimeline: View {
                         if i > 0, selected?.wrappedValue != i, selected?.wrappedValue != i - 1 {
                             RoundedRectangle(cornerRadius: 8)
                                 .fill(Color.white)
-                                .frame(width: 26, height: 26)
+                                .frame(width: 24, height: 24)
                                 .overlay(Image(systemName: "arrowtriangle.right.and.line.vertical.and.arrowtriangle.left.fill")
-                                    .font(.system(size: 9, weight: .bold))
+                                    .font(.system(size: 8.5, weight: .bold))
                                     .foregroundStyle(Color(white: 0.12)))
                                 .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
-                                .offset(x: x - 13, y: (stripH - 26) / 2)
+                                .offset(x: x - 12, y: (stripH - 24) / 2)
                                 .allowsHitTesting(false)
                         }
                     }
@@ -2974,17 +2997,6 @@ struct ChopTimeline: View {
         let x = CGFloat(s) * pps
         let bw = max(6, CGFloat(e - s) * pps)
         let capW: CGFloat = 22
-
-        // trimmed-away shade (web .gtrim)
-        if let tl = trimLive, tl.band == sel {
-            let shadeX = tl.side == 0 ? CGFloat(span.start) * pps : CGFloat(e) * pps
-            let shadeW = tl.side == 0 ? max(0, x - shadeX) : max(0, CGFloat(span.end) * pps - shadeX)
-            Rectangle().fill(Color.black.opacity(0.55))
-                .overlay(Rectangle().fill(ChopColor.rose.opacity(0.35)))
-                .frame(width: shadeW, height: stripH)
-                .offset(x: shadeX)
-                .allowsHitTesting(false)
-        }
 
         ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 13)
