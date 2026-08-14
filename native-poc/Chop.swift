@@ -1858,7 +1858,8 @@ final class ChopPlayer: ObservableObject {
     /// not the raw footage — same as the web app's edited view.
     private func buildStrip(_ comp: AVMutableComposition) {
         stripTask?.cancel()
-        strip = []
+        // keep the old frames on screen while the new ones generate —
+        // clearing here made the whole timeline flash blank after every edit
         let total = comp.duration.seconds
         guard total > 0.2 else { return }
         let count = 12
@@ -1893,7 +1894,7 @@ final class ChopPlayer: ObservableObject {
         minSil = s.minSil; fillers = s.fillers; softFillers = s.soft
         splits = s.splits
         if var e = edit { e.manualCuts = s.manualCuts; edit = e }
-        rebuild()
+        rebuildKeepingTime()   // undo/redo must not throw the playhead to 0
     }
     /// Call before anything that changes the edit.
     func pushHistory() {
@@ -1920,7 +1921,7 @@ final class ChopPlayer: ObservableObject {
         guard idx < pairs.count else { return }
         pushHistory()
         pairs[idx].choice = take
-        rebuild()
+        rebuildKeepingTime()
     }
 
     var undecided: Int { pairs.filter { $0.complete && $0.choice == nil }.count }
@@ -1938,7 +1939,7 @@ final class ChopPlayer: ObservableObject {
         pushHistory()
         let wasCut = cut(i)
         segments[i].manual = !wasCut
-        rebuild()
+        rebuildKeepingTime()
     }
 
     /// Where are we in the RAW timeline right now? Manual cuts are expressed in
@@ -2048,6 +2049,9 @@ final class ChopPlayer: ObservableObject {
         return nil
     }
 
+    /// Settings changed from a panel — rebuild without losing the playhead.
+    func retune() { rebuildKeepingTime() }
+
     /// Rebuild but land the playhead back where the finger left it (raw-anchored).
     private func rebuildKeepingTime() {
         let anchor = raw(fromEdit: time)
@@ -2071,13 +2075,20 @@ final class ChopPlayer: ObservableObject {
         return bands.firstIndex { abs($0.start - at) < 0.06 }
     }
 
-    /// Web qeDelete: manual cut over the band, playhead stays put.
+    /// Web qeDelete: manual cut over the band. The playhead lands EXACTLY on
+    /// the join where the two neighbours close together.
     func deleteBand(_ i: Int) {
         let bs = bands; guard i < bs.count, var e = edit else { return }
         pushHistory()
-        e.manualCuts.append(ChopClip(start: bs[i].start, end: bs[i].end))
+        let b = bs[i]
+        e.manualCuts.append(ChopClip(start: b.start, end: b.end))
         edit = e
-        rebuildKeepingTime()
+        rebuild()
+        // the deleted band's end now maps to the join between the neighbours
+        let join = editTime(fromRaw: b.end + 0.01)
+            ?? editTime(fromRaw: b.start - 0.01)
+            ?? min(time, max(0, duration - 0.05))
+        seekExact(to: max(0, min(join, duration)))
     }
 
     /// Web trim caps: cut the trimmed-away edge, playhead stays put.
@@ -2240,8 +2251,8 @@ struct ChopPlayerScreen: View {
                 if p.ready {
                     playBar
                     ChopTimeline(p: p, selected: $selected)
-                        .frame(height: 72)
-                        .clipped()
+                        .frame(height: 76)
+                        .zIndex(2)   // the white selection frame overhangs — draw above neighbours
 
                     // selection swaps the toolbar for Split/Delete/Restore — web body.qesel
                     if let sel = selected, sel < p.bandSpansEdit.count {
@@ -2650,7 +2661,7 @@ struct ChopPlayerScreen: View {
                     }
                     Slider(value: $p.minSil, in: 0.01...2.0, step: 0.01)
                         .tint(Color.chopBlue)
-                        .onChange(of: p.minSil) { _, _ in p.rebuild() }
+                        .onChange(of: p.minSil) { _, _ in p.retune() }
                     Text("Any pause longer than this is cut automatically. Lower removes more dead air.")
                         .font(.system(size: 12)).foregroundStyle(Color.chopMuted)
                     Toggle(isOn: $p.fillers) {
@@ -2660,7 +2671,7 @@ struct ChopPlayerScreen: View {
                         }
                     }
                     .tint(Color.chopBlue)
-                    .onChange(of: p.fillers) { _, _ in p.rebuild() }
+                    .onChange(of: p.fillers) { _, _ in p.retune() }
                     Toggle(isOn: $p.softFillers) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Also soft fillers").font(.subheadline.weight(.bold))
@@ -2669,7 +2680,7 @@ struct ChopPlayerScreen: View {
                         }
                     }
                     .tint(Color.chopBlue)
-                    .onChange(of: p.softFillers) { _, _ in p.rebuild() }
+                    .onChange(of: p.softFillers) { _, _ in p.retune() }
                     // web Clip start / Clip end pads (±300ms, step 10)
                     HStack {
                         Text("Clip start").font(.subheadline.weight(.bold))
@@ -2679,7 +2690,7 @@ struct ChopPlayerScreen: View {
                     }
                     Slider(value: $p.padStart, in: -300...300, step: 10)
                         .tint(Color.chopBlue)
-                        .onChange(of: p.padStart) { _, _ in p.rebuild() }
+                        .onChange(of: p.padStart) { _, _ in p.retune() }
                     Text("Positive keeps a little more before each clip; negative trims tighter.")
                         .font(.system(size: 12)).foregroundStyle(Color.chopMuted)
                     HStack {
@@ -2690,7 +2701,7 @@ struct ChopPlayerScreen: View {
                     }
                     Slider(value: $p.padEnd, in: -300...300, step: 10)
                         .tint(Color.chopBlue)
-                        .onChange(of: p.padEnd) { _, _ in p.rebuild() }
+                        .onChange(of: p.padEnd) { _, _ in p.retune() }
                     Text("Positive keeps a little more after each clip; negative trims tighter.")
                         .font(.system(size: 12)).foregroundStyle(Color.chopMuted)
                     cutsList
@@ -2817,6 +2828,8 @@ struct ChopTimeline: View {
                 }
                 .frame(width: contentW, height: stripH, alignment: .topLeading)
                 .offset(x: offsetX)
+                // clips slide together smoothly when a section is deleted
+                .animation(.easeInOut(duration: 0.25), value: spans.map(\.start))
 
                 // ---- centre-locked stick (web .qestick) ----
                 RoundedRectangle(cornerRadius: 3)
