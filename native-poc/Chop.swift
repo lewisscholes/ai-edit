@@ -1606,6 +1606,8 @@ final class ChopPlayer: ObservableObject {
     @Published var minSil: Double = 0.4
     @Published var fillers: Bool = true
     @Published var softFillers: Bool = false
+    @Published var padStart: Double = 40    // Clip start, ms — web sStart
+    @Published var padEnd: Double = -40     // Clip end, ms — web sEnd
     @Published var pairs: [ChopPair] = []
     @Published var segments: [ChopSegment] = []
     @Published var exporting = false
@@ -1646,6 +1648,8 @@ final class ChopPlayer: ObservableObject {
             minSil = e.settings.minSil
             fillers = e.settings.fillers
             softFillers = e.settings.soft
+            padStart = e.settings.startPadMs
+            padEnd = e.settings.endPadMs
             edit = e
             pairs = e.pairs
             segments = e.segments
@@ -1659,6 +1663,8 @@ final class ChopPlayer: ObservableObject {
         minSil = e.settings.minSil
         fillers = e.settings.fillers
         softFillers = e.settings.soft
+        padStart = e.settings.startPadMs
+        padEnd = e.settings.endPadMs
         edit = e
         pairs = e.pairs
         segments = e.segments
@@ -2125,6 +2131,8 @@ final class ChopPlayer: ObservableObject {
         e.settings.minSil = minSil
         e.settings.fillers = fillers
         e.settings.soft = softFillers
+        e.settings.startPadMs = padStart
+        e.settings.endPadMs = padEnd
         e.pairs = pairs
         e.segments = segments
         edit = e   // manualCuts already live on `e`
@@ -2508,6 +2516,57 @@ struct ChopPlayerScreen: View {
         .sheet(isPresented: $showQueue) { NavigationStack { ChopQueueBody(api: api).background(Color.chopBg).navigationTitle("Review queue").navigationBarTitleDisplayMode(.inline) }.preferredColorScheme(.dark) }
     }
 
+    // web renderCuts(): grouped list of everything currently cut, with Restore
+    private var cutsList: some View {
+        let groups: [(String, [Int])] = {
+            var sil: [Int] = [], fil: [Int] = [], ret: [Int] = [], man: [Int] = []
+            for (i, s) in p.segments.enumerated() where p.cut(i) {
+                if s.kind == "silence" { sil.append(i) }
+                else if s.kind == "filler" { fil.append(i) }
+                else if s.retake != nil { ret.append(i) }
+                else { man.append(i) }
+            }
+            return [("Silences", sil), ("Filler words", fil),
+                    ("Retake cuts", ret), ("Manual cuts", man)].filter { !$0.1.isEmpty }
+        }()
+        let n = groups.reduce(0) { $0 + $1.1.count }
+        let total = groups.flatMap(\.1).reduce(0.0) { $0 + (p.segments[$1].end - p.segments[$1].start) }
+
+        return VStack(alignment: .leading, spacing: 10) {
+            Text(n == 0 ? "No cuts at the current settings."
+                        : "\(n) cuts · \(String(format: "%.1fs", total)) removed")
+                .font(.system(size: 12.5)).foregroundStyle(ChopColor.muted)
+                .padding(.top, 4)
+            ForEach(groups, id: \.0) { label, idxs in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(label) · \(idxs.count)")
+                        .font(.system(size: 12, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                        .padding(.top, 6)
+                    ForEach(idxs, id: \.self) { i in
+                        let s = p.segments[i]
+                        HStack(spacing: 10) {
+                            Text(clock(s.start))
+                                .font(.system(size: 11, weight: .bold).monospacedDigit())
+                                .foregroundStyle(ChopColor.muted)
+                            Text(s.kind == "silence"
+                                 ? "Silence (\(String(format: "%.1fs", s.end - s.start)))"
+                                 : s.text)
+                                .font(.system(size: 12.5)).foregroundStyle(ChopColor.ink)
+                                .lineLimit(1)
+                            Spacer(minLength: 6)
+                            Button("Restore") { p.toggleSegment(i) }
+                                .font(.system(size: 11.5, weight: .bold))
+                                .foregroundStyle(ChopColor.green)
+                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .background(ChopColor.greenSoft, in: Capsule())
+                        }
+                        .padding(.vertical, 3)
+                    }
+                }
+            }
+        }
+    }
+
     /// One transcript span, web classes → native styling:
     /// .w.cut.r-filler violet · .r-manual muted · .r-retake rose · .sil chips · .rtag tags
     @ViewBuilder
@@ -2529,30 +2588,28 @@ struct ChopPlayerScreen: View {
                                      : (ChopColor.muted, ChopColor.soft2))
             let pendingRetake = seg.retake != nil && seg.pair.map { pi in
                 pi < p.pairs.count && p.pairs[pi].choice == nil } ?? false
-            HStack(spacing: 4) {
-                if let r = seg.retake, let pi = seg.pair {
-                    Text("R\(pi + 1)·T\(r == "a" ? "1" : "2")")
-                        .font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(r == "b" ? ChopColor.green : ChopColor.rose,
-                                    in: RoundedRectangle(cornerRadius: 5))
-                }
-                Text(seg.text)
+
+            // retake tag rides ahead of the segment's words
+            if let r = seg.retake, let pi = seg.pair {
+                Text("R\(pi + 1)·T\(r == "a" ? "1" : "2")")
+                    .font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(r == "b" ? ChopColor.green : ChopColor.rose,
+                                in: RoundedRectangle(cornerRadius: 5))
+                    .onTapGesture { panel = "retakes" }
+            }
+            // word-level spans so long lines wrap inline, like HTML text
+            ForEach(Array(seg.text.split(separator: " ").enumerated()), id: \.offset) { _, word in
+                Text(String(word))
                     .font(.system(size: 13.5))
                     .strikethrough(isCut, color: reason.0)
                     .foregroundStyle(isCut ? reason.0 : ChopColor.ink)
-            }
-            .padding(.horizontal, 2).padding(.vertical, 1)
-            .background(isCut ? reason.1 : (pendingRetake ? ChopColor.roseSoft : .clear),
-                        in: RoundedRectangle(cornerRadius: 5))
-            .overlay {
-                if pendingRetake && !isCut {
-                    RoundedRectangle(cornerRadius: 5)
-                        .strokeBorder(ChopColor.rose, style: StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
-                }
-            }
-            .onTapGesture {
-                if seg.retake != nil { panel = "retakes" } else { p.toggleSegment(i) }
+                    .padding(.horizontal, 2).padding(.vertical, 1)
+                    .background(isCut ? reason.1 : (pendingRetake ? ChopColor.roseSoft : .clear),
+                                in: RoundedRectangle(cornerRadius: 5))
+                    .onTapGesture {
+                        if seg.retake != nil { panel = "retakes" } else { p.toggleSegment(i) }
+                    }
             }
         }
     }
@@ -2572,6 +2629,19 @@ struct ChopPlayerScreen: View {
                         }
                     }
                 case "cuts":
+                    // web .stat-mini: 1:28 → 1:04 −27%
+                    HStack(spacing: 8) {
+                        Text(clock(job.rawSec)).font(.system(size: 14, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                        Text("→").foregroundStyle(ChopColor.muted)
+                        Text(clock(p.duration)).font(.system(size: 14, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                        if job.rawSec > 0 {
+                            Text("−\(Int((1 - p.duration / job.rawSec) * 100))%")
+                                .font(.system(size: 11.5, weight: .heavy)).foregroundStyle(ChopColor.green)
+                                .padding(.horizontal, 8).padding(.vertical, 2)
+                                .background(ChopColor.greenSoft, in: Capsule())
+                        }
+                        Spacer()
+                    }
                     HStack {
                         Text("Remove silences over").font(.subheadline.weight(.bold))
                         Spacer()
@@ -2600,6 +2670,30 @@ struct ChopPlayerScreen: View {
                     }
                     .tint(Color.chopBlue)
                     .onChange(of: p.softFillers) { _, _ in p.rebuild() }
+                    // web Clip start / Clip end pads (±300ms, step 10)
+                    HStack {
+                        Text("Clip start").font(.subheadline.weight(.bold))
+                        Spacer()
+                        Text(ChopLabBody.ms(p.padStart))
+                            .font(.subheadline.monospacedDigit()).foregroundStyle(ChopColor.blue)
+                    }
+                    Slider(value: $p.padStart, in: -300...300, step: 10)
+                        .tint(Color.chopBlue)
+                        .onChange(of: p.padStart) { _, _ in p.rebuild() }
+                    Text("Positive keeps a little more before each clip; negative trims tighter.")
+                        .font(.system(size: 12)).foregroundStyle(Color.chopMuted)
+                    HStack {
+                        Text("Clip end").font(.subheadline.weight(.bold))
+                        Spacer()
+                        Text(ChopLabBody.ms(p.padEnd))
+                            .font(.subheadline.monospacedDigit()).foregroundStyle(ChopColor.blue)
+                    }
+                    Slider(value: $p.padEnd, in: -300...300, step: 10)
+                        .tint(Color.chopBlue)
+                        .onChange(of: p.padEnd) { _, _ in p.rebuild() }
+                    Text("Positive keeps a little more after each clip; negative trims tighter.")
+                        .font(.system(size: 12)).foregroundStyle(Color.chopMuted)
+                    cutsList
                 case "text", "image", "subtitles":
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Coming soon").font(.subheadline.weight(.bold))
@@ -2641,11 +2735,12 @@ struct ChopFlow: Layout {
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let w = proposal.width ?? 350
+        let cap = ProposedViewSize(width: w, height: nil)   // nothing may exceed the line
         var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
         for v in subviews {
-            let s = v.sizeThatFits(.unspecified)
+            let s = v.sizeThatFits(cap)
             if x + s.width > w, x > 0 { x = 0; y += rowH + lineSpacing; rowH = 0 }
-            x += s.width + spacing
+            x += min(s.width, w) + spacing
             rowH = max(rowH, s.height)
         }
         return CGSize(width: w, height: y + rowH)
@@ -2653,13 +2748,14 @@ struct ChopFlow: Layout {
 
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         let w = bounds.width
+        let cap = ProposedViewSize(width: w, height: nil)
         var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
         for v in subviews {
-            let s = v.sizeThatFits(.unspecified)
+            let s = v.sizeThatFits(cap)
             if x + s.width > w, x > 0 { x = 0; y += rowH + lineSpacing; rowH = 0 }
             v.place(at: CGPoint(x: bounds.minX + x, y: bounds.minY + y),
-                    anchor: .topLeading, proposal: .unspecified)
-            x += s.width + spacing
+                    anchor: .topLeading, proposal: cap)
+            x += min(s.width, w) + spacing
             rowH = max(rowH, s.height)
         }
     }
@@ -2675,7 +2771,6 @@ struct ChopTimeline: View {
     @State private var zoom: CGFloat = 1.5
     @State private var zoomStart: CGFloat? = nil
     @State private var dragStartTime: Double? = nil
-    @State private var pressStart: (Date, CGPoint)? = nil   // hold-to-select
     // live trim: (band, side 0=left/1=right, proposed edge in EDIT time)
     @State private var trimLive: (band: Int, side: Int, t: Double)? = nil
 
@@ -2733,27 +2828,16 @@ struct ChopTimeline: View {
             }
             .frame(height: stripH)
             .contentShape(Rectangle())
-            // tap = play/pause (CapCut) · hold a clip = select · drag = scrub ·
-            // pinch = zoom. Pan needs 10pt of travel, which frees up pinch.
+            // tap = select a section (web) · drag = scrub · pinch = zoom.
+            // Pan needs 10pt of travel before it grabs, which keeps pinch easy.
             .gesture(SpatialTapGesture()
-                .onEnded { _ in p.togglePlay() })
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { g in
-                        if pressStart == nil { pressStart = (Date(), g.location) }
+                .onEnded { g in
+                    guard let bind = selected else { return }
+                    let t = Double((g.location.x - offsetX) / pps)
+                    if t >= 0, t <= p.duration, let i = p.bandIndex(atEditTime: t) {
+                        bind.wrappedValue = (bind.wrappedValue == i) ? nil : i
                     }
-                    .onEnded { g in
-                        defer { pressStart = nil }
-                        guard let ps = pressStart, zoomStart == nil, dragStartTime == nil,
-                              Date().timeIntervalSince(ps.0) > 0.35,
-                              abs(g.translation.width) < 8, abs(g.translation.height) < 8,
-                              let bind = selected else { return }
-                        let t = Double((ps.1.x - offsetX) / pps)
-                        if t >= 0, t <= p.duration, let i = p.bandIndex(atEditTime: t) {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            bind.wrappedValue = (bind.wrappedValue == i) ? nil : i
-                        }
-                    })
+                })
             .gesture(panGesture(vw: vw, pps: pps, offsetX: offsetX)
                 .simultaneously(with: pinchGesture()))
         }
@@ -2902,42 +2986,14 @@ struct ChopTimeline: View {
     }
 }
 
+/// Web renderRetakes() card, one for one: rose-bordered while pending,
+/// "Needs decision" chip, take panels with ▶ + full-width blue Keep buttons,
+/// AI pick badge on Take 2, Keep both / Not a retake / Reset in the footer.
 struct RetakeCard: View {
     let pair: ChopPair
     @ObservedObject var player: ChopPlayer
 
-    private func label(_ key: String) -> String {
-        key == "a" ? "Take 1 · first attempt" : "Take 2 · final attempt"
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(pair.weak ? "Possible retake" : "Retake \(pair.id + 1)")
-                    .font(.subheadline.weight(.semibold))
-                Text("\(Int(pair.sim * 100))% match")
-                    .font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Text(statusText).font(.caption)
-                    .foregroundStyle(pair.choice == nil ? .orange : .secondary)
-            }
-
-            take("a", text: pair.aText, len: pair.aLen)
-            take("b", text: pair.bText, len: pair.bLen)
-
-            HStack {
-                Button("Keep both") { player.choose(pair: pair.id, take: "both") }
-                    .font(.caption)
-                if pair.choice != nil {
-                    Button("Undo") { player.choose(pair: pair.id, take: nil) }
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-        }
-        .padding(12)
-        .background(Color.gray.opacity(0.12))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
+    private var pending: Bool { pair.choice == nil }
 
     private var statusText: String {
         switch pair.choice {
@@ -2948,37 +3004,121 @@ struct RetakeCard: View {
         }
     }
 
+    private func segIndex(_ key: String) -> Int? {
+        player.segments.firstIndex { $0.retake == key && $0.pair == pair.id }
+    }
+
+    private func choose(_ take: String?) {
+        player.choose(pair: pair.id, take: take)
+        if player.undecided == 0, take != nil {
+            ChopToasts.shared.show("All retakes reviewed — hit the Done button when you’re happy")
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+
+            // .rkhead — Retake N · X% match · status chip
+            HStack(spacing: 6) {
+                Text(pair.weak ? "Possible retake" : "Retake \(pair.id + 1)")
+                    .font(.system(size: 15, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                Text("\(Int(pair.sim * 100))% match")
+                    .font(.system(size: 12.5)).foregroundStyle(ChopColor.muted)
+                if pair.weak && pending {
+                    Text("CHECK").font(.system(size: 9, weight: .heavy))
+                        .foregroundStyle(ChopColor.amber)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(ChopColor.amberSoft, in: RoundedRectangle(cornerRadius: 5))
+                }
+                Spacer()
+                Text(statusText)
+                    .font(.system(size: 11.5, weight: .heavy))
+                    .foregroundStyle(pending ? ChopColor.rose : ChopColor.green)
+                    .padding(.horizontal, 9).padding(.vertical, 3)
+                    .background(pending ? ChopColor.roseSoft : ChopColor.greenSoft, in: Capsule())
+            }
+
+            take("a", label: "Take 1 · first attempt", text: pair.aText, len: pair.aLen)
+            take("b", label: "Take 2 · final attempt", text: pair.bText, len: pair.bLen)
+
+            // .rkfoot
+            HStack(spacing: 14) {
+                if pair.weak && pending {
+                    Button("✕ Not a retake") { choose("both") }
+                        .font(.system(size: 12.5, weight: .bold)).foregroundStyle(ChopColor.muted)
+                }
+                Button("Keep both") { choose("both") }
+                    .font(.system(size: 12.5, weight: .bold)).foregroundStyle(ChopColor.muted)
+                if pair.choice != nil {
+                    Button("Reset") { choose(nil) }
+                        .font(.system(size: 12.5, weight: .bold)).foregroundStyle(ChopColor.muted)
+                }
+                Spacer()
+            }
+            .padding(.top, 2)
+        }
+        .padding(14)
+        .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12)
+            .stroke(pending ? ChopColor.rose.opacity(0.55) : ChopColor.green.opacity(0.45),
+                    lineWidth: 1))
+    }
+
+    // .take — panel per take: header, quote, ▶ + Keep this take
     @ViewBuilder
-    private func take(_ key: String, text: String, len: Double) -> some View {
+    private func take(_ key: String, label: String, text: String, len: Double) -> some View {
         let chosen = pair.choice == key
         let dropped = pair.choice != nil && pair.choice != "both" && pair.choice != key
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(label(key)).font(.caption.weight(.medium))
-                Text(String(format: "%.1fs", len)).font(.caption2).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text(label).font(.system(size: 13.5, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                Text(String(format: "%.1fs", len))
+                    .font(.system(size: 12)).foregroundStyle(ChopColor.muted)
                 if key == "b" {
-                    Text("AI pick").font(.caption2)
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Color.blue.opacity(0.2))
-                        .clipShape(Capsule())
+                    Text("AI pick").font(.system(size: 9.5, weight: .heavy))
+                        .foregroundStyle(ChopColor.green)
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(ChopColor.greenSoft, in: RoundedRectangle(cornerRadius: 7))
                 }
                 Spacer()
             }
             Text("\u{201C}\(text)\u{201D}")
-                .font(.footnote)
-                .foregroundStyle(dropped ? .secondary : .primary)
+                .font(.system(size: 14.5))
+                .foregroundStyle(dropped ? ChopColor.muted : ChopColor.ink)
                 .strikethrough(dropped)
-            Button(chosen ? "Keeping this" : "Keep this take") {
-                player.choose(pair: pair.id, take: key)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button {
+                    if let i = segIndex(key), !player.cut(i) {
+                        player.playFrom(segment: i)
+                        player.player.play()
+                    } else {
+                        ChopToasts.shared.show("This take is cut right now — Keep it to preview")
+                    }
+                } label: {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 11, weight: .bold)).foregroundStyle(ChopColor.ink)
+                        .frame(width: 40, height: 40)
+                        .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 11))
+                        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.chopLine, lineWidth: 1))
+                }
+                Button {
+                    choose(key)
+                } label: {
+                    Text(chosen ? "✓ Keeping this" : "Keep this take")
+                        .font(.system(size: 13.5, weight: .heavy))
+                        .frame(maxWidth: .infinity).padding(.vertical, 11)
+                        .background(chosen ? ChopColor.green : ChopColor.blue,
+                                    in: RoundedRectangle(cornerRadius: 11))
+                        .foregroundStyle(.white)
+                }
             }
-            .font(.caption.weight(.semibold))
-            .buttonStyle(.bordered)
         }
-        .padding(10)
-        .background(chosen ? Color.blue.opacity(0.15) : Color.clear)
-        .overlay(RoundedRectangle(cornerRadius: 10)
-            .stroke(chosen ? Color.blue : Color.gray.opacity(0.3), lineWidth: 1))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .padding(12)
+        .background(ChopColor.soft2.opacity(dropped ? 0.4 : 1),
+                    in: RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11)
+            .stroke(chosen ? ChopColor.green : Color.chopLine, lineWidth: chosen ? 1.5 : 1))
         .opacity(dropped ? 0.55 : 1)
     }
 }
@@ -3985,7 +4125,7 @@ struct ChopLabBody: View {
             }
     }
 
-    private static func ms(_ v: Double) -> String {
+    static func ms(_ v: Double) -> String {
         let i = Int(v)
         return i >= 0 ? "+\(i)ms" : "−\(abs(i))ms"
     }
