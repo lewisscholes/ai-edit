@@ -3054,82 +3054,142 @@ struct ChopLabBody: View {
     @State private var s = ChopPresets.saved
     @State private var savedNote = false
 
+    // web PRESETS copy, verbatim
+    private let presetMeta: [(String, String, ChopSettings?)] = [
+        ("Relaxed",  "Keeps natural pauses. Silences over 0.7s, hard fillers only.",            ChopPresets.relaxed),
+        ("Balanced", "The Chop standard. Silences over 0.4s, fillers removed.",                 ChopPresets.balanced),
+        ("Snappy",   "TikTok-tight. Silences over 0.05s, all fillers, tight clip ends.",        ChopPresets.snappy),
+        ("Custom",   "Your own recipe, saved from the sliders below.",                          nil)
+    ]
+
     var body: some View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
 
+                    // .hero — web parity
+                    Text("Cut Lab")
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundStyle(ChopColor.ink)
                     Text("Dial in your cutting style once — every video you drop gets chopped with these settings automatically.")
-                        .font(.footnote).foregroundStyle(Color.chopMuted)
+                        .font(.system(size: 15.5)).foregroundStyle(Color.chopMuted)
+                        .padding(.bottom, 6)
 
-                    HStack(spacing: 10) {
-                        preset("Relaxed", "Keeps natural pauses", ChopPresets.relaxed)
-                        preset("Balanced", "The Chop standard", ChopPresets.balanced)
-                        preset("Snappy", "TikTok-tight", ChopPresets.snappy)
+                    // .presets — 2×2 grid incl. Custom, DEFAULT badge on the saved one
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
+                        ForEach(0..<presetMeta.count, id: \.self) { i in
+                            presetCard(presetMeta[i].0, presetMeta[i].1, presetMeta[i].2)
+                        }
                     }
+                    .padding(.top, 6)
 
-                    group("Fine-tune") {
+                    // .labcard — Fine-tune
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Fine-tune").font(.system(size: 16, weight: .bold)).foregroundStyle(ChopColor.ink)
+                        Text("These become your defaults for every new video. You can still tweak any single video in the editor.")
+                            .font(.system(size: 12.5)).foregroundStyle(ChopColor.muted)
+                            .padding(.bottom, 4)
+
                         slider("Remove silences over", value: $s.minSil,
-                               range: 0.05...1.0, step: 0.05, fmt: { String(format: "%.2fs", $0) },
+                               range: 0.01...2.0, step: 0.01, fmt: { String(format: "%.2fs", $0) },
                                note: "Any pause longer than this is cut automatically.")
 
-                        Toggle("Remove filler words", isOn: $s.fillers)
-                            .font(.subheadline).tint(Color.chopBlue)
-                        Text("um, uh, hmm…").font(.caption2).foregroundStyle(Color.chopMuted)
-
-                        Toggle("Also soft fillers", isOn: $s.soft)
-                            .font(.subheadline).tint(Color.chopBlue)
-                        Text("like, you know, I mean — only when isolated")
-                            .font(.caption2).foregroundStyle(Color.chopMuted)
+                        toggleRow("Remove filler words", "um, uh, hmm…", $s.fillers)
+                        toggleRow("Also soft fillers", "like, you know, I mean — only when isolated", $s.soft)
 
                         slider("Clip start", value: $s.startPadMs,
-                               range: -200...200, step: 10, fmt: { "\(Int($0))ms" },
+                               range: -300...300, step: 10, fmt: { Self.ms($0) },
                                note: "Positive keeps a little more before each clip.")
 
                         slider("Clip end", value: $s.endPadMs,
-                               range: -200...200, step: 10, fmt: { "\(Int($0))ms" },
+                               range: -300...300, step: 10, fmt: { Self.ms($0) },
                                note: "Negative trims tighter after each clip.")
+
+                        // .savebar
+                        HStack(spacing: 10) {
+                            Button {
+                                ChopPresets.save(s); savedNote = true
+                            } label: {
+                                Text("Save as my default")
+                                    .font(.system(size: 14, weight: .heavy)).foregroundStyle(.white)
+                                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+                                    .background(ChopColor.blue, in: RoundedRectangle(cornerRadius: 12))
+                            }
+                            Button {
+                                s = ChopPresets.balanced; savedNote = false
+                            } label: {
+                                Text("Reset to Balanced")
+                                    .font(.system(size: 13, weight: .bold)).foregroundStyle(ChopColor.ink)
+                                    .padding(.vertical, 13).padding(.horizontal, 20)
+                                    .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 12))
+                            }
+                        }
+                        .padding(.top, 8)
+
+                        if savedNote {
+                            Text("Saved — every new video will use these settings")
+                                .font(.caption).foregroundStyle(Color.chopGreen)
+                                .frame(maxWidth: .infinity)
+                        }
                     }
+                    .padding(24)
+                    .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 16))
+                    .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.chopLine, lineWidth: 1))
 
                     ChopLabPreview(settings: s)
-
-                    Button {
-                        ChopPresets.save(s)
-                        savedNote = true
-                    } label: {
-                        Text("Save as my default").frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent).tint(Color.chopBlue)
-
-                    Button("Reset to Balanced") { s = ChopPresets.balanced }
-                        .font(.footnote).foregroundStyle(Color.chopMuted)
-                        .frame(maxWidth: .infinity)
-
-                    if savedNote {
-                        Text("Saved — every new video will use these settings")
-                            .font(.caption).foregroundStyle(Color.chopGreen)
-                            .frame(maxWidth: .infinity)
-                    }
                 }
                 .padding(16)
-                .padding(.bottom, 90)
+                .padding(.bottom, 110)
             }
     }
 
-    private func preset(_ title: String, _ desc: String, _ v: ChopSettings) -> some View {
-        let on = s.matches(v)
-        return Button { s = v; savedNote = false } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.caption.weight(.bold)).foregroundStyle(on ? Color.chopInk : Color.chopMuted)
-                Text(desc).font(.system(size: 9)).foregroundStyle(Color.chopMuted)
-                    .fixedSize(horizontal: false, vertical: true)
+    private static func ms(_ v: Double) -> String {
+        let i = Int(v)
+        return i >= 0 ? "+\(i)ms" : "−\(abs(i))ms"
+    }
+
+    private func toggleRow(_ title: String, _ sub: String, _ binding: Binding<Bool>) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.system(size: 14, weight: .bold)).foregroundStyle(ChopColor.ink)
+                Text(sub).font(.system(size: 12)).foregroundStyle(ChopColor.muted)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(10)
-            .background(on ? Color.chopBlue.opacity(0.22) : Color.chopPanel)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12)
-                .stroke(on ? Color.chopBlue : Color.chopLine, lineWidth: 1))
+            Spacer()
+            Toggle("", isOn: binding).labelsHidden().tint(Color.chopBlue)
         }
+        .padding(.vertical, 6)
+        .overlay(Rectangle().fill(ChopColor.line).frame(height: 1), alignment: .bottom)
+    }
+
+    private func presetCard(_ title: String, _ desc: String, _ v: ChopSettings?) -> some View {
+        let isCustom = v == nil
+        let on = isCustom ? ChopPresets.name(s) == "Custom" : s.matches(v!)
+        let isDefault = isCustom ? ChopPresets.name(ChopPresets.saved) == "Custom"
+                                 : ChopPresets.saved.matches(v!)
+        return Button { if let v { s = v; savedNote = false } } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(ChopColor.ink)
+                Text(desc).font(.system(size: 12)).foregroundStyle(ChopColor.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+            }
+            .frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading)
+            .padding(.horizontal, 20).padding(.vertical, 18)
+            .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16)
+                .stroke(on ? ChopColor.blue : Color.chopLine, lineWidth: 1.5))
+            .shadow(color: on ? ChopColor.blue.opacity(0.13) : .clear, radius: 11, y: 4)
+            .overlay(alignment: .topTrailing) {
+                if isDefault {
+                    Text("DEFAULT")
+                        .font(.system(size: 10, weight: .heavy)).foregroundStyle(.white)
+                        .padding(.horizontal, 10).padding(.vertical, 2)
+                        .background(ChopColor.blue, in: Capsule())
+                        .offset(x: -12, y: -10)
+                }
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
