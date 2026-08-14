@@ -3031,6 +3031,7 @@ struct ChopTimeline: View {
         DragGesture(minimumDistance: 10)
             .onChanged { g in
                 guard zoomStart == nil else { return }   // pinching: zoom-only
+                guard trimLive == nil else { return }    // trimming: the cursor must hold still
                 if dragStartTime == nil { dragStartTime = p.time; p.scrubbing = true }
                 let t = max(0, min(p.duration, (dragStartTime ?? 0) - Double(g.translation.width / pps)))
                 p.time = t
