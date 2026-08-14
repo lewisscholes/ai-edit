@@ -465,6 +465,8 @@ final class ChopAPI: ObservableObject {
     @Published var password = ""
     @Published var busy = false
     @Published var error = ""
+    @Published var note = ""                 // green .anote panel, web parity
+    @Published var wantsSignInMode = false   // user_already_exists → flip to Sign in, keep email
     @Published var signedIn = false
     @Published var jobs: [ChopJob] = []
     @Published var credits: Int = 0
@@ -475,8 +477,32 @@ final class ChopAPI: ObservableObject {
     private(set) var accessToken = ""
     private(set) var userId = ""
 
+    /// Web-parity auth error strings — SPEC_02_AUTH.md, do not paraphrase.
+    static func mapAuthError(_ raw: String, mode: String) -> String {
+        let r = raw.lowercased()
+        if r.contains("already registered") || r.contains("user_already_exists") || r.contains("already exists") {
+            return "That email already has a Chop account. Sign in instead — your credits are waiting."
+        }
+        if r.contains("invalid login credentials") || r.contains("invalid_credentials") || r.contains("invalid_grant") {
+            return "No account matches that email and password. Check them, or create an account."
+        }
+        if r.contains("at least 6") || r.contains("password should be") {
+            return "Pick a password with at least 6 characters."
+        }
+        if r.contains("validate email") || r.contains("valid email") || r.contains("invalid email") || (r.contains("email") && r.contains("invalid")) {
+            return "That doesn't look like a valid email address."
+        }
+        if r.contains("rate limit") || r.contains("too many") {
+            return "Too many attempts — wait a minute and try again."
+        }
+        if r.contains("offline") || r.contains("network") || r.contains("timed out") || r.contains("could not connect") || r.contains("cannot connect") {
+            return "Couldn't reach the sign-in service — refresh to retry."
+        }
+        return "That didn't work — try again."
+    }
+
     func signIn(creating: Bool = false) async {
-        error = ""; busy = true
+        error = ""; note = ""; busy = true
         defer { busy = false }
 
         let path = creating ? "\(SB_URL)/auth/v1/signup" : "\(SB_URL)/auth/v1/token"
@@ -498,17 +524,24 @@ final class ChopAPI: ObservableObject {
             guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 error = "Unexpected response"; return
             }
-            if let msg = obj["error_description"] as? String { error = msg; return }
-            if let msg = obj["msg"] as? String, obj["access_token"] == nil { error = msg; return }
-            if let m = obj["error"] as? String, obj["access_token"] == nil { error = m; return }
+            let rawError = (obj["error_description"] as? String)
+                ?? (obj["access_token"] == nil ? (obj["msg"] as? String) ?? (obj["error"] as? String) : nil)
+            if let raw = rawError {
+                let mapped = ChopAPI.mapAuthError(raw, mode: creating ? "up" : "in")
+                error = mapped
+                if mapped.hasPrefix("That email already has a Chop account") { wantsSignInMode = true }
+                return
+            }
             if creating, obj["access_token"] == nil {
-                error = "Almost there — check your inbox and confirm your email, then sign in."
+                // confirmation-required signup: green note + flip to Sign in (web parity)
+                note = "Almost there — check your inbox and confirm your email, then sign in."
+                wantsSignInMode = true
                 return
             }
             guard let token = obj["access_token"] as? String,
                   let user = obj["user"] as? [String: Any],
                   let uid = user["id"] as? String else {
-                error = "Couldn't sign in"; return
+                error = "That didn't work — try again."; return
             }
             accessToken = token
             userId = uid
@@ -516,8 +549,22 @@ final class ChopAPI: ObservableObject {
             await loadProfile()
             await loadJobs()
         } catch {
-            self.error = error.localizedDescription
+            self.error = "Couldn't reach the sign-in service — refresh to retry."
         }
+    }
+
+    /// Save a new password mid-recovery (mode `new`). PUT /auth/v1/user.
+    func updatePassword(_ newPassword: String) async -> Bool {
+        guard let url = URL(string: "\(SB_URL)/auth/v1/user") else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["password": newPassword])
+        guard let (_, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse else { return false }
+        return (200...299).contains(http.statusCode)
     }
 
     func loadJobs() async {
@@ -766,6 +813,56 @@ final class ChopAPI: ObservableObject {
     }
 }
 
+// MARK: - Auth artwork (web SVG paths, not SF Symbols — SPEC_02_AUTH)
+
+/// The four benefit icons from app/index.html lines 824–827, redrawn as Paths
+/// in a 24×24 space and scaled to the frame.
+struct AuthIcon: Shape {
+    enum Kind { case scissors, filmstrip, download, bolt }
+    let kind: Kind
+
+    func path(in rect: CGRect) -> Path {
+        let s = rect.width / 24.0
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * s, y: y * s) }
+        var p = Path()
+        switch kind {
+        case .scissors:
+            p.addEllipse(in: CGRect(x: (6 - 2.4) * s, y: (6.5 - 2.4) * s, width: 4.8 * s, height: 4.8 * s))
+            p.addEllipse(in: CGRect(x: (6 - 2.4) * s, y: (17.5 - 2.4) * s, width: 4.8 * s, height: 4.8 * s))
+            p.move(to: pt(8, 8.1));  p.addLine(to: pt(19.5, 19))
+            p.move(to: pt(8, 15.9)); p.addLine(to: pt(19.5, 5))
+        case .filmstrip:
+            p.addRoundedRect(in: CGRect(x: 3 * s, y: 4.5 * s, width: 18 * s, height: 15 * s),
+                             cornerSize: CGSize(width: 2 * s, height: 2 * s))
+            p.move(to: pt(3, 9.5));   p.addLine(to: pt(21, 9.5))
+            p.move(to: pt(7.2, 4.5)); p.addLine(to: pt(9.2, 9.5))
+            p.move(to: pt(12, 4.5));  p.addLine(to: pt(14, 9.5))
+            p.move(to: pt(16.8, 4.5)); p.addLine(to: pt(18.8, 9.5))
+        case .download:
+            p.move(to: pt(12, 4));   p.addLine(to: pt(12, 14.5))
+            p.move(to: pt(8, 10.5)); p.addLine(to: pt(12, 14.5)); p.addLine(to: pt(16, 10.5))
+            p.move(to: pt(5, 19.5)); p.addLine(to: pt(19, 19.5))
+        case .bolt:
+            p.move(to: pt(13, 2.5)); p.addLine(to: pt(5.5, 13.5)); p.addLine(to: pt(11, 13.5))
+            p.addLine(to: pt(10, 21.5)); p.addLine(to: pt(18.5, 10.5)); p.addLine(to: pt(13, 10.5))
+            p.closeSubpath()
+        }
+        return p
+    }
+}
+
+/// 44px grid at 9% white — the web panel's ::before overlay.
+struct AuthGridOverlay: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        var x: CGFloat = 44
+        while x < rect.width { p.move(to: CGPoint(x: x, y: 0)); p.addLine(to: CGPoint(x: x, y: rect.height)); x += 44 }
+        var y: CGFloat = 44
+        while y < rect.height { p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: rect.width, y: y)); y += 44 }
+        return p
+    }
+}
+
 // MARK: - UI
 
 struct ChopRootView: View {
@@ -796,6 +893,19 @@ struct ChopRootView: View {
         .preferredColorScheme(theme.scheme)
         .tint(ChopColor.blue)
         .chopToasts()
+        .onAppear {
+            // debug-only: `simctl launch … -screen auth|auth-up|auth-reset` jumps
+            // straight to a screen so the review loop can screenshot it
+            let args = ProcessInfo.processInfo.arguments
+            if let i = args.firstIndex(of: "-screen"), i + 1 < args.count {
+                switch args[i + 1] {
+                case "auth":       showAuth = true; authMode = 0
+                case "auth-up":    showAuth = true; authMode = 1
+                case "auth-reset": showAuth = true; authStage = 1
+                default: break
+                }
+            }
+        }
     }
 
     private var reviewCount: Int {
@@ -833,87 +943,172 @@ struct ChopRootView: View {
         ScrollView {
             VStack(spacing: 16) {
 
-                Group {
-                    if UIImage(named: "ChopMark") != nil {
-                        Image("ChopMark").resizable().scaledToFit()
-                    } else { RoundedRectangle(cornerRadius: 16).fill(chopGradient) }
-                }
-                .frame(width: 56, height: 56)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .padding(.top, 20)
+                // ---- the auth card (web .authform: card bg, 1px line, r20, 26×24) ----
+                VStack(spacing: 0) {
 
-                Text(authTitle).font(ChopFont.h2()).foregroundStyle(ChopColor.ink)
-                Text(authSub).font(ChopFont.small).foregroundStyle(ChopColor.muted)
-                    .multilineTextAlignment(.center)
-
-                if authStage == 0 {
-                    HStack(spacing: 4) {
-                        authTab("Sign in", 0)
-                        authTab("Create account", 1)
+                    Group {
+                        if UIImage(named: "ChopMark") != nil {
+                            Image("ChopMark").resizable().scaledToFit()
+                        } else { RoundedRectangle(cornerRadius: 14).fill(chopGradient) }
                     }
-                    .padding(4)
-                    .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 13))
-                }
+                    .frame(width: 52, height: 52)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .padding(.bottom, 18)
 
-                if authStage != 2 {
-                    ChopField(label: "Email", placeholder: "you@example.com", text: $api.email)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.emailAddress)
-                }
-                if authStage == 0 {
-                    ChopField(label: "Password", placeholder: "••••••••", secure: true, text: $api.password)
-                }
-                if authStage == 2 {
-                    ChopField(label: "New password", placeholder: "••••••••", secure: true, text: $newPassword)
-                }
-
-                ChopButton(title: authButton, kind: .primary, loading: api.busy) {
-                    Task { await runAuth() }
-                }
-
-                if !api.error.isEmpty {
-                    Text(api.error).font(ChopFont.small).foregroundStyle(ChopColor.rose)
+                    Text(authTitle)
+                        .font(.system(size: 21, weight: .heavy))
+                        .foregroundStyle(ChopColor.ink)
+                        .padding(.bottom, 4)
+                    Text(authSub)
+                        .font(.system(size: 13.5))
+                        .foregroundStyle(ChopColor.muted)
                         .multilineTextAlignment(.center)
-                }
+                        .padding(.bottom, 22)
 
-                if authStage == 0 && authMode == 0 {
-                    Button("Forgot your password?") { authStage = 1; api.error = "" }
-                        .font(ChopFont.small).foregroundStyle(ChopColor.muted)
-                }
-                if authStage != 0 {
-                    Button("Back to sign in") { authStage = 0; authMode = 0; api.error = "" }
-                        .font(ChopFont.small).foregroundStyle(ChopColor.muted)
-                }
+                    if authStage == 0 {
+                        HStack(spacing: 4) {
+                            authTab("Sign in", 0)
+                            authTab("Create account", 1)
+                        }
+                        .padding(4)
+                        .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 12))
+                        .padding(.bottom, 20)
+                    }
 
-                if authStage == 0 {
-                    Text("✦ New accounts get 3 free videos")
-                        .font(.system(size: 11.5, weight: .heavy))
-                        .foregroundStyle(ChopColor.violet)
-                        .padding(.horizontal, 12).padding(.vertical, 7)
-                        .background(ChopColor.violetSoft, in: Capsule())
-                }
+                    VStack(spacing: 14) {
+                        if authStage != 2 {
+                            ChopField(label: "Email", placeholder: "you@example.com", text: $api.email)
+                                .textInputAutocapitalization(.never)
+                                .autocorrectionDisabled()
+                                .keyboardType(.emailAddress)
+                        }
+                        if authStage == 0 {
+                            ChopField(label: "Password", placeholder: "••••••••", secure: true, text: $api.password)
+                        }
+                        if authStage == 2 {
+                            ChopField(label: "New password", placeholder: "••••••••", secure: true, text: $newPassword)
+                        }
+                    }
+                    .onSubmit { Task { await runAuth() } }   // Enter submits, web parity
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Post more.\nEdit nothing.")
-                        .font(.system(size: 22, weight: .bold))
-                        .foregroundStyle(.white)
-                    authBullet("Dead air, filler words and retakes cut automatically — in seconds")
-                    authBullet("Retakes shown side by side — nothing is ever deleted without you")
-                    authBullet("Renders on your device — post straight to TikTok, Reels or Shorts")
-                    authBullet("Start with 3 free videos — no card, no subscription")
+                    ChopButton(title: authButton, kind: .primary, loading: api.busy) {
+                        Task { await runAuth() }
+                    }
+                    .padding(.top, 6)
+
+                    // .aerr — reserved height so the card never jumps
+                    Text(api.error)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(ChopColor.rose)
+                        .multilineTextAlignment(.center)
+                        .frame(minHeight: 18)
+                        .padding(.top, 10)
+
+                    // .anote — green success note
+                    if !api.note.isEmpty {
+                        Text(api.note)
+                            .font(.system(size: 12.5, weight: .bold))
+                            .foregroundStyle(ChopColor.green)
+                            .multilineTextAlignment(.center)
+                            .padding(.vertical, 10).padding(.horizontal, 14)
+                            .frame(maxWidth: .infinity)
+                            .background(ChopColor.greenSoft, in: RoundedRectangle(cornerRadius: 11))
+                            .padding(.top, 12)
+                    }
+
+                    if authStage == 0 && authMode == 0 {
+                        Button("Forgot your password?") {
+                            api.email = api.email.trimmingCharacters(in: .whitespaces)
+                            authStage = 1; clearAuthMessages()
+                        }
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(ChopColor.muted)
+                        .padding(.top, 12)
+                    }
+                    if authStage != 0 {
+                        Button("Back to sign in") { authStage = 0; authMode = 0; clearAuthMessages() }
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(ChopColor.muted)
+                            .padding(.top, 12)
+                    }
+
+                    if authStage == 0 {
+                        Text("✦ New accounts get 3 free videos")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(ChopColor.muted)
+                            .padding(.top, 16)
+                    }
                 }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(chopGradient)
-                .clipShape(RoundedRectangle(cornerRadius: ChopRadius.xl))
-                .padding(.top, 12)
+                .padding(.vertical, 26).padding(.horizontal, 24)
+                .frame(maxWidth: 440)
+                .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 20))
+                .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(ChopColor.line, lineWidth: 1))
+                .padding(.top, 14)
+
+                // ---- .abenefit — gradient sell panel, BELOW the form on phone ----
+                authBenefits
+                    .frame(maxWidth: 440)
 
                 Spacer(minLength: 20)
             }
-            .padding(22)
+            .padding(.horizontal, 18)
+            .frame(maxWidth: .infinity)
         }
         .background(ChopColor.bg)
+        .onChange(of: api.wantsSignInMode) { _, flip in
+            if flip { authMode = 0; api.wantsSignInMode = false }   // keep the typed email
+        }
+    }
+
+    private func clearAuthMessages() { api.error = ""; api.note = "" }
+
+    private var authBenefits: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Spacer()
+                HStack(spacing: 7) {
+                    Group {
+                        if UIImage(named: "ChopMark") != nil {
+                            Image("ChopMark").resizable().scaledToFit()
+                        } else { RoundedRectangle(cornerRadius: 6).fill(.white.opacity(0.2)) }
+                    }
+                    .frame(width: 24, height: 24)
+                    .background(.white.opacity(0.2), in: RoundedRectangle(cornerRadius: 6))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    Text("Chop").font(.system(size: 14, weight: .heavy)).foregroundStyle(.white)
+                }
+            }
+            Text("Post more.\nEdit nothing.")
+                .font(.system(size: 21, weight: .bold))
+                .lineSpacing(21 * 0.2)
+                .kerning(-0.21)
+                .foregroundStyle(.white)
+            authBullet(.scissors,  "Dead air, filler words and retakes cut automatically — in seconds")
+            authBullet(.filmstrip, "Retakes shown side by side — nothing is ever deleted without you")
+            authBullet(.download,  "Renders on your device — post straight to TikTok, Reels or Shorts")
+            authBullet(.bolt,      "Start with 3 free videos — no card, no subscription")
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            ZStack {
+                chopGradient
+                AuthGridOverlay().stroke(.white.opacity(0.09), lineWidth: 1)   // 44px grid, web ::before
+            }
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+    }
+
+    private func authBullet(_ icon: AuthIcon.Kind, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            AuthIcon(kind: icon)
+                .stroke(.white, style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+                .frame(width: 16, height: 16)
+                .padding(7)
+                .background(.white.opacity(0.16), in: Circle())
+            Text(text).font(.system(size: 13)).foregroundStyle(.white.opacity(0.95))
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private var authTitle: String {
@@ -939,37 +1134,46 @@ struct ChopRootView: View {
     }
 
     private func runAuth() async {
+        clearAuthMessages()
         if authStage == 1 {
+            // mode `reset`
             let e = api.email.trimmingCharacters(in: .whitespaces)
             guard !e.isEmpty else { api.error = "Enter your email address."; return }
-            _ = await api.sendPasswordReset(email: e)
-            ChopToasts.shared.show("Check your inbox — we've sent you a link to set a new password.")
-            authStage = 0
+            if await api.sendPasswordReset(email: e) {
+                api.note = "Check your inbox — we've sent you a link to set a new password."
+            } else {
+                api.error = "Couldn't send that — try again."
+            }
             return
+        }
+        if authStage == 2 {
+            // mode `new`
+            guard newPassword.count >= 6 else { api.error = "Use at least 6 characters."; return }
+            if await api.updatePassword(newPassword) {
+                api.note = "Password updated — sign in with it now."
+                newPassword = ""; authStage = 0; authMode = 0
+            } else {
+                api.error = "Couldn't save that — try again."
+            }
+            return
+        }
+        // modes `in` / `up`
+        guard !api.email.trimmingCharacters(in: .whitespaces).isEmpty, !api.password.isEmpty else {
+            api.error = "Enter your email and a password."; return
         }
         await api.signIn(creating: authMode == 1)
     }
 
     private func authTab(_ title: String, _ mode: Int) -> some View {
         let on = authMode == mode
-        return Button { authMode = mode; api.error = "" } label: {
+        return Button { authMode = mode; clearAuthMessages() } label: {
             Text(title)
                 .font(.system(size: 13.5, weight: .heavy))
                 .foregroundStyle(on ? ChopColor.ink : ChopColor.muted)
-                .frame(maxWidth: .infinity).padding(.vertical, 10)
+                .frame(maxWidth: .infinity).padding(.vertical, 9)
                 .background(on ? ChopColor.card : .clear,
-                            in: RoundedRectangle(cornerRadius: 10))
-        }
-    }
-
-    private func authBullet(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "checkmark")
-                .font(.system(size: 10, weight: .black)).foregroundStyle(.white)
-                .frame(width: 22, height: 22)
-                .background(.white.opacity(0.22), in: Circle())
-            Text(text).font(.system(size: 13)).foregroundStyle(.white.opacity(0.95))
-                .fixedSize(horizontal: false, vertical: true)
+                            in: RoundedRectangle(cornerRadius: 9))
+                .shadow(color: on ? .black.opacity(0.06) : .clear, radius: 2, y: 1)
         }
     }
 
