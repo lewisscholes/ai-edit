@@ -480,6 +480,7 @@ final class ChopAPI: ObservableObject {
     @Published var signedIn = false
     @Published var jobs: [ChopJob] = []
     @Published var credits: Int = 0
+    @Published var editorOpen = false   // hides the glass nav while editing
     @Published var profileName = ""
     @Published var profileTiktok = ""
     @Published var profileAvatar = ""
@@ -1081,7 +1082,9 @@ struct ChopRootView: View {
                 .onChange(of: api.credits) { _, c in if c <= 0 && api.signedIn { showOOC = true } }
                 .refreshable { await api.loadJobs() }
             }
-            ChopGlassNav(tab: $tab, queueCount: reviewCount)
+            if !api.editorOpen {   // web: no Dashboard/Queue/Cut Lab pill inside the editor
+                ChopGlassNav(tab: $tab, queueCount: reviewCount)
+            }
         }
     }
 
@@ -1628,6 +1631,7 @@ final class ChopPlayer: ObservableObject {
         var minSil: Double
         var fillers: Bool
         var soft: Bool
+        var splits: [Double] = []
     }
     private var past: [Snapshot] = []
     private var future: [Snapshot] = []
@@ -1875,11 +1879,13 @@ final class ChopPlayer: ObservableObject {
     private func snap() -> Snapshot {
         Snapshot(pairs: pairs, segments: segments,
                  manualCuts: edit?.manualCuts ?? [],
-                 minSil: minSil, fillers: fillers, soft: softFillers)
+                 minSil: minSil, fillers: fillers, soft: softFillers,
+                 splits: splits)
     }
     private func apply(_ s: Snapshot) {
         pairs = s.pairs; segments = s.segments
         minSil = s.minSil; fillers = s.fillers; softFillers = s.soft
+        splits = s.splits
         if var e = edit { e.manualCuts = s.manualCuts; edit = e }
         rebuild()
     }
@@ -1982,23 +1988,40 @@ final class ChopPlayer: ObservableObject {
         rebuild()
     }
 
-    // MARK: quick-edit selection ops — ADDITIVE, built on the same
-    // manual-cut + rebuild pattern as deleteClipAtPlayhead. Core untouched.
+    // MARK: quick-edit bands — ADDITIVE layer over the locked core.
+    // Splits are the web's state.splits: pure band boundaries, NO footage
+    // change, NO rebuild — which is why Split never jumps.
 
-    /// Clip boundaries in EDIT time, for selection highlight + hit-testing.
-    var clipSpans: [(start: Double, end: Double)] {
+    @Published var splits: [Double] = []   // raw times
+
+    /// Kept footage subdivided by splits — the web's qeBands(), in raw time.
+    var bands: [(start: Double, end: Double)] {
         guard let e = edit else { return [] }
-        var acc = 0.0; var out: [(Double, Double)] = []
-        for c in e.keptClips() { let l = c.end - c.start; out.append((acc, acc + l)); acc += l }
+        var out: [(Double, Double)] = []
+        for c in e.keptClips() {
+            var cur = c.start
+            for s in splits.sorted() where s > c.start + 0.02 && s < c.end - 0.02 {
+                out.append((cur, s)); cur = s
+            }
+            out.append((cur, c.end))
+        }
         return out
     }
 
-    func clipIndex(atEditTime t: Double) -> Int? {
-        for (i, s) in clipSpans.enumerated() where t >= s.start && t <= s.end { return i }
+    /// Same bands mapped to EDIT time for drawing + hit-testing.
+    var bandSpansEdit: [(start: Double, end: Double)] {
+        bands.compactMap { b in
+            guard let s = editTime(fromRaw: b.start), let e2 = editTime(fromRaw: b.end) else { return nil }
+            return (s, e2)
+        }
+    }
+
+    func bandIndex(atEditTime t: Double) -> Int? {
+        for (i, s) in bandSpansEdit.enumerated() where t >= s.start && t <= s.end { return i }
         return nil
     }
 
-    private func raw(fromEdit t: Double) -> Double? {
+    func raw(fromEdit t: Double) -> Double? {
         guard let e = edit else { return nil }
         var acc = 0.0
         for c in e.keptClips() {
@@ -2009,29 +2032,64 @@ final class ChopPlayer: ObservableObject {
         return nil
     }
 
-    /// Delete a selected clip (web: select section → Delete).
-    func deleteClip(_ i: Int) {
-        guard let e = edit else { return }
-        let clips = e.keptClips(); guard i < clips.count else { return }
-        pushHistory()
-        var ed = e
-        ed.manualCuts.append(ChopClip(start: clips[i].start, end: clips[i].end))
-        edit = ed
-        rebuild()
+    func editTime(fromRaw t: Double) -> Double? {
+        guard let e = edit else { return nil }
+        var acc = 0.0
+        for c in e.keptClips() {
+            if t >= c.start - 0.001 && t <= c.end + 0.001 { return acc + max(0, t - c.start) }
+            acc += c.end - c.start
+        }
+        return nil
     }
 
-    /// Split a selected clip at the playhead (web: select section → Split).
-    /// A 1ms manual cut creates the boundary — imperceptible on playback.
-    func splitClip(_ i: Int, atEditTime t: Double) {
-        guard let e = edit else { return }
-        let clips = e.keptClips(); guard i < clips.count else { return }
-        guard let at = raw(fromEdit: t),
-              at > clips[i].start + 0.05, at < clips[i].end - 0.05 else { return }
-        pushHistory()
-        var ed = e
-        ed.manualCuts.append(ChopClip(start: at, end: at + 0.001))
-        edit = ed
+    /// Rebuild but land the playhead back where the finger left it (raw-anchored).
+    private func rebuildKeepingTime() {
+        let anchor = raw(fromEdit: time)
         rebuild()
+        if let a = anchor, let t = editTime(fromRaw: a) {
+            seekExact(to: min(t, max(0, duration - 0.05)))
+        } else {
+            seekExact(to: min(time, max(0, duration - 0.05)))
+        }
+    }
+
+    /// Web qeSplit: pure boundary, footage untouched, RIGHT band stays selected.
+    /// Returns the index of the right-hand band.
+    func splitBand(atEditTime t: Double) -> Int? {
+        guard let at = raw(fromEdit: t) else { return nil }
+        guard let e = edit,
+              e.keptClips().contains(where: { at > $0.start + 0.05 && at < $0.end - 0.05 })
+        else { return nil }
+        pushHistory()
+        splits.append(at)
+        return bands.firstIndex { abs($0.start - at) < 0.06 }
+    }
+
+    /// Web qeDelete: manual cut over the band, playhead stays put.
+    func deleteBand(_ i: Int) {
+        let bs = bands; guard i < bs.count, var e = edit else { return }
+        pushHistory()
+        e.manualCuts.append(ChopClip(start: bs[i].start, end: bs[i].end))
+        edit = e
+        rebuildKeepingTime()
+    }
+
+    /// Web trim caps: cut the trimmed-away edge, playhead stays put.
+    func trimBand(_ i: Int, newStartRaw: Double? = nil, newEndRaw: Double? = nil) {
+        let bs = bands; guard i < bs.count, var e = edit else { return }
+        let b = bs[i]
+        var cuts: [ChopClip] = []
+        if let ns = newStartRaw, ns > b.start + 0.02 {
+            cuts.append(ChopClip(start: b.start, end: min(ns, b.end - 0.05)))
+        }
+        if let ne = newEndRaw, ne < b.end - 0.02 {
+            cuts.append(ChopClip(start: max(ne, b.start + 0.05), end: b.end))
+        }
+        guard !cuts.isEmpty else { return }
+        pushHistory()
+        e.manualCuts.append(contentsOf: cuts)
+        edit = e
+        rebuildKeepingTime()
     }
 
     var manualCutCount: Int { edit?.manualCuts.count ?? 0 }
@@ -2169,12 +2227,11 @@ struct ChopPlayerScreen: View {
                 if p.ready {
                     playBar
                     ChopTimeline(p: p, selected: $selected)
-                        .frame(height: 58)
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 8)
+                        .frame(height: 72)
+                        .clipped()
 
                     // selection swaps the toolbar for Split/Delete/Restore — web body.qesel
-                    if let sel = selected, sel < p.clipSpans.count {
+                    if let sel = selected, sel < p.bandSpansEdit.count {
                         selBar(sel)
                     } else {
                         toolbar
@@ -2229,22 +2286,30 @@ struct ChopPlayerScreen: View {
             guard flag.hasPrefix("editor-") else { return }
             while !p.ready { try? await Task.sleep(nanoseconds: 200_000_000) }
             try? await Task.sleep(nanoseconds: 400_000_000)
-            if flag == "editor-sel", p.clipSpans.count > 1 { selected = 1 }
+            if flag == "editor-sel", p.bandSpansEdit.count > 1 { selected = 1 }
             if flag == "editor-compact" { compact = true }
+            if flag == "editor-script" { panel = "script" }
         }
-        .onChange(of: p.clipCount) { _, _ in selected = nil } // spans shift after any edit
-        .onDisappear { p.player.pause() }
+        .onChange(of: p.clipCount) { _, _ in selected = nil } // cuts changed (split doesn't rebuild, so it survives)
+        .onAppear { api.editorOpen = true }
+        .onDisappear { api.editorOpen = false; p.player.pause() }
     }
 
     // web .mctxbar — Split / Delete / Restore · duration · ✕
     private func selBar(_ sel: Int) -> some View {
-        let span = p.clipSpans[sel]
+        let span = p.bandSpansEdit[sel]
         return HStack(spacing: 8) {
             ctxTool("Split", "scissors", Color.chopInk) {
-                p.splitClip(sel, atEditTime: p.time); selected = nil
+                // web qeSplit: split stays visible, RIGHT band stays selected,
+                // nothing rebuilds, nothing jumps
+                if span.start + 0.05 < p.time, p.time < span.end - 0.05 {
+                    selected = p.splitBand(atEditTime: p.time)
+                } else {
+                    ChopToasts.shared.show("Drag the playhead inside the selected section, then split")
+                }
             }
             ctxTool("Delete", "trash", ChopColor.rose) {
-                p.deleteClip(sel); selected = nil
+                p.deleteBand(sel); selected = nil
             }
             ctxTool("Restore", "arrow.uturn.backward", ChopColor.green) {
                 p.undo(); selected = nil
@@ -2399,10 +2464,18 @@ struct ChopPlayerScreen: View {
     private var actions: some View {
         HStack(spacing: 10) {
             Button {
+                // web approveBtn: pending retakes → open the panel + toast, never a dead button
+                let pend = p.undecided
+                if pend > 0 {
+                    panel = "retakes"
+                    ChopToasts.shared.show("\(pend) retake\(pend > 1 ? "s" : "") still need\(pend > 1 ? "" : "s") a decision")
+                    return
+                }
                 marking = true
                 Task {
                     await api.setStatus(job, to: "approved")
                     marking = false
+                    ChopToasts.shared.show("Moved to Ready to export ✓ — pick your next video")
                     showQueue = true
                 }
             } label: {
@@ -2412,11 +2485,11 @@ struct ChopPlayerScreen: View {
                 }
                 .font(.subheadline.weight(.bold))
                 .frame(maxWidth: .infinity).padding(.vertical, 13)
-                .background(p.undecided > 0 ? Color.chopPanel : Color.white)
-                .foregroundStyle(p.undecided > 0 ? Color.chopMuted : .black)
+                .background(Color.white)
+                .foregroundStyle(.black)
                 .clipShape(RoundedRectangle(cornerRadius: 16))
             }
-            .disabled(marking || p.undecided > 0)
+            .disabled(marking)
 
             Button { showQueue = true } label: {
                 HStack(spacing: 8) {
@@ -2434,6 +2507,55 @@ struct ChopPlayerScreen: View {
         .padding(.horizontal, 14)
         .padding(.bottom, 8)
         .sheet(isPresented: $showQueue) { NavigationStack { ChopQueueBody(api: api).background(Color.chopBg).navigationTitle("Review queue").navigationBarTitleDisplayMode(.inline) }.preferredColorScheme(.dark) }
+    }
+
+    /// One transcript span, web classes → native styling:
+    /// .w.cut.r-filler violet · .r-manual muted · .r-retake rose · .sil chips · .rtag tags
+    @ViewBuilder
+    private func transcriptSpan(_ i: Int, _ seg: ChopSegment) -> some View {
+        let isCut = p.cut(i)
+        if seg.kind == "silence" {
+            Text("··· \(String(format: "%.1fs", seg.end - seg.start))")
+                .font(.system(size: 10.5, weight: .bold))
+                .strikethrough(isCut)
+                .foregroundStyle(isCut ? ChopColor.amber : ChopColor.muted)
+                .padding(.horizontal, 7).padding(.vertical, 1)
+                .background(isCut ? ChopColor.amberSoft : ChopColor.soft2,
+                            in: RoundedRectangle(cornerRadius: 7))
+                .onTapGesture { p.toggleSegment(i) }
+        } else if !seg.text.isEmpty {
+            let reason: (Color, Color) = seg.kind == "filler"
+                ? (ChopColor.violet, ChopColor.violetSoft)
+                : (seg.retake != nil ? (ChopColor.rose, ChopColor.roseSoft)
+                                     : (ChopColor.muted, ChopColor.soft2))
+            let pendingRetake = seg.retake != nil && seg.pair.map { pi in
+                pi < p.pairs.count && p.pairs[pi].choice == nil } ?? false
+            HStack(spacing: 4) {
+                if let r = seg.retake, let pi = seg.pair {
+                    Text("R\(pi + 1)·T\(r == "a" ? "1" : "2")")
+                        .font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(r == "b" ? ChopColor.green : ChopColor.rose,
+                                    in: RoundedRectangle(cornerRadius: 5))
+                }
+                Text(seg.text)
+                    .font(.system(size: 13.5))
+                    .strikethrough(isCut, color: reason.0)
+                    .foregroundStyle(isCut ? reason.0 : ChopColor.ink)
+            }
+            .padding(.horizontal, 2).padding(.vertical, 1)
+            .background(isCut ? reason.1 : (pendingRetake ? ChopColor.roseSoft : .clear),
+                        in: RoundedRectangle(cornerRadius: 5))
+            .overlay {
+                if pendingRetake && !isCut {
+                    RoundedRectangle(cornerRadius: 5)
+                        .strokeBorder(ChopColor.rose, style: StrokeStyle(lineWidth: 1.5, dash: [3, 3]))
+                }
+            }
+            .onTapGesture {
+                if seg.retake != nil { panel = "retakes" } else { p.toggleSegment(i) }
+            }
+        }
     }
 
     @ViewBuilder
@@ -2490,31 +2612,11 @@ struct ChopPlayerScreen: View {
                     .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 14))
                     .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.chopLine, lineWidth: 1))
                 case "script":
-                    ForEach(Array(p.segments.enumerated()), id: \.offset) { i, seg in
-                        if seg.kind == "speech" && !seg.text.isEmpty {
-                            let isCut = p.cut(i)
-                            HStack(alignment: .top, spacing: 10) {
-                                Button { p.playFrom(segment: i) } label: {
-                                    Image(systemName: "play.fill")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(Color.chopMuted)
-                                        .frame(width: 26, height: 26)
-                                        .background(Color.chopBg, in: Circle())
-                                }
-                                Text(seg.text)
-                                    .font(.footnote)
-                                    .strikethrough(isCut)
-                                    .foregroundStyle(isCut ? Color.chopMuted : .white)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Button { p.toggleSegment(i) } label: {
-                                    Image(systemName: isCut ? "arrow.uturn.backward" : "scissors")
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(isCut ? Color.chopGreen : Color.chopMuted)
-                                        .frame(width: 26, height: 26)
-                                        .background(Color.chopBg, in: Circle())
-                                }
-                            }
-                            .padding(.vertical, 4)
+                    // web .tr-flow: one flowing paragraph — words tappable,
+                    // cuts struck through in their reason colour, silences as chips
+                    ChopFlow(spacing: 4, lineSpacing: 9) {
+                        ForEach(Array(p.segments.enumerated()), id: \.offset) { i, seg in
+                            transcriptSpan(i, seg)
                         }
                     }
                 default:
@@ -2533,96 +2635,257 @@ struct ChopPlayerScreen: View {
 /// Filmstrip of the EDIT with a centre-locked playhead. Drag to scrub —
 /// the stick follows your finger and the picture catches up, which is the
 /// behaviour mobile Safari could never manage.
+/// Wrapping flow layout — the web's inline transcript paragraph.
+struct ChopFlow: Layout {
+    var spacing: CGFloat = 4
+    var lineSpacing: CGFloat = 9
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let w = proposal.width ?? 350
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x + s.width > w, x > 0 { x = 0; y += rowH + lineSpacing; rowH = 0 }
+            x += s.width + spacing
+            rowH = max(rowH, s.height)
+        }
+        return CGSize(width: w, height: y + rowH)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let w = bounds.width
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x + s.width > w, x > 0 { x = 0; y += rowH + lineSpacing; rowH = 0 }
+            v.place(at: CGPoint(x: bounds.minX + x, y: bounds.minY + y),
+                    anchor: .topLeading, proposal: .unspecified)
+            x += s.width + spacing
+            rowH = max(rowH, s.height)
+        }
+    }
+}
+
+/// The web app's TikTok timeline, native: centre-locked stick, the strip pans
+/// under it (drag = scrub), pinch = zoom 1–8×, tap = select a band, white
+/// selection frame with ‹ › trim caps you can drag from either end.
 struct ChopTimeline: View {
     @ObservedObject var p: ChopPlayer
     var selected: Binding<Int?>? = nil
 
+    @State private var zoom: CGFloat = 1.5
+    @State private var zoomStart: CGFloat? = nil
+    @State private var dragStartTime: Double? = nil
+    // live trim: (band, side 0=left/1=right, proposed edge in EDIT time)
+    @State private var trimLive: (band: Int, side: Int, t: Double)? = nil
+
+    private let stripH: CGFloat = 56
+
     var body: some View {
         GeometryReader { geo in
-            let w = max(1, geo.size.width)
-            let frac = p.duration > 0 ? p.time / p.duration : 0
+            let vw = max(1, geo.size.width)
+            let dur = max(p.duration, 0.001)
+            let contentW = vw * zoom
+            let pps = contentW / dur
+            let spans = p.bandSpansEdit
+            let offsetX = vw / 2 - CGFloat(p.time) * pps
 
-            ZStack(alignment: .leading) {
-                RoundedRectangle(cornerRadius: 8).fill(Color.chopPanel)
+            ZStack(alignment: .topLeading) {
 
-                HStack(spacing: 0) {
-                    if p.strip.isEmpty {
-                        Rectangle().fill(Color.chopPanel)
-                    } else {
-                        ForEach(Array(p.strip.enumerated()), id: \.offset) { _, img in
-                            Image(uiImage: img).resizable().scaledToFill()
-                                .frame(width: w / CGFloat(p.strip.count))
-                                .clipped()
-                        }
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .opacity(0.85)
+                // ---- the strip: bands + white split marks, pans under the stick ----
+                ZStack(alignment: .topLeading) {
+                    ForEach(Array(spans.enumerated()), id: \.offset) { i, span in
+                        let x = CGFloat(span.start) * pps
+                        let bw = max(3, CGFloat(span.end - span.start) * pps)
 
-                // clip boundaries (web: gaps between sections)
-                if p.duration > 0 {
-                    ForEach(Array(p.clipSpans.enumerated()), id: \.offset) { _, span in
-                        if span.start > 0.01 {
-                            Rectangle().fill(Color.black.opacity(0.8))
-                                .frame(width: 2)
-                                .offset(x: w * (span.start / p.duration))
+                        bandThumbs(span: span, width: bw, pps: pps, dur: dur)
+                            .frame(width: bw, height: stripH)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.black.opacity(0.5), lineWidth: 1))
+                            .offset(x: x)
+
+                        // web .splitmark — white line between adjacent bands
+                        if i > 0 {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(Color.white.opacity(0.8))
+                                .frame(width: 2, height: stripH - 12)
+                                .offset(x: x - 1, y: 6)
                                 .allowsHitTesting(false)
                         }
                     }
+
+                    // ---- TikTok white selection frame + trim caps ----
+                    if let sel = selected?.wrappedValue, sel < spans.count {
+                        selectionFrame(sel: sel, spans: spans, pps: pps)
+                    }
                 }
+                .frame(width: contentW, height: stripH, alignment: .topLeading)
+                .offset(x: offsetX)
 
-                // progress veil
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.black.opacity(0.35))
-                    .frame(width: max(0, w * (1 - frac)))
-                    .offset(x: w * frac)
-                    .allowsHitTesting(false)
-
-                // selection highlight (web .sel — blue outline on the section)
-                if let sel = selected?.wrappedValue, p.duration > 0,
-                   sel < p.clipSpans.count {
-                    let span = p.clipSpans[sel]
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(ChopColor.blue, lineWidth: 2.5)
-                        .background(RoundedRectangle(cornerRadius: 6)
-                            .fill(ChopColor.blue.opacity(0.18)))
-                        .frame(width: max(4, w * ((span.end - span.start) / p.duration)))
-                        .offset(x: w * (span.start / p.duration))
-                        .allowsHitTesting(false)
-                }
-
-                // playhead
-                RoundedRectangle(cornerRadius: 2)
+                // ---- centre-locked stick (web .qestick) ----
+                RoundedRectangle(cornerRadius: 3)
                     .fill(Color.white)
-                    .frame(width: 3)
-                    .shadow(radius: 2)
-                    .offset(x: max(0, min(w - 3, w * frac)))
+                    .frame(width: 3, height: stripH + 9)
+                    .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+                    .offset(x: vw / 2 - 1.5, y: -6)
                     .allowsHitTesting(false)
             }
-            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.chopLine, lineWidth: 1))
+            .frame(height: stripH)
+            .contentShape(Rectangle())
+            .gesture(panGesture(vw: vw, pps: pps, offsetX: offsetX)
+                .simultaneously(with: pinchGesture()))
+        }
+        .frame(height: stripH)
+        .padding(.vertical, 8)   // room for the frame's ±7px overhang
+    }
+
+    // band filmstrip: a window into the full strip image row
+    @ViewBuilder
+    private func bandThumbs(span: (start: Double, end: Double),
+                            width: CGFloat, pps: CGFloat, dur: Double) -> some View {
+        if p.strip.isEmpty {
+            LinearGradient(colors: [Color(red: 0.24, green: 0.27, blue: 0.33),
+                                    Color(red: 0.15, green: 0.17, blue: 0.21)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+        } else {
+            let fullW = CGFloat(dur) * pps
+            let thumbW = fullW / CGFloat(p.strip.count)
+            HStack(spacing: 0) {
+                ForEach(Array(p.strip.enumerated()), id: \.offset) { _, img in
+                    Image(uiImage: img).resizable().scaledToFill()
+                        .frame(width: thumbW, height: stripH)
+                        .clipped()
+                }
+            }
+            .frame(width: fullW, height: stripH, alignment: .leading)
+            .offset(x: -CGFloat(span.start) * pps)
+            .frame(width: width, height: stripH, alignment: .leading)
+        }
+    }
+
+    // web .qframe: 3px white border, radius 13, ±7 overhang, caps + duration chip
+    @ViewBuilder
+    private func selectionFrame(sel: Int, spans: [(start: Double, end: Double)], pps: CGFloat) -> some View {
+        let span = spans[sel]
+        // live trim adjusts the visible edge
+        let s = (trimLive?.band == sel && trimLive?.side == 0) ? trimLive!.t : span.start
+        let e = (trimLive?.band == sel && trimLive?.side == 1) ? trimLive!.t : span.end
+        let x = CGFloat(s) * pps
+        let bw = max(6, CGFloat(e - s) * pps)
+        let capW: CGFloat = 22
+
+        // trimmed-away shade (web .gtrim)
+        if let tl = trimLive, tl.band == sel {
+            let shadeX = tl.side == 0 ? CGFloat(span.start) * pps : CGFloat(e) * pps
+            let shadeW = tl.side == 0 ? max(0, x - shadeX) : max(0, CGFloat(span.end) * pps - shadeX)
+            Rectangle().fill(Color.black.opacity(0.55))
+                .overlay(Rectangle().fill(ChopColor.rose.opacity(0.35)))
+                .frame(width: shadeW, height: stripH)
+                .offset(x: shadeX)
+                .allowsHitTesting(false)
+        }
+
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 13)
+                .stroke(Color.white, lineWidth: 3)
+                .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
+
+            // caps
+            trimCap(sel: sel, span: span, side: 0, capW: capW, pps: pps)
+            trimCap(sel: sel, span: span, side: 1, capW: capW, pps: pps)
+                .offset(x: bw + capW)
+
+            // duration chip (web .fdur)
+            Text(String(format: "%.1fs", e - s))
+                .font(.system(size: 10.5, weight: .heavy)).foregroundStyle(.white)
+                .padding(.horizontal, 8).padding(.vertical, 2)
+                .background(Color(red: 16/255, green: 18/255, blue: 24/255).opacity(0.72),
+                            in: RoundedRectangle(cornerRadius: 8))
+                .offset(x: capW + 6, y: 5)
+                .allowsHitTesting(false)
+        }
+        .frame(width: bw + capW * 2, height: stripH + 14)
+        .offset(x: x - capW, y: -7)
+    }
+
+    // web .cap — 22px white handle, chevron, draggable to trim
+    private func trimCap(sel: Int, span: (start: Double, end: Double),
+                         side: Int, capW: CGFloat, pps: CGFloat) -> some View {
+        UnevenRoundedRectangle(
+            topLeadingRadius: side == 0 ? 13 : 0, bottomLeadingRadius: side == 0 ? 13 : 0,
+            bottomTrailingRadius: side == 1 ? 13 : 0, topTrailingRadius: side == 1 ? 13 : 0)
+            .fill(Color.white)
+            .frame(width: capW, height: stripH + 14)
+            .overlay(Image(systemName: side == 0 ? "chevron.left" : "chevron.right")
+                .font(.system(size: 11, weight: .heavy)).foregroundStyle(Color(white: 0.07)))
             .contentShape(Rectangle())
             .gesture(
-                DragGesture(minimumDistance: 0)
+                DragGesture(minimumDistance: 1)
                     .onChanged { g in
-                        p.scrubbing = true
-                        let f = max(0, min(1, g.location.x / w))
-                        p.time = f * p.duration
-                        p.seek(to: p.time)
+                        let delta = Double(g.translation.width / pps)
+                        if side == 0 {
+                            let t = min(max(span.start + delta, span.start - 0.001), span.end - 0.08)
+                            trimLive = (sel, 0, max(0, t))
+                        } else {
+                            let t = max(min(span.end + delta, span.end + 0.001), span.start + 0.08)
+                            trimLive = (sel, 1, t)
+                        }
                     }
-                    .onEnded { g in
-                        let f = max(0, min(1, g.location.x / w))
-                        p.scrubbing = false
-                        p.seekExact(to: f * p.duration)
-                        // tap (not drag) selects the section under the finger — web quick edit
-                        if abs(g.translation.width) < 6, let bind = selected {
-                            let t = f * p.duration
-                            if let i = p.clipIndex(atEditTime: t) {
-                                bind.wrappedValue = (bind.wrappedValue == i) ? nil : i
-                            }
+                    .onEnded { _ in
+                        defer { trimLive = nil }
+                        guard let tl = trimLive, tl.band == sel else { return }
+                        if tl.side == 0, tl.t > span.start + 0.03 {
+                            let raw = p.raw(fromEdit: tl.t)
+                            selected?.wrappedValue = nil
+                            p.trimBand(sel, newStartRaw: raw)
+                        } else if tl.side == 1, tl.t < span.end - 0.03 {
+                            let raw = p.raw(fromEdit: tl.t)
+                            selected?.wrappedValue = nil
+                            p.trimBand(sel, newEndRaw: raw)
                         }
                     }
             )
-        }
+    }
+
+    // drag = pan the strip under the fixed stick (web TikTok navigation)
+    private func panGesture(vw: CGFloat, pps: CGFloat, offsetX: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { g in
+                guard zoomStart == nil else { return }   // pinching: zoom-only
+                if dragStartTime == nil { dragStartTime = p.time; p.scrubbing = true }
+                let t = max(0, min(p.duration, (dragStartTime ?? 0) - Double(g.translation.width / pps)))
+                p.time = t
+                p.seek(to: t)
+            }
+            .onEnded { g in
+                let started = dragStartTime
+                dragStartTime = nil
+                p.scrubbing = false
+                guard zoomStart == nil else { return }
+                if abs(g.translation.width) < 6 {
+                    // tap: select the band under the finger
+                    p.seekExact(to: p.time)
+                    if let bind = selected {
+                        let t = Double((g.location.x - offsetX) / pps)
+                        if let i = p.bandIndex(atEditTime: max(0, min(p.duration, t))) {
+                            bind.wrappedValue = (bind.wrappedValue == i) ? nil : i
+                        }
+                    }
+                } else if started != nil {
+                    p.seekExact(to: p.time)
+                }
+            }
+    }
+
+    // pinch = zoom, anchored on the stick (time is the anchor by construction)
+    private func pinchGesture() -> some Gesture {
+        MagnificationGesture()
+            .onChanged { v in
+                if zoomStart == nil { zoomStart = zoom }
+                zoom = min(8, max(1, (zoomStart ?? 1.5) * v))
+            }
+            .onEnded { _ in zoomStart = nil }
     }
 }
 
