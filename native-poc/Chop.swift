@@ -475,12 +475,13 @@ final class ChopAPI: ObservableObject {
     private(set) var accessToken = ""
     private(set) var userId = ""
 
-    func signIn() async {
+    func signIn(creating: Bool = false) async {
         error = ""; busy = true
         defer { busy = false }
 
-        guard var comps = URLComponents(string: "\(SB_URL)/auth/v1/token") else { return }
-        comps.queryItems = [URLQueryItem(name: "grant_type", value: "password")]
+        let path = creating ? "\(SB_URL)/auth/v1/signup" : "\(SB_URL)/auth/v1/token"
+        guard var comps = URLComponents(string: path) else { return }
+        if !creating { comps.queryItems = [URLQueryItem(name: "grant_type", value: "password")] }
         guard let url = comps.url else { return }
 
         var req = URLRequest(url: url)
@@ -499,6 +500,11 @@ final class ChopAPI: ObservableObject {
             }
             if let msg = obj["error_description"] as? String { error = msg; return }
             if let msg = obj["msg"] as? String, obj["access_token"] == nil { error = msg; return }
+            if let m = obj["error"] as? String, obj["access_token"] == nil { error = m; return }
+            if creating, obj["access_token"] == nil {
+                error = "Almost there — check your inbox and confirm your email, then sign in."
+                return
+            }
             guard let token = obj["access_token"] as? String,
                   let user = obj["user"] as? [String: Any],
                   let uid = user["id"] as? String else {
@@ -672,6 +678,20 @@ final class ChopAPI: ObservableObject {
         _ = try? await URLSession.shared.data(for: req)
     }
 
+    /// Send the reset email — same Supabase endpoint the web app calls, so it
+    /// goes out through Resend with the branded template.
+    func sendPasswordReset(email: String) async -> Bool {
+        guard let url = URL(string: "\(SB_URL)/auth/v1/recover") else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["email": email])
+        guard let (_, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse else { return false }
+        return (200...299).contains(http.statusCode)
+    }
+
     /// Upload a photo to the avatars bucket, same path the web app writes to.
     /// Returns the public URL to store on the profile.
     func uploadAvatar(_ jpeg: Data) async -> String? {
@@ -756,6 +776,8 @@ struct ChopRootView: View {
     @State private var tab = 0
     @State private var showAuth = false
     @State private var authMode = 0
+    @State private var authStage = 0   // 0 auth · 1 reset · 2 new password
+    @State private var newPassword = ""
     @State private var theme = ChopTheme.current
 
     var body: some View {
@@ -808,53 +830,210 @@ struct ChopRootView: View {
     }
 
     private var signIn: some View {
-        VStack(spacing: 18) {
+        ScrollView {
+            VStack(spacing: 16) {
+
+                Group {
+                    if UIImage(named: "ChopMark") != nil {
+                        Image("ChopMark").resizable().scaledToFit()
+                    } else { RoundedRectangle(cornerRadius: 16).fill(chopGradient) }
+                }
+                .frame(width: 56, height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .padding(.top, 20)
+
+                Text(authTitle).font(ChopFont.h2()).foregroundStyle(ChopColor.ink)
+                Text(authSub).font(ChopFont.small).foregroundStyle(ChopColor.muted)
+                    .multilineTextAlignment(.center)
+
+                if authStage == 0 {
+                    HStack(spacing: 4) {
+                        authTab("Sign in", 0)
+                        authTab("Create account", 1)
+                    }
+                    .padding(4)
+                    .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 13))
+                }
+
+                if authStage != 2 {
+                    ChopField(label: "Email", placeholder: "you@example.com", text: $api.email)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.emailAddress)
+                }
+                if authStage == 0 {
+                    ChopField(label: "Password", placeholder: "••••••••", secure: true, text: $api.password)
+                }
+                if authStage == 2 {
+                    ChopField(label: "New password", placeholder: "••••••••", secure: true, text: $newPassword)
+                }
+
+                ChopButton(title: authButton, kind: .primary, loading: api.busy) {
+                    Task { await runAuth() }
+                }
+
+                if !api.error.isEmpty {
+                    Text(api.error).font(ChopFont.small).foregroundStyle(ChopColor.rose)
+                        .multilineTextAlignment(.center)
+                }
+
+                if authStage == 0 && authMode == 0 {
+                    Button("Forgot your password?") { authStage = 1; api.error = "" }
+                        .font(ChopFont.small).foregroundStyle(ChopColor.muted)
+                }
+                if authStage != 0 {
+                    Button("Back to sign in") { authStage = 0; authMode = 0; api.error = "" }
+                        .font(ChopFont.small).foregroundStyle(ChopColor.muted)
+                }
+
+                if authStage == 0 {
+                    Text("✦ New accounts get 3 free videos")
+                        .font(.system(size: 11.5, weight: .heavy))
+                        .foregroundStyle(ChopColor.violet)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(ChopColor.violetSoft, in: Capsule())
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Post more.\nEdit nothing.")
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundStyle(.white)
+                    authBullet("Dead air, filler words and retakes cut automatically — in seconds")
+                    authBullet("Retakes shown side by side — nothing is ever deleted without you")
+                    authBullet("Renders on your device — post straight to TikTok, Reels or Shorts")
+                    authBullet("Start with 3 free videos — no card, no subscription")
+                }
+                .padding(20)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(chopGradient)
+                .clipShape(RoundedRectangle(cornerRadius: ChopRadius.xl))
+                .padding(.top, 12)
+
+                Spacer(minLength: 20)
+            }
+            .padding(22)
+        }
+        .background(ChopColor.bg)
+    }
+
+    private var authTitle: String {
+        switch authStage {
+        case 1: return "Reset your password"
+        case 2: return "Choose a new password"
+        default: return authMode == 1 ? "Create your account" : "Welcome back"
+        }
+    }
+    private var authSub: String {
+        switch authStage {
+        case 1: return "We'll email you a link to set a new one."
+        case 2: return "Enter a new password for your account."
+        default: return authMode == 1 ? "Three free videos are waiting." : "Sign in to keep chopping."
+        }
+    }
+    private var authButton: String {
+        switch authStage {
+        case 1: return "Send reset link"
+        case 2: return "Save new password"
+        default: return authMode == 1 ? "Create account" : "Sign in"
+        }
+    }
+
+    private func runAuth() async {
+        if authStage == 1 {
+            let e = api.email.trimmingCharacters(in: .whitespaces)
+            guard !e.isEmpty else { api.error = "Enter your email address."; return }
+            _ = await api.sendPasswordReset(email: e)
+            ChopToasts.shared.show("Check your inbox — we've sent you a link to set a new password.")
+            authStage = 0
+            return
+        }
+        await api.signIn(creating: authMode == 1)
+    }
+
+    private func authTab(_ title: String, _ mode: Int) -> some View {
+        let on = authMode == mode
+        return Button { authMode = mode; api.error = "" } label: {
+            Text(title)
+                .font(.system(size: 13.5, weight: .heavy))
+                .foregroundStyle(on ? ChopColor.ink : ChopColor.muted)
+                .frame(maxWidth: .infinity).padding(.vertical, 10)
+                .background(on ? ChopColor.card : .clear,
+                            in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private func authBullet(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark")
+                .font(.system(size: 10, weight: .black)).foregroundStyle(.white)
+                .frame(width: 22, height: 22)
+                .background(.white.opacity(0.22), in: Circle())
+            Text(text).font(.system(size: 13)).foregroundStyle(.white.opacity(0.95))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var chopHeader: some View {
+        HStack(spacing: 10) {
             Group {
                 if UIImage(named: "ChopMark") != nil {
                     Image("ChopMark").resizable().scaledToFit()
-                } else { RoundedRectangle(cornerRadius: 18).fill(chopGradient) }
+                } else {
+                    RoundedRectangle(cornerRadius: 9).fill(chopGradient)
+                }
             }
-            .frame(width: 64, height: 64)
-            .clipShape(RoundedRectangle(cornerRadius: 18))
-            .padding(.top, 26)
+            .frame(width: 34, height: 34)
+            .clipShape(RoundedRectangle(cornerRadius: 9))
 
-            Text(authMode == 1 ? "Create your account" : "Welcome back")
-                .font(ChopFont.h2()).foregroundStyle(ChopColor.ink)
-            Text(authMode == 1 ? "Three free videos are waiting." : "Sign in to keep chopping.")
-                .font(ChopFont.small).foregroundStyle(ChopColor.muted)
-
-            ChopField(label: "Email", placeholder: "you@example.com", text: $api.email)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .keyboardType(.emailAddress)
-            ChopField(label: "Password", placeholder: "••••••••", secure: true, text: $api.password)
-
-            ChopButton(title: authMode == 1 ? "Create account" : "Sign in",
-                       kind: .primary, loading: api.busy) {
-                Task { await api.signIn() }
-            }
-            .disabled(api.email.isEmpty || api.password.isEmpty)
-
-            if !api.error.isEmpty {
-                Text(api.error).font(ChopFont.small).foregroundStyle(ChopColor.rose)
-                    .multilineTextAlignment(.center)
-            }
-
-            if authMode == 1 {
-                ChopBadge(text: "✦ NEW ACCOUNTS GET 3 FREE VIDEOS",
-                          tint: ChopColor.violet, soft: ChopColor.violetSoft)
-            }
-
-            Button(authMode == 1 ? "I already have an account" : "Create an account instead") {
-                authMode = authMode == 1 ? 0 : 1
-                api.error = ""
-            }
-            .font(ChopFont.small).foregroundStyle(ChopColor.blue)
+            Text("Chop").font(.system(size: 20, weight: .bold))
+                .foregroundStyle(ChopColor.ink)
 
             Spacer()
+
+            HStack(spacing: 5) {
+                Image(systemName: "bolt.fill").font(.system(size: 11, weight: .bold))
+                Text("\(api.credits) credits").font(.system(size: 14, weight: .heavy))
+            }
+            .foregroundStyle(ChopColor.blue)
+            .padding(.horizontal, 13).padding(.vertical, 8)
+            .background(ChopColor.blueSoft, in: Capsule())
+
+            Button { showSettings = true } label: {
+                ZStack {
+                    if api.profileAvatar.hasPrefix("http") {
+                        AsyncImage(url: URL(string: api.profileAvatar)) { img in
+                            img.resizable().scaledToFill()
+                        } placeholder: { ChopColor.soft2 }
+                    } else {
+                        LinearGradient(colors: avatarColours,
+                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                        Text(avatarEmoji).font(.system(size: 17))
+                    }
+                }
+                .frame(width: 36, height: 36)
+                .clipShape(Circle())
+            }
         }
-        .padding(24)
-        .background(ChopColor.bg)
+        .padding(.horizontal, 16).padding(.vertical, 10)
+    }
+
+    private var avatarEmoji: String {
+        let a = api.profileAvatar
+        if a.hasPrefix("e:") {
+            let parts = a.split(separator: ":")
+            if parts.count > 1 { return String(parts[1]) }
+        }
+        return "💸"
+    }
+
+    private var avatarColours: [Color] {
+        let a = api.profileAvatar
+        var idx = 0
+        if a.hasPrefix("e:") {
+            let parts = a.split(separator: ":")
+            if parts.count > 2 { idx = Int(parts[2]) ?? 0 }
+        }
+        return CHOP_AV_COLOURS[idx % CHOP_AV_COLOURS.count]
     }
 
     private func statCard(_ value: String, _ label: String, sub: String? = nil) -> some View {
@@ -879,8 +1058,8 @@ struct ChopRootView: View {
         let m = Int(savedSeconds / 60)
         return m >= 60 ? String(format: "%.1fh", savedSeconds / 3600) : "\(m)m"
     }
-    /// Same basis as the web dashboard: manual editing valued at £30/hour.
-    private var moneyLabel: String { "£\(Int(savedSeconds / 3600 * 30))" }
+    /// Same basis as the web dashboard: manual editing valued at $30/hour.
+    private var moneyLabel: String { "$\(Int(savedSeconds / 3600 * 30))" }
 
     private var editDays: [String] {
         api.jobs.compactMap { j in
@@ -923,6 +1102,18 @@ struct ChopRootView: View {
         return n
     }
 
+    private var peakDay: String {
+        let names = ["Sundays","Mondays","Tuesdays","Wednesdays","Thursdays","Fridays","Saturdays"]
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        var tally = [Int: Int]()
+        for (k, n) in editDayCounts {
+            guard let d = f.date(from: k) else { continue }
+            tally[Calendar.current.component(.weekday, from: d) - 1, default: 0] += n
+        }
+        guard let best = tally.max(by: { $0.value < $1.value })?.key else { return "—" }
+        return names[best]
+    }
+
     private var streak: Int {
         let set = Set(editDays)
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
@@ -939,7 +1130,9 @@ struct ChopRootView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 14) {
 
-                Text("Hey \(api.profileName.isEmpty ? "there" : api.profileName), let's chop 👋")
+                Text(api.profileName.isEmpty
+                     ? "Dashboard"
+                     : "Hey \(api.profileName.split(separator: " ").first.map(String.init) ?? api.profileName), let's chop 👋")
                     .font(ChopFont.h1())
                     .fixedSize(horizontal: false, vertical: true)
                 Text("An overview of how your chopping is going.")
@@ -962,7 +1155,7 @@ struct ChopRootView: View {
                     statCard("\(api.jobs.count)", "Videos edited")
                 }
                 HStack(spacing: 12) {
-                    statCard(moneyLabel, "Saved vs. manual editing", sub: "at £30/h")
+                    statCard(moneyLabel, "Saved vs. manual editing", sub: "at $30/h")
                     statCard("\(streak)", "Day streak")
                 }
 
@@ -975,10 +1168,13 @@ struct ChopRootView: View {
                             .background(Color.chopBlue.opacity(0.14), in: Circle())
                         Text("Drop your videos here to edit")
                             .font(.system(size: 18, weight: .bold)).foregroundStyle(Color.chopInk)
-                        Text("or click to browse")
-                            .font(.subheadline.weight(.semibold)).foregroundStyle(Color.chopBlue)
-                        Text("MP4 or MOV · straight from your camera roll")
-                            .font(.caption2).foregroundStyle(Color.chopMuted)
+                        HStack(spacing: 4) {
+                            Text("or").font(.system(size: 14)).foregroundStyle(ChopColor.muted)
+                            Text("click to browse")
+                                .font(.system(size: 14, weight: .heavy)).foregroundStyle(ChopColor.blue)
+                        }
+                        Text("MP4 or MOV · up to 2 GB each (1 GB on mobile)")
+                            .font(.system(size: 11.5)).foregroundStyle(ChopColor.muted)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 26)
@@ -987,6 +1183,12 @@ struct ChopRootView: View {
                         .foregroundStyle(Color.chopLine))
                 }
                 .padding(.top, 4)
+
+                Text("Consistency").font(ChopFont.h2(19))
+                    .foregroundStyle(ChopColor.ink).padding(.top, 12)
+
+                ChopRing(edits: api.jobs.count, active30: activeLast30,
+                         streak: streak, peakDay: peakDay)
 
                 ChopActivity(days: editDayCounts, current: streak,
                              longest: longestStreak, active30: activeLast30)
@@ -1000,8 +1202,9 @@ struct ChopRootView: View {
                 .padding(.top, 10)
 
                 if api.jobs.isEmpty && !api.busy {
-                    ChopEmptyState(icon: "film", title: "No edits yet",
-                                   note: "Videos you chop will show up here.")
+                    Text("Videos you edit will show up here.")
+                        .font(ChopFont.small).foregroundStyle(ChopColor.muted)
+                        .padding(.vertical, 22)
                 }
 
                 ForEach(api.jobs) { job in
@@ -1689,8 +1892,8 @@ struct ChopPlayerScreen: View {
                 switch key {
                 case "retakes":
                     if p.pairs.filter({ $0.complete }).isEmpty {
-                        Text("No retakes in this one.")
-                            .font(.footnote).foregroundStyle(Color.chopMuted)
+                        Text("Nothing waiting for review")
+                            .font(ChopFont.small).foregroundStyle(ChopColor.muted)
                     } else {
                         ForEach(p.pairs) { pair in
                             if pair.complete { RetakeCard(pair: pair, player: p) }
@@ -1713,8 +1916,6 @@ struct ChopPlayerScreen: View {
                         .font(.subheadline).tint(Color.chopBlue)
                         .onChange(of: p.softFillers) { _, _ in p.rebuild() }
                 case "script":
-                    Text("Tap a line to cut it or bring it back.")
-                        .font(.caption).foregroundStyle(Color.chopMuted)
                     ForEach(Array(p.segments.enumerated()), id: \.offset) { i, seg in
                         if seg.kind == "speech" && !seg.text.isEmpty {
                             let isCut = p.cut(i)
@@ -1746,8 +1947,6 @@ struct ChopPlayerScreen: View {
                     if !p.exportMsg.isEmpty {
                         Text(p.exportMsg).font(.footnote).foregroundStyle(Color.chopMuted)
                     }
-                    Text("Exports at 1080p from the original, not the preview copy.")
-                        .font(.caption).foregroundStyle(Color.chopMuted)
                 }
             }
             .padding(16)
@@ -1955,7 +2154,7 @@ final class ChopImporter: ObservableObject {
         await api.spendCredit()
         await api.saveJob(name: name, payload: payload, rawSec: rawSec, videoKey: nil)
         await api.loadJobs()
-        ChopToasts.shared.show("Chopped and saved ✓")
+        ChopToasts.shared.show("Chopped ✓")
         stepIndex = 6
         done = true
         step = ""
@@ -1995,7 +2194,6 @@ struct ImportSheet: View {
 
     var body: some View {
         VStack(spacing: 18) {
-            if !imp.busy { Text("Add a video").font(.title2.weight(.semibold)) }
 
             if imp.busy {
                 VStack(alignment: .leading, spacing: 14) {
@@ -2040,22 +2238,19 @@ struct ImportSheet: View {
                     }
                     .frame(height: 6)
 
-                    Text("Keep the app open — iOS pauses uploads in the background.")
-                        .font(.caption2).foregroundStyle(Color.chopMuted)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else if imp.done {
                 Image(systemName: "checkmark.circle.fill").font(.largeTitle).foregroundStyle(.green)
-                Text("Chopped and saved").font(.subheadline)
-                Text(imp.syncMsg.isEmpty ? "Uploading the full video in the background — you can review now."
-                                         : imp.syncMsg)
+                Text("Chopped").font(ChopFont.bodyBold)
+                Text(imp.syncMsg)
                     .font(.caption2).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                 Button("Done") { dismiss() }.buttonStyle(.borderedProminent)
             } else if api.credits <= 0 {
                 Image(systemName: "bolt.slash").font(.largeTitle).foregroundStyle(.orange)
                 Text("You're out of credits").font(.subheadline.weight(.medium))
-                Text("One credit chops one video. Credits are managed on your Chop account.")
+                Text("One credit edits one video, any length up to 10 minutes.")
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button("Close") { dismiss() }
             } else {
@@ -2115,68 +2310,170 @@ struct ChopMovie: Transferable {
 struct ChopSettingsView: View {
     @ObservedObject var api: ChopAPI
     var onThemeChange: ((ChopTheme) -> Void)? = nil
-    @State private var theme = ChopTheme.current
     @Environment(\.dismiss) private var dismiss
-    @State private var confirming = false
+    @State private var theme = ChopTheme.current
     @State private var showProfile = false
+    @State private var confirming = false
     @State private var deleting = false
     @State private var failed = ""
+    @State private var pwSent = false
 
     var body: some View {
         NavigationStack {
-            List {
-                Section("Account") {
-                    Button { showProfile = true } label: {
-                        HStack { Text("Edit profile").foregroundStyle(.white); Spacer()
-                            Image(systemName: "chevron.right").font(.caption)
-                                .foregroundStyle(Color.chopMuted) }
+            ScrollView {
+                VStack(spacing: 0) {
+
+                    // header: avatar, name, handle, credits pill
+                    VStack(spacing: 8) {
+                        ZStack {
+                            if api.profileAvatar.hasPrefix("http") {
+                                AsyncImage(url: URL(string: api.profileAvatar)) { i in
+                                    i.resizable().scaledToFill()
+                                } placeholder: { ChopColor.soft2 }
+                            } else {
+                                LinearGradient(colors: CHOP_AV_COLOURS[0],
+                                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                                Text(api.profileAvatar.hasPrefix("e:")
+                                     ? String(api.profileAvatar.split(separator: ":")[1]) : "💸")
+                                    .font(.system(size: 32))
+                            }
+                        }
+                        .frame(width: 84, height: 84)
+                        .clipShape(Circle())
+                        .overlay(alignment: .bottomTrailing) {
+                            Image(systemName: "camera.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(ChopColor.blue)
+                                .frame(width: 28, height: 28)
+                                .background(ChopColor.card, in: Circle())
+                                .overlay(Circle().stroke(ChopColor.bg, lineWidth: 2))
+                        }
+                        .onTapGesture { showProfile = true }
+
+                        Text(api.profileName.isEmpty ? "Your account" : api.profileName)
+                            .font(.system(size: 18, weight: .bold)).foregroundStyle(ChopColor.ink)
+                        if !api.profileTiktok.isEmpty {
+                            Text("@\(api.profileTiktok)").font(ChopFont.small)
+                                .foregroundStyle(ChopColor.muted)
+                        }
+                        HStack(spacing: 5) {
+                            Image(systemName: "bolt.fill").font(.system(size: 10, weight: .bold))
+                            Text("\(api.credits) credits").font(.system(size: 11.5, weight: .heavy))
+                        }
+                        .foregroundStyle(ChopColor.blue)
+                        .padding(.horizontal, 12).padding(.vertical, 5)
+                        .background(ChopColor.blueSoft, in: Capsule())
                     }
-                    HStack { Text("Name"); Spacer()
-                        Text(api.profileName.isEmpty ? "—" : api.profileName)
-                            .foregroundStyle(.secondary) }
-                    HStack { Text("Credits"); Spacer()
-                        Text("\(api.credits)").foregroundStyle(.secondary) }
-                }
+                    .padding(.vertical, 22)
 
-                Section("Appearance") {
-                    Picker("Theme", selection: $theme) {
-                        Text("System").tag(ChopTheme.system)
-                        Text("Light").tag(ChopTheme.light)
-                        Text("Dark").tag(ChopTheme.dark)
+                    group("Profile") {
+                        row("Name", value: api.profileName.isEmpty ? "Not set" : api.profileName, chevron: true) { showProfile = true }
+                        divider
+                        row("TikTok", value: api.profileTiktok.isEmpty ? "Not set" : "@\(api.profileTiktok)", chevron: true) { showProfile = true }
+                        divider
+                        row("Photo", action: "Change", chevron: true) { showProfile = true }
                     }
-                    .pickerStyle(.segmented)
-                    .onChange(of: theme) { _, t in ChopTheme.set(t); onThemeChange?(t) }
-                }
 
-                Section {
-                    Link("Privacy policy", destination: URL(string: "https://chopedit.com/privacy.html")!)
-
-                }
-
-                Section {
-                    Button("Sign out") { api.signOut(); dismiss() }
-                }
-
-                Section("Danger zone") {
-                    Button(role: .destructive) {
-                        confirming = true
-                    } label: {
-                        if deleting { ProgressView() } else { Text("Delete my account") }
+                    group("Account") {
+                        staticRow("Email", value: api.email.isEmpty ? "—" : api.email)
+                        divider
+                        HStack {
+                            Text("Credits").font(ChopFont.body).foregroundStyle(ChopColor.muted)
+                                .frame(width: 108, alignment: .leading)
+                            Text("\(api.credits)").font(ChopFont.body).foregroundStyle(ChopColor.ink)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 15).padding(.vertical, 13)
+                        divider
+                        staticRow("Member since", value: "—")
+                        divider
+                        row("Password", action: pwSent ? "Sent ✓" : "Reset", chevron: false) {
+                            Task {
+                                let e = api.email
+                                guard !e.isEmpty else { return }
+                                _ = await api.sendPasswordReset(email: e)
+                                pwSent = true
+                                ChopToasts.shared.show("Reset link sent — check your inbox")
+                            }
+                        }
                     }
-                    .disabled(deleting)
-                    Text("Permanently removes your profile, saved edits and any remaining credits. This cannot be undone.")
-                        .font(.caption).foregroundStyle(.secondary)
-                    if !failed.isEmpty {
-                        Text(failed).font(.caption).foregroundStyle(.red)
+
+                    group("Preferences") {
+                        HStack {
+                            Text("Theme").font(ChopFont.body).foregroundStyle(ChopColor.ink)
+                            Spacer()
+                            Picker("", selection: $theme) {
+                                Text("System").tag(ChopTheme.system)
+                                Text("Light").tag(ChopTheme.light)
+                                Text("Dark").tag(ChopTheme.dark)
+                            }
+                            .pickerStyle(.segmented).frame(width: 190)
+                            .onChange(of: theme) { _, t in ChopTheme.set(t); onThemeChange?(t) }
+                        }
+                        .padding(.horizontal, 15).padding(.vertical, 10)
+                        divider
+                        Link(destination: URL(string: "https://chopedit.com/privacy.html")!) {
+                            HStack {
+                                Text("Privacy policy").font(ChopFont.body).foregroundStyle(ChopColor.ink)
+                                Spacer()
+                                Image(systemName: "arrow.up.right").font(.caption)
+                                    .foregroundStyle(ChopColor.muted)
+                            }
+                            .padding(.horizontal, 15).padding(.vertical, 13)
+                        }
                     }
+
+                    Button { api.signOut(); dismiss() } label: {
+                        Text("Sign out").font(.system(size: 15, weight: .heavy))
+                            .foregroundStyle(ChopColor.ink)
+                            .frame(maxWidth: .infinity).padding(.vertical, 14)
+                            .background(ChopColor.card)
+                            .clipShape(RoundedRectangle(cornerRadius: ChopRadius.lg))
+                            .overlay(RoundedRectangle(cornerRadius: ChopRadius.lg)
+                                .stroke(ChopColor.line, lineWidth: 1))
+                    }
+                    .padding(.horizontal, 16).padding(.top, 16)
+
+                    Text("DANGER ZONE").font(.system(size: 11, weight: .heavy)).tracking(1.2)
+                        .foregroundStyle(ChopColor.rose)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 20).padding(.top, 26).padding(.bottom, 8)
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Delete my account").font(.system(size: 14.5, weight: .heavy))
+                            .foregroundStyle(ChopColor.ink)
+                        Text("Permanently removes your profile, saved edits and any remaining credits. This cannot be undone.")
+                            .font(.system(size: 12)).foregroundStyle(ChopColor.muted)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button { confirming = true } label: {
+                            if deleting { ProgressView() }
+                            else {
+                                Text("Delete account").font(.system(size: 13, weight: .heavy))
+                                    .foregroundStyle(ChopColor.rose)
+                                    .padding(.horizontal, 15).padding(.vertical, 9)
+                                    .overlay(RoundedRectangle(cornerRadius: 10)
+                                        .stroke(ChopColor.rose.opacity(0.5), lineWidth: 1))
+                            }
+                        }
+                        .disabled(deleting)
+                        if !failed.isEmpty {
+                            Text(failed).font(.caption).foregroundStyle(ChopColor.rose)
+                        }
+                    }
+                    .padding(15)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(ChopColor.roseSoft)
+                    .clipShape(RoundedRectangle(cornerRadius: ChopRadius.lg))
+                    .overlay(RoundedRectangle(cornerRadius: ChopRadius.lg)
+                        .stroke(ChopColor.rose.opacity(0.35), lineWidth: 1))
+                    .padding(.horizontal, 16).padding(.bottom, 40)
                 }
             }
-            .sheet(isPresented: $showProfile) { ChopProfileView(api: api) }
+            .background(ChopColor.bg)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } }
-            }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+            .sheet(isPresented: $showProfile) { ChopProfileView(api: api) }
             .alert("Delete your account?", isPresented: $confirming) {
                 Button("Cancel", role: .cancel) {}
                 Button("Delete", role: .destructive) {
@@ -2191,6 +2488,56 @@ struct ChopSettingsView: View {
                 Text("This permanently removes your profile, saved edits and any remaining credits. It cannot be undone.")
             }
         }
+        .preferredColorScheme(theme.scheme)
+    }
+
+    private var divider: some View {
+        Rectangle().fill(ChopColor.line).frame(height: 1).padding(.leading, 15)
+    }
+
+    @ViewBuilder
+    private func group<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {
+        Text(title.uppercased()).font(.system(size: 11, weight: .heavy)).tracking(1.2)
+            .foregroundStyle(ChopColor.muted)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20).padding(.top, 18).padding(.bottom, 8)
+        VStack(spacing: 0) { content() }
+            .background(ChopColor.card)
+            .clipShape(RoundedRectangle(cornerRadius: ChopRadius.lg))
+            .overlay(RoundedRectangle(cornerRadius: ChopRadius.lg).stroke(ChopColor.line, lineWidth: 1))
+            .padding(.horizontal, 16)
+    }
+
+    private func row(_ key: String, value: String = "", action: String = "",
+                     chevron: Bool, _ tap: @escaping () -> Void) -> some View {
+        Button(action: tap) {
+            HStack(spacing: 10) {
+                Text(key).font(ChopFont.body).foregroundStyle(ChopColor.muted)
+                    .frame(width: 108, alignment: .leading)
+                if !value.isEmpty {
+                    Text(value).font(ChopFont.body).foregroundStyle(ChopColor.ink).lineLimit(1)
+                }
+                Spacer()
+                if !action.isEmpty {
+                    Text(action).font(ChopFont.label).foregroundStyle(ChopColor.blue)
+                }
+                if chevron {
+                    Image(systemName: "chevron.right").font(.caption)
+                        .foregroundStyle(ChopColor.muted)
+                }
+            }
+            .padding(.horizontal, 15).padding(.vertical, 13)
+        }
+    }
+
+    private func staticRow(_ key: String, value: String) -> some View {
+        HStack(spacing: 10) {
+            Text(key).font(ChopFont.body).foregroundStyle(ChopColor.muted)
+                .frame(width: 108, alignment: .leading)
+            Text(value).font(ChopFont.body).foregroundStyle(ChopColor.muted).lineLimit(1)
+            Spacer()
+        }
+        .padding(.horizontal, 15).padding(.vertical, 13)
     }
 }
 
@@ -2353,7 +2700,7 @@ struct ChopLabBody: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
 
-                    Text("Dial in your cutting style once — every video you drop gets chopped with these settings.")
+                    Text("Dial in your cutting style once — every video you drop gets chopped with these settings automatically.")
                         .font(.footnote).foregroundStyle(Color.chopMuted)
 
                     HStack(spacing: 10) {
@@ -2763,96 +3110,1273 @@ struct ChopWelcomeView: View {
     }
 }
 
+// MARK: - Landing page
+//
+// Reconstructed section-by-section from index.html. Section order there is:
+//   nav → hero (+ phone) → marquee → transform → features(#feat)
+//   → pricing(#price) → faq(#faq) → launch offer → footer
+//
+// The landing has its own palette and is dark-only — its tokens are NOT the
+// app's tokens (landing --srf is #0f1117; the app's card is #161922), so it
+// deliberately does not use ChopColor.
+
+func lc(_ hex: UInt32, _ a: Double = 1) -> Color {
+    Color(.sRGB,
+          red: Double((hex >> 16) & 0xff) / 255,
+          green: Double((hex >> 8) & 0xff) / 255,
+          blue: Double(hex & 0xff) / 255,
+          opacity: a)
+}
+
+enum LandColor {
+    static let bg   = lc(0x08090c)
+    static let srf  = lc(0x0f1117)
+    static let srf2 = lc(0x141821)
+    static let ln   = lc(0x1d2230)
+    static let ln2  = lc(0x2a3142)
+    static let tx   = lc(0xe9edf5)
+    static let mu   = lc(0x8b93a5)
+    static let blue = lc(0x3b82f6)
+    static let vio  = lc(0x8b5cf6)
+    static let grn  = lc(0x34d399)
+    static let rose = lc(0xfb7185)
+    static let note = lc(0x6d7688)
+    static let bl2  = lc(0x7ea6ff)
+}
+
+let landGrad = LinearGradient(colors: [LandColor.blue, LandColor.vio],
+                              startPoint: .topLeading, endPoint: .bottomTrailing)
+/// `em` on the landing: Georgia italic 500 with a 92deg #60a5fa→#a78bfa wash.
+let landEmGrad = LinearGradient(colors: [lc(0x60a5fa), lc(0xa78bfa)],
+                                startPoint: .leading, endPoint: .trailing)
+
+// MARK: Chop mark
+//
+// The nav/footer logo, drawn from the same geometry as the inline <svg>:
+// a 64×64 r16 tile, a 14.25r circle stroked 9.13 with dasharray 67.1/22.4
+// rotated 52°, and a 3.8-tall band rotated -30° masked out of it.
+
+struct ChopMarkView: View {
+    var size: CGFloat = 26
+    /// The footer uses a flat #3b82f6 tile rather than the gradient.
+    var flat: Color? = nil
+
+    var body: some View {
+        Canvas { ctx, sz in
+            let s = sz.width / 64
+            let tile = Path(roundedRect: CGRect(x: 0, y: 0, width: 64 * s, height: 64 * s),
+                            cornerRadius: 16 * s)
+            if let flat {
+                ctx.fill(tile, with: .color(flat))
+            } else {
+                ctx.fill(tile, with: .linearGradient(
+                    Gradient(colors: [LandColor.blue, LandColor.vio]),
+                    startPoint: .zero, endPoint: CGPoint(x: 64 * s, y: 64 * s)))
+            }
+            // 67.1 of a 89.54 circumference = 269.7°, offset by the 52° rotation.
+            var arc = Path()
+            arc.addArc(center: CGPoint(x: 32 * s, y: 32 * s), radius: 14.25 * s,
+                       startAngle: .degrees(52), endAngle: .degrees(321.7),
+                       clockwise: false)
+            ctx.drawLayer { l in
+                l.stroke(arc, with: .color(.white),
+                         style: StrokeStyle(lineWidth: 9.13 * s, lineCap: .round))
+                let band = Path(CGRect(x: -12 * s, y: 30.2 * s, width: 89 * s, height: 3.8 * s))
+                    .applying(CGAffineTransform(translationX: 32 * s, y: 32 * s)
+                        .rotated(by: -30 * .pi / 180)
+                        .translatedBy(x: -32 * s, y: -32 * s))
+                l.blendMode = .destinationOut
+                l.fill(band, with: .color(.black))
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+// MARK: Page background
+//
+// body: a 44px grid (the ≤640px size) in --ln, under two radial washes and a
+// bottom fade, all of which sit above the grid and below the content.
+
+struct LandBackdrop: View {
+    var body: some View {
+        Canvas { ctx, sz in
+            let step: CGFloat = 44
+            var g = Path()
+            var x: CGFloat = -1
+            while x < sz.width { g.move(to: CGPoint(x: x, y: 0)); g.addLine(to: CGPoint(x: x, y: sz.height)); x += step }
+            var y: CGFloat = -1
+            while y < sz.height { g.move(to: CGPoint(x: 0, y: y)); g.addLine(to: CGPoint(x: sz.width, y: y)); y += step }
+            ctx.stroke(g, with: .color(LandColor.ln), lineWidth: 1)
+        }
+        .background(LandColor.bg)
+        .overlay(alignment: .top) {
+            GeometryReader { p in
+                ZStack {
+                    RadialGradient(colors: [LandColor.blue.opacity(0.16), .clear],
+                                   center: UnitPoint(x: 0.5, y: -0.08),
+                                   startRadius: 0, endRadius: p.size.width * 0.7)
+                    RadialGradient(colors: [LandColor.vio.opacity(0.12), .clear],
+                                   center: UnitPoint(x: 0.9, y: 0.2),
+                                   startRadius: 0, endRadius: p.size.width * 0.5)
+                }
+                .frame(height: p.size.height)
+                .allowsHitTesting(false)
+            }
+        }
+        .ignoresSafeArea()
+    }
+}
+
+// MARK: Shared bits
+
+/// .eyeb — 700 11px mono, .16em tracking, uppercase, --mu.
+struct LandEyebrow: View {
+    let text: String
+    var color: Color = LandColor.mu
+    var body: some View {
+        Text(text.uppercased())
+            .font(.system(size: 11, weight: .bold, design: .monospaced))
+            .tracking(1.76)
+            .foregroundStyle(color)
+    }
+}
+
+/// h2 — clamp(28px,8.4vw,36px), 800, -.03em, with an optional trailing `em`.
+struct LandH2: View {
+    let plain: String
+    var em: String? = nil
+    var align: TextAlignment = .center
+    var body: some View {
+        let s: CGFloat = 32
+        Group {
+            if let em {
+                (Text(plain).foregroundColor(LandColor.tx)
+                 + Text(em).font(.custom("Georgia", size: s).italic()))
+                .font(.system(size: s, weight: .bold))
+                .tracking(-0.03 * s)
+                .foregroundStyle(landEmGrad)
+            } else {
+                Text(plain)
+                    .font(.system(size: s, weight: .bold))
+                    .tracking(-0.03 * s)
+                    .foregroundStyle(LandColor.tx)
+            }
+        }
+        .multilineTextAlignment(align)
+        .lineSpacing(1)
+    }
+}
+
+/// .lead — 15px on mobile, --mu.
+struct LandLead: View {
+    let text: String
+    var body: some View {
+        Text(text)
+            .font(.system(size: 15))
+            .foregroundStyle(LandColor.mu)
+            .multilineTextAlignment(.center)
+            .lineSpacing(3)
+    }
+}
+
+/// .card — the 1px --ln bordered panel with a top-lit white wash.
+struct LandCard<C: View>: View {
+    var border: Color = LandColor.ln
+    var pad: CGFloat = 18
+    @ViewBuilder var content: C
+    var body: some View {
+        content
+            .padding(pad)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                LinearGradient(colors: [.white.opacity(0.045), .white.opacity(0.012)],
+                               startPoint: .top, endPoint: .bottom),
+                in: RoundedRectangle(cornerRadius: 20))
+            .overlay(RoundedRectangle(cornerRadius: 20).stroke(border, lineWidth: 1))
+    }
+}
+
+/// .btn — 700 14.5px, r10, 12/22. .big is 15/30 at 16px r12.
+enum LandBtn { case white, ghost, blue }
+
+struct LandButton: View {
+    let title: String
+    var kind: LandBtn = .white
+    var big = false
+    var fill = false
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: big ? 16 : 14.5, weight: .bold))
+                .foregroundStyle(fg)
+                .frame(maxWidth: fill ? .infinity : nil)
+                .padding(.vertical, big ? 15 : 12)
+                .padding(.horizontal, big ? 30 : 22)
+                .background(bg, in: RoundedRectangle(cornerRadius: big ? 12 : 10))
+                .overlay(RoundedRectangle(cornerRadius: big ? 12 : 10)
+                    .stroke(kind == .ghost ? LandColor.ln2 : .clear, lineWidth: 1))
+                .shadow(color: kind == .blue ? LandColor.blue.opacity(0.35) : .clear,
+                        radius: 14, y: 8)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var fg: Color {
+        switch kind {
+        case .white: return lc(0x08090c)
+        case .ghost: return LandColor.tx
+        case .blue:  return .white
+        }
+    }
+    /// Must be a ShapeStyle, not a View — .background(_:in:) takes a style.
+    private var bg: AnyShapeStyle {
+        switch kind {
+        case .white: return AnyShapeStyle(Color.white)
+        case .ghost: return AnyShapeStyle(Color.white.opacity(0.02))
+        case .blue:  return AnyShapeStyle(landGrad)
+        }
+    }
+}
+
+/// CSS `flex: n` in a row — proportional widths, which layoutPriority is not.
+/// Every filmstrip on the page uses this.
+struct LandFlexRow<C: View>: View {
+    let flexes: [CGFloat]
+    var spacing: CGFloat = 3
+    @ViewBuilder var cell: (Int) -> C
+
+    var body: some View {
+        GeometryReader { g in
+            let total = max(0.0001, flexes.reduce(0, +))
+            let avail = max(0, g.size.width - spacing * CGFloat(max(0, flexes.count - 1)))
+            HStack(spacing: spacing) {
+                ForEach(flexes.indices, id: \.self) { i in
+                    cell(i).frame(width: avail * flexes[i] / total)
+                }
+            }
+            .frame(width: g.size.width, height: g.size.height)
+        }
+    }
+}
+
+/// Wrapping run of inline text and .cut chips, for the raw-footage card.
+struct LandFlow: Layout {
+    var hSpacing: CGFloat = 4
+    var vSpacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let maxW = proposal.width ?? .infinity
+        var x: CGFloat = 0, y: CGFloat = 0, rowH: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x + s.width > maxW, x > 0 { x = 0; y += rowH + vSpacing; rowH = 0 }
+            x += s.width + hSpacing
+            rowH = max(rowH, s.height)
+        }
+        return CGSize(width: maxW, height: y + rowH)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, rowH: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x + s.width > bounds.maxX, x > bounds.minX { x = bounds.minX; y += rowH + vSpacing; rowH = 0 }
+            v.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(s))
+            x += s.width + hSpacing
+            rowH = max(rowH, s.height)
+        }
+    }
+}
+
+// MARK: - The page
+
 struct FallbackWelcome: View {
     @Binding var showAuth: Bool
     @Binding var authMode: Int
 
+    @State private var offer: LandOfferState = .init()
+    @Environment(\.openURL) private var openURL
+
+    /// Every landing CTA points at /app/?signup=1 — natively, the create-account tab.
+    private func signup() { authMode = 1; showAuth = true }
+    private func signin() { authMode = 0; showAuth = true }
+
     var body: some View {
-        ScrollView {
-            VStack(spacing: 0) {
+        ZStack(alignment: .top) {
+            LandBackdrop()
 
-                HStack(spacing: 10) {
-                    Group {
-                        if UIImage(named: "ChopMark") != nil {
-                            Image("ChopMark").resizable().scaledToFit()
-                        } else { RoundedRectangle(cornerRadius: 9).fill(chopGradient) }
-                    }
-                    .frame(width: 34, height: 34)
-                    .clipShape(RoundedRectangle(cornerRadius: 9))
-                    Text("Chop").font(.system(size: 20, weight: .bold))
-                        .foregroundStyle(ChopColor.ink)
-                    Spacer()
-                    Button { authMode = 0; showAuth = true } label: {
-                        Text("Sign in").font(ChopFont.label)
-                            .foregroundStyle(ChopColor.ink)
-                            .padding(.horizontal, 16).padding(.vertical, 9)
-                            .background(ChopColor.card, in: Capsule())
-                            .overlay(Capsule().stroke(ChopColor.line, lineWidth: 1))
-                    }
+            ScrollViewReader { sp in
+                let jump: (String) -> Void = { key in
+                    withAnimation(.easeInOut) { sp.scrollTo(key, anchor: .top) }
                 }
-                .padding(.horizontal, 18).padding(.top, 8).padding(.bottom, 26)
-
-                Text("BUILT FOR TIKTOK SHOP AFFILIATES")
-                    .font(.system(size: 11, weight: .heavy)).tracking(1.7)
-                    .foregroundStyle(ChopColor.muted)
-
-                VStack(spacing: 0) {
-                    Text("Don't edit,")
-                        .font(.system(size: 42, weight: .bold))
-                        .foregroundStyle(ChopColor.ink)
-                    Text("just film.")
-                        .font(.system(size: 42, weight: .bold)).italic()
-                        .foregroundStyle(chopGradient)
-                }
-                .padding(.top, 14)
-
-                Text("Chop cuts the dead air, filler words and messed-up takes out of your talking-head videos — automatically. Film once, review in seconds, post everywhere.")
-                    .font(.system(size: 15.5))
-                    .foregroundStyle(ChopColor.muted)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(3)
-                    .padding(.horizontal, 26).padding(.top, 16)
-
-                VStack(spacing: 10) {
-                    ChopButton(title: "Chop your first video free", kind: .gradient) {
-                        authMode = 1; showAuth = true
+                ScrollView {
+                    VStack(spacing: 0) {
+                        LandHero(signup: signup, jump: jump)
+                        LandMarquee().padding(.top, 46)
+                        LandTransform().padding(.top, 64)
+                        LandFeatures().padding(.top, 64).id("feat")
+                        LandPricing(signup: signup).padding(.top, 64).id("price")
+                        LandFAQ().padding(.top, 64).id("faq")
+                        LandOffer(state: offer, signup: signup).padding(.top, 64)
+                        LandFooter(signin: signin, jump: jump).padding(.top, 64)
                     }
-                    ChopButton(title: "Sign in", kind: .secondary) {
-                        authMode = 0; showAuth = true
-                    }
+                    .padding(.top, 56)
                 }
-                .padding(.horizontal, 22).padding(.top, 26)
-
-                Text("3 free videos · no card · works on your phone")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(ChopColor.muted)
-                    .padding(.top, 16)
-
-                VStack(spacing: 12) {
-                    feature("scissors", "Dead air, filler words and retakes cut automatically — in seconds")
-                    feature("rectangle.on.rectangle", "Retakes shown side by side — nothing is ever deleted without you")
-                    feature("square.and.arrow.down", "Renders on your device — post straight to TikTok, Reels or Shorts")
+                .overlay(alignment: .top) {
+                    LandNav(signup: signup)
                 }
-                .padding(.horizontal, 16).padding(.top, 34).padding(.bottom, 44)
             }
         }
-        .background(ChopColor.bg)
+        .environment(\.colorScheme, .dark)
+        .task { offer = await LandOfferState.load() }
+    }
+}
+
+// MARK: nav
+//
+// At ≤640px .nl is display:none, so on a phone the bar is only the mark,
+// the wordmark, and the white "Start chopping" pill.
+
+struct LandNav: View {
+    let signup: () -> Void
+    var body: some View {
+        HStack(spacing: 9) {
+            ChopMarkView(size: 26)
+            Text("Chop")
+                .font(.system(size: 16.5, weight: .heavy))
+                .foregroundStyle(LandColor.tx)
+            Spacer(minLength: 8)
+            LandButton(title: "Start chopping", kind: .white, action: signup)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+        .background(.ultraThinMaterial)
+        .background(LandColor.bg.opacity(0.72))
+        .overlay(alignment: .bottom) { Rectangle().fill(LandColor.ln).frame(height: 1) }
+    }
+}
+
+// MARK: hero
+
+struct LandHero: View {
+    let signup: () -> Void
+    let jump: (String) -> Void
+
+    /// h1 is clamp(42px, 13vw, 56px); the phone is min(74vw, 252px). Both need
+    /// the live width, but the hero must still size to its content, so the
+    /// width is read from a zero-height probe rather than wrapping the stack.
+    @State private var w: CGFloat = 393
+
+    var body: some View {
+        let h1 = min(56, max(42, w * 0.13))
+        VStack(spacing: 0) {
+            LandEyebrow(text: "Built for TikTok Shop affiliates")
+
+            VStack(spacing: 0) {
+                Text("Don't edit,")
+                    .foregroundStyle(LandColor.tx)
+                Text("just film.")
+                    .font(.custom("Georgia", size: h1).italic())
+                    .foregroundStyle(landEmGrad)
+            }
+            .font(.system(size: h1, weight: .heavy))
+            .tracking(-0.035 * h1)
+            .padding(.top, 20)
+
+            Text("Chop cuts the dead air, filler words and messed-up takes out of your talking-head videos — automatically. Film once, review in seconds, post everywhere.")
+                .font(.system(size: 16.5))
+                .foregroundStyle(LandColor.mu)
+                .multilineTextAlignment(.center)
+                .lineSpacing(4)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 20)
+
+            VStack(spacing: 10) {
+                LandButton(title: "Chop your first video free", kind: .blue, big: true, fill: true, action: signup)
+                LandButton(title: "See how it works", kind: .ghost, big: true, fill: true) { jump("feat") }
+            }
+            .padding(.top, 26)
+
+            Text("3 free videos · no card · works on your phone")
+                .font(.system(size: 12.5, design: .monospaced))
+                .foregroundStyle(LandColor.note)
+                .padding(.top, 16)
+
+            LandPhone(width: min(w * 0.74, 252))
+                .padding(.top, 40)
+                .background(alignment: .bottom) {
+                    RadialGradient(colors: [LandColor.blue.opacity(0.22), .clear],
+                                   center: .center, startRadius: 0, endRadius: 160)
+                    .frame(height: 220).offset(y: 20).allowsHitTesting(false)
+                }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 18)
+        .background(alignment: .top) {
+            GeometryReader { p in
+                Color.clear.onAppear { w = p.size.width }
+                    .onChange(of: p.size.width) { nw in w = nw }
+            }
+            .frame(height: 0)
+        }
+    }
+}
+
+// MARK: the phone mockup
+
+struct LandPhone: View {
+    var width: CGFloat = 252
+
+    var body: some View {
+        let s = width / 252
+        VStack(spacing: 0) {
+            // .pv — the preview well
+            VStack(spacing: 0) {
+                ZStack(alignment: .top) {
+                    Group {
+                        if UIImage(named: "HeroStill") != nil {
+                            Image("HeroStill").resizable().scaledToFill()
+                        } else {
+                            lc(0x131824)
+                        }
+                    }
+                    .frame(width: (width - 18 * s), height: (width - 18 * s) * 13 / 9)
+                    .clipShape(RoundedRectangle(cornerRadius: 14 * s))
+
+                    HStack(spacing: 0) {
+                        Text("Raw")
+                            .padding(.horizontal, 10 * s).padding(.vertical, 3 * s)
+                            .foregroundStyle(.white.opacity(0.65))
+                        Text("Edited")
+                            .padding(.horizontal, 10 * s).padding(.vertical, 3 * s)
+                            .foregroundStyle(lc(0x0b0d12))
+                            .background(.white, in: RoundedRectangle(cornerRadius: 11 * s))
+                    }
+                    .font(.system(size: 9 * s, weight: .heavy))
+                    .padding(2 * s)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 13 * s))
+                    .overlay(RoundedRectangle(cornerRadius: 13 * s)
+                        .stroke(.white.opacity(0.16), lineWidth: 1))
+                    .padding(.top, 9 * s)
+                }
+            }
+            .padding(.horizontal, 9 * s).padding(.top, 9 * s).padding(.bottom, 7 * s)
+            .background(lc(0x0d1016))
+
+            // .pbar — transport
+            HStack(spacing: 7 * s) {
+                Text("▶").font(.system(size: 8 * s))
+                    .foregroundStyle(.white)
+                    .frame(width: 19 * s, height: 19 * s)
+                    .background(LandColor.blue, in: Circle())
+                Text("0:00")
+                GeometryReader { g in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(lc(0x232936)).frame(height: 3 * s)
+                        Circle().fill(.white).frame(width: 10 * s, height: 10 * s)
+                            .offset(x: g.size.width * 0.22 - 5 * s)
+                    }
+                    .frame(height: g.size.height, alignment: .center)
+                }
+                .frame(height: 10 * s)
+                Text("0:14")
+            }
+            .font(.system(size: 9.5 * s, weight: .bold))
+            .foregroundStyle(LandColor.mu)
+            .padding(.horizontal, 11 * s).padding(.vertical, 8 * s)
+            .overlay(alignment: .top) { Rectangle().fill(lc(0x171c26)).frame(height: 1) }
+
+            // .ptl — filmstrip with playhead
+            ZStack(alignment: .leading) {
+                LandFlexRow(flexes: [2, 0.6, 2.4, 2, 0.6, 2], spacing: 3 * s) { i in
+                    stripCell(s: s, cut: i == 1 || i == 4, sel: i == 2)
+                }
+                GeometryReader { g in
+                    Rectangle().fill(.white)
+                        .frame(width: 2 * s)
+                        .cornerRadius(1 * s)
+                        .offset(x: g.size.width * 0.47)
+                }
+            }
+            .frame(height: 36 * s)
+            .padding(.horizontal, 11 * s).padding(.top, 10 * s).padding(.bottom, 8 * s)
+            .background(lc(0x0d1016))
+
+            // .ptools
+            HStack(spacing: 5 * s) {
+                tool("🎬", "Retakes", s: s, on: true)
+                tool("✂", "Cuts", s: s)
+                tool("📄", "Script", s: s)
+                tool("T", "Text", s: s)
+                tool("🖼", "Image", s: s)
+                tool("💬", "Caps", s: s)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 11 * s).padding(.top, 6 * s).padding(.bottom, 9 * s)
+            .background(lc(0x0d1016))
+            .clipped()
+
+            // .pcard
+            VStack(alignment: .leading, spacing: 5 * s) {
+                HStack(spacing: 0) {
+                    Text("Retake 1 · 88% match")
+                        .font(.system(size: 8.5 * s, weight: .heavy))
+                        .foregroundStyle(LandColor.tx)
+                    Spacer(minLength: 4)
+                    Text("Keeping Take 2")
+                        .font(.system(size: 7 * s, weight: .heavy))
+                        .foregroundStyle(LandColor.grn)
+                        .padding(.horizontal, 7 * s).padding(.vertical, 2 * s)
+                        .background(lc(0x0f2a20), in: RoundedRectangle(cornerRadius: 7 * s))
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Take 1 · first attempt · 3.0s")
+                        .foregroundStyle(LandColor.mu)
+                    Text("\"Forty seven percent off this viral Medicube black…\"")
+                        .strikethrough()
+                        .foregroundStyle(lc(0x5b6472))
+                }
+                .font(.system(size: 8 * s))
+            }
+            .padding(.horizontal, 11 * s).padding(.vertical, 9 * s)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(lc(0x12161f), in: RoundedRectangle(cornerRadius: 12 * s))
+            .overlay(RoundedRectangle(cornerRadius: 12 * s).stroke(lc(0x1f2532), lineWidth: 1))
+            .padding(.horizontal, 11 * s).padding(.bottom, 11 * s)
+        }
+        .background(lc(0x0b0d12))
+        .clipShape(RoundedRectangle(cornerRadius: 28 * s))
+        .padding(9 * s)
+        .background(lc(0x0b0d12), in: RoundedRectangle(cornerRadius: 36 * s))
+        .overlay(RoundedRectangle(cornerRadius: 36 * s).stroke(lc(0x262c3a), lineWidth: 1))
+        .frame(width: width + 18 * s)
+        .shadow(color: .black.opacity(0.7), radius: 45, y: 40)
     }
 
-    private func feature(_ icon: String, _ text: String) -> some View {
-        ChopCard {
-            HStack(alignment: .top, spacing: 13) {
-                Image(systemName: icon)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(ChopColor.blue)
-                    .frame(width: 38, height: 38)
-                    .background(ChopColor.blueSoft, in: RoundedRectangle(cornerRadius: 11))
-                Text(text).font(.system(size: 14))
-                    .foregroundStyle(ChopColor.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
+    @ViewBuilder
+    private func stripCell(s: CGFloat, cut: Bool = false, sel: Bool = false) -> some View {
+        let base = RoundedRectangle(cornerRadius: 7 * s)
+        Group {
+            if cut {
+                base.fill(LandColor.rose.opacity(0.34))
+            } else if sel {
+                base.fill(LinearGradient(colors: [lc(0x2c3f66), lc(0x1c2740)],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .overlay(base.stroke(lc(0x7aa2ff, 0.85), lineWidth: 2))
+            } else {
+                base.fill(LinearGradient(colors: [lc(0x333c50), lc(0x212734)],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing))
             }
         }
+    }
+
+    private func tool(_ glyph: String, _ label: String, s: CGFloat, on: Bool = false) -> some View {
+        VStack(spacing: 2 * s) {
+            Text(glyph).font(.system(size: 12 * s))
+            Text(label).font(.system(size: 6.5 * s, weight: .heavy))
+        }
+        .foregroundStyle(on ? lc(0x8fb1ff) : LandColor.mu)
+        .frame(width: 41 * s, height: 41 * s)
+        .background(on ? lc(0x16233c) : lc(0x151a24), in: RoundedRectangle(cornerRadius: 11 * s))
+        .overlay(RoundedRectangle(cornerRadius: 11 * s)
+            .stroke(on ? lc(0x2f5cb8) : lc(0x232936), lineWidth: 1))
+    }
+}
+
+// MARK: marquee
+
+struct LandMarquee: View {
+    private let items: [(String, Color)] = [
+        ("✂ um removed", LandColor.rose),
+        ("✂ 2.4s silence cut", LandColor.rose),
+        ("✓ retake matched", LandColor.grn),
+        ("▶ 1080p export", LandColor.bl2),
+        ("✂ uhh removed", LandColor.rose),
+        ("✓ AI picked the better take", LandColor.grn),
+        ("✂ 1.8s pause cut", LandColor.rose),
+        ("▶ posted to TikTok", LandColor.bl2)
+    ]
+    @State private var w: CGFloat = 0
+
+    var body: some View {
+        TimelineView(.animation) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            let dx = w > 0 ? -CGFloat(t.truncatingRemainder(dividingBy: 28) / 28) * w : 0
+            HStack(spacing: 0) {
+                row.background(GeometryReader { g in
+                    Color.clear.onAppear { w = g.size.width }
+                })
+                row
+            }
+            .offset(x: dx)
+        }
+        .frame(height: 40)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
+        .background(LandColor.srf.opacity(0.7))
+        .overlay(alignment: .top) { Rectangle().fill(LandColor.ln).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(LandColor.ln).frame(height: 1) }
+    }
+
+    private var row: some View {
+        HStack(spacing: 0) {
+            ForEach(items.indices, id: \.self) { i in
+                Text(items[i].0)
+                    .font(.system(size: 11.5, weight: .bold, design: .monospaced))
+                    .foregroundStyle(items[i].1)
+                    .padding(.horizontal, 15)
+                    .fixedSize()
+            }
+        }
+    }
+}
+
+// MARK: the transform
+
+struct LandTransform: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            LandEyebrow(text: "The transform")
+            LandH2(plain: "Watch a video ", em: "chop itself.").padding(.top, 14)
+            LandLead(text: "One upload in, one clean cut out — no timeline scrubbing, no scissor work.")
+                .padding(.top, 14)
+
+            VStack(spacing: 0) {
+                LandCard {
+                    VStack(alignment: .leading, spacing: 0) {
+                        header("Raw footage", "1:42", tint: LandColor.tx)
+                        rawBody.padding(.top, 13)
+                    }
+                }
+                LandArrow().padding(.vertical, 14)
+                LandCard(border: LandColor.blue.opacity(0.5)) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        header("Chopped", "0:58", tint: LandColor.tx)
+                        Text("This is the gadget everyone's talking about — it literally peels everything in seconds, and it's on offer right now, so grab it from my showcase.")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(LandColor.tx)
+                            .lineSpacing(6)
+                            .padding(.top, 13)
+                        HStack(spacing: 7) {
+                            Text("✓ 44 seconds of dead weight removed")
+                        }
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(LandColor.grn)
+                        .padding(.horizontal, 11).padding(.vertical, 5)
+                        .background(LandColor.grn.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+                        .padding(.top, 13)
+                        LandMini().padding(.top, 13)
+                    }
+                }
+            }
+            .padding(.top, 32)
+        }
+        .padding(.horizontal, 18)
+    }
+
+    private func header(_ l: String, _ r: String, tint: Color) -> some View {
+        HStack(spacing: 0) {
+            Text(l.uppercased())
+                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                .tracking(1.47)
+                .foregroundStyle(LandColor.mu)
+            Spacer(minLength: 6)
+            Text(r).font(.system(size: 13, weight: .bold, design: .monospaced))
+                .foregroundStyle(tint)
+        }
+    }
+
+    /// .dl with inline .cut chips. Animation `cutaway`: plain → struck → faded.
+    /// Tokens rather than a literal ViewBuilder run, which caps at 10 children.
+    private enum RawTok {
+        case word(String)
+        case cut(String, Double)   // text, animation-delay
+    }
+
+    private static let rawTokens: [RawTok] = [
+        .word("Okay so"),
+        .cut("um", 0),
+        .word("this is the gadget everyone's talking about"),
+        .cut("··· 2.4s pause", 0.6),
+        .word("it literally peels"),
+        .cut("wait let me start again", 1.2),
+        .word("it literally peels everything in seconds"),
+        .cut("uhh", 1.8),
+        .word("and it's on offer right now"),
+        .cut("··· 1.8s pause", 2.4),
+        .word("so grab it from my showcase.")
+    ]
+
+    private var rawBody: some View {
+        TimelineView(.animation) { tl in
+            let t = tl.date.timeIntervalSinceReferenceDate
+            LandFlow(hSpacing: 4, vSpacing: 7) {
+                ForEach(Array(Self.rawTokens.enumerated()), id: \.offset) { _, tok in
+                    switch tok {
+                    case .word(let w):        word(w)
+                    case .cut(let c, let d):  chip(c, phase(t, d))
+                    }
+                }
+            }
+        }
+    }
+
+    private func word(_ s: String) -> some View {
+        Text(s).font(.system(size: 13)).foregroundStyle(lc(0xb9c1d1))
+    }
+
+    /// 0 = plain, 1 = struck through, 2 = faded out.
+    private func phase(_ t: TimeInterval, _ delay: Double) -> Int {
+        let p = (t - delay).truncatingRemainder(dividingBy: 7)
+        let x = p < 0 ? p + 7 : p
+        let pct = x / 7 * 100
+        if pct < 18 { return 0 }
+        if pct < 60 { return 1 }
+        if pct < 88 { return 2 }
+        return 0
+    }
+
+    private func chip(_ s: String, _ ph: Int) -> some View {
+        Text(s)
+            .font(.system(size: 13, weight: .semibold))
+            .strikethrough(ph == 1)
+            .foregroundStyle(LandColor.rose)
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(LandColor.rose.opacity(0.13), in: RoundedRectangle(cornerRadius: 5))
+            .opacity(ph == 2 ? 0.12 : 1)
+            .animation(.easeInOut(duration: 0.5), value: ph)
+    }
+}
+
+/// .arrow — rotated 90° at ≤900px, pulsing 2.4s.
+struct LandArrow: View {
+    @State private var big = false
+    var body: some View {
+        Text("→")
+            .font(.system(size: 17, weight: .heavy))
+            .foregroundStyle(.white)
+            .frame(width: 38, height: 38)
+            .background(landGrad, in: Circle())
+            .rotationEffect(.degrees(90))
+            .scaleEffect(big ? 1.09 : 1)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { big = true }
+            }
+    }
+}
+
+/// .mini — the chopped card's condensed strip, rose gaps blinking 2.2s.
+struct LandMini: View {
+    @State private var dim = false
+    var body: some View {
+        HStack(spacing: 3) {
+            ForEach(0..<8, id: \.self) { i in
+                let gap = (i == 1 || i == 4 || i == 6)
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(gap ? AnyShapeStyle(LandColor.rose)
+                              : AnyShapeStyle(LinearGradient(colors: [lc(0x333c50), lc(0x212734)],
+                                                             startPoint: .topLeading, endPoint: .bottomTrailing)))
+                    .frame(maxWidth: gap ? 7 : .infinity)
+                    .opacity(gap && dim ? 0.35 : 1)
+            }
+        }
+        .frame(height: 24)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { dim = true }
+        }
+    }
+}
+
+// MARK: features (#feat)
+
+struct LandFeatures: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            LandEyebrow(text: "What it does")
+            VStack(spacing: 0) {
+                Text("More videos posted.").foregroundStyle(LandColor.tx)
+                Text("Zero evenings lost.")
+                    .font(.custom("Georgia", size: 32).italic())
+                    .foregroundStyle(landEmGrad)
+            }
+            .font(.system(size: 32, weight: .heavy))
+            .tracking(-0.96)
+            .multilineTextAlignment(.center)
+            .padding(.top, 14)
+
+            LandLead(text: "The three things that used to eat your editing time — handled.")
+                .padding(.top, 14)
+
+            VStack(spacing: 14) {
+                LandFeat(n: "01 / ONE UPLOAD",
+                         title: "Dead air, gone before you've made a brew",
+                         copy: "Drop in raw footage and Chop strips every awkward pause and filler word automatically. You just watch the runtime fall.") {
+                    VizTimeline()
+                }
+                LandFeat(n: "02 / THE CHOP DIFFERENCE",
+                         title: "Retakes reviewed in seconds, not minutes",
+                         copy: "Said the line three times? Chop lines every version up side by side and suggests the keeper. Nothing is ever cut without you.") {
+                    VizRetakes()
+                }
+                LandFeat(n: "03 / QUICK EDIT",
+                         title: "Director's cut, in your thumbs",
+                         copy: "A TikTok-style timeline with frame-perfect control: pinch to zoom, split, trim and snap cuts to the exact frame. The final say is always yours.") {
+                    VizQuickEdit()
+                }
+            }
+            .padding(.top, 32)
+        }
+        .padding(.horizontal, 18)
+    }
+}
+
+struct LandFeat<V: View>: View {
+    let n: String
+    let title: String
+    let copy: String
+    @ViewBuilder var viz: V
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(n)
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .tracking(1.54)
+                .foregroundStyle(LandColor.blue)
+            Text(title)
+                .font(.system(size: 19, weight: .heavy))
+                .tracking(-0.19)
+                .foregroundStyle(LandColor.tx)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(copy)
+                .font(.system(size: 14))
+                .foregroundStyle(LandColor.mu)
+                .lineSpacing(3)
+                .fixedSize(horizontal: false, vertical: true)
+            viz
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LandColor.srf, in: RoundedRectangle(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(LandColor.ln, lineWidth: 1))
+    }
+}
+
+/// .viz shell — #0b0d12, --ln, r14, min-height 132.
+struct VizBox<C: View>: View {
+    @ViewBuilder var content: C
+    var body: some View {
+        VStack(spacing: 9) { content }
+            .padding(16)
+            .frame(maxWidth: .infinity, minHeight: 132)
+            .background(lc(0x0b0d12), in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(LandColor.ln, lineWidth: 1))
+    }
+}
+
+private func vizLabel(_ l: String, _ r: String? = nil, rGreen: Bool = true) -> some View {
+    HStack(spacing: 0) {
+        Text(l)
+            .font(.system(size: 10, weight: .bold, design: .monospaced))
+            .tracking(1)
+            .foregroundStyle(LandColor.mu)
+        if let r {
+            Spacer(minLength: 6)
+            Text(r)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .tracking(1)
+                .foregroundStyle(rGreen ? LandColor.grn : LandColor.mu)
+        }
+    }
+}
+
+struct VizTimeline: View {
+    @State private var collapsed = false
+    var body: some View {
+        VizBox {
+            vizLabel("YOUR TIMELINE", "−38%")
+            LandFlexRow(flexes: (0..<7).map { (i: Int) -> CGFloat in i % 2 == 1 ? (collapsed ? 0.02 : 2) : 3 }, spacing: 4) { i in
+                let gap = i % 2 == 1
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(gap ? AnyShapeStyle(LandColor.rose.opacity(0.3))
+                              : AnyShapeStyle(LinearGradient(colors: [lc(0x333c50), lc(0x212734)],
+                                                             startPoint: .topLeading, endPoint: .bottomTrailing)))
+                    .opacity(gap && collapsed ? 0.5 : 1)
+            }
+            .frame(height: 40)
+            .animation(.easeInOut(duration: 1.2), value: collapsed)
+            vizLabel("1:42", "0:58", rGreen: false)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { collapsed = true }
+        }
+    }
+}
+
+struct VizRetakes: View {
+    @State private var lit = false
+    var body: some View {
+        VizBox {
+            vizLabel("RETAKE 1 · 96% MATCH")
+            take("\"It's the pink numbers. How many…\"", len: "3.4s", pick: false)
+            take("\"It's the pink numbers.\"", len: "1.8s", pick: true)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) { lit = true }
+        }
+    }
+
+    private func take(_ s: String, len: String, pick: Bool) -> some View {
+        HStack(spacing: 9) {
+            Text(s).font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(lc(0xc3cbdb)).lineLimit(1)
+            if pick {
+                Text("AI PICK")
+                    .font(.system(size: 9, weight: .heavy))
+                    .foregroundStyle(lc(0x04241a))
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(LandColor.grn, in: RoundedRectangle(cornerRadius: 7))
+            }
+            Spacer(minLength: 4)
+            Text(len).font(.system(size: 10.5)).foregroundStyle(LandColor.mu)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 9)
+        .background(pick && lit ? LandColor.blue.opacity(0.16) : lc(0x141922),
+                    in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10)
+            .stroke(pick ? LandColor.blue : lc(0x232a38), lineWidth: 1))
+    }
+}
+
+struct VizQuickEdit: View {
+    @State private var tight = false
+    var body: some View {
+        VizBox {
+            vizLabel("QUICK EDIT", "frame-perfect")
+            GeometryReader { g in
+                let W = g.size.width
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(LinearGradient(colors: [lc(0x333c50), lc(0x212734)],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing))
+                        .frame(height: 48)
+                    Rectangle().fill(.white).frame(width: 3, height: 68).cornerRadius(3)
+                        .offset(x: W * 0.52)
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(.white, lineWidth: 3)
+                        .frame(width: W * (tight ? 0.30 : 0.46), height: 58)
+                        .overlay(alignment: .leading) { handle("‹") }
+                        .overlay(alignment: .trailing) { handle("›") }
+                        .offset(x: W * (tight ? 0.26 : 0.16))
+                }
+                .frame(height: g.size.height, alignment: .center)
+            }
+            .frame(height: 58)
+            .animation(.easeInOut(duration: 2.2), value: tight)
+            vizLabel("pinch · split · trim · snap")
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 2.25).repeatForever(autoreverses: true)) { tight = true }
+        }
+    }
+
+    private func handle(_ g: String) -> some View {
+        Text(g).font(.system(size: 10, weight: .heavy))
+            .foregroundStyle(lc(0x111111))
+            .frame(width: 14, height: 58)
+            .background(.white, in: RoundedRectangle(cornerRadius: 8))
+            .offset(x: g == "‹" ? -3 : 3)
+    }
+}
+
+// MARK: pricing (#price)
+
+struct LandPricing: View {
+    let signup: () -> Void
+    var body: some View {
+        VStack(spacing: 0) {
+            LandEyebrow(text: "Pricing")
+            LandH2(plain: "One credit. ", em: "One video.").padding(.top, 14)
+            LandLead(text: "No subscriptions, no tiers to decode. Buy credits, chop videos. The more you buy, the cheaper each one gets.")
+                .padding(.top, 14)
+
+            VStack(spacing: 16) {
+                LandPrice(name: "STARTER", amount: "£1", unit: "/video", per: "under 50 credits",
+                          bullets: ["Everything included", "1080p exports", "Works on your phone"],
+                          mid: false, signup: signup)
+                LandPrice(name: "CREATOR", amount: "85p", unit: "/video", per: "50+ credits",
+                          bullets: ["Everything included", "Bulk upload queue", "Cross-device sync"],
+                          mid: true, signup: signup)
+                LandPrice(name: "PRO", amount: "75p", unit: "/video", per: "100+ credits · drops to 60p",
+                          bullets: ["Everything included", "Best rate per video", "For daily posters"],
+                          mid: false, signup: signup)
+            }
+            .padding(.top, 32)
+
+            (Text("Every new account starts with ")
+             + Text("3 free videos").foregroundColor(LandColor.tx).bold()
+             + Text(". Credits never expire."))
+                .font(.system(size: 13))
+                .foregroundStyle(LandColor.mu)
+                .multilineTextAlignment(.center)
+                .padding(.top, 22)
+        }
+        .padding(.horizontal, 18)
+    }
+}
+
+struct LandPrice: View {
+    let name: String
+    let amount: String
+    let unit: String
+    let per: String
+    let bullets: [String]
+    let mid: Bool
+    let signup: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text(name)
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .tracking(1.54)
+                .foregroundStyle(LandColor.mu)
+            (Text(amount).font(.system(size: 36, weight: .heavy))
+             + Text(unit).font(.system(size: 14, weight: .bold)).foregroundColor(LandColor.mu))
+                .tracking(-1.08)
+                .foregroundStyle(LandColor.tx)
+                .padding(.top, 9)
+            Text(per)
+                .font(.system(size: 12.5))
+                .foregroundStyle(LandColor.mu)
+                .multilineTextAlignment(.center)
+                .padding(.top, 2)
+            VStack(spacing: 3) {
+                ForEach(bullets, id: \.self) { b in
+                    Text(b).font(.system(size: 13)).foregroundStyle(LandColor.mu)
+                }
+            }
+            .padding(.vertical, 16)
+            LandButton(title: "Get credits", kind: mid ? .blue : .ghost, fill: true, action: signup)
+        }
+        .padding(22)
+        .frame(maxWidth: .infinity)
+        .background {
+            RoundedRectangle(cornerRadius: 18)
+                .fill(mid ? AnyShapeStyle(LinearGradient(colors: [LandColor.blue.opacity(0.09), LandColor.srf],
+                                                         startPoint: .top, endPoint: .bottom))
+                          : AnyShapeStyle(LandColor.srf))
+        }
+        .overlay(RoundedRectangle(cornerRadius: 18)
+            .stroke(mid ? LandColor.blue.opacity(0.6) : LandColor.ln, lineWidth: 1))
+        .overlay(alignment: .top) {
+            if mid {
+                Text("MOST POPULAR")
+                    .font(.system(size: 9.5, weight: .heavy, design: .monospaced))
+                    .tracking(1.14)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12).padding(.vertical, 4)
+                    .background(landGrad, in: RoundedRectangle(cornerRadius: 9))
+                    .offset(y: -10)
+            }
+        }
+        .padding(.top, mid ? 10 : 0)
+    }
+}
+
+// MARK: faq (#faq)
+
+struct LandFAQ: View {
+    private let qs: [(String, String)] = [
+        ("Will it mess with my cuts?",
+         "No — nothing is ever removed without you. Retakes are always shown side by side for you to pick, every cut is visible on the timeline, and one tap restores anything."),
+        ("Does it work on my phone?",
+         "Yes — Chop is built phone-first. Film, upload, review and export straight from the TikTok-style editor, then save direct to your camera roll."),
+        ("What footage does it work best on?",
+         "Talking-head content — product reviews, hauls, storytimes, UGC. If you're speaking to camera, Chop understands it."),
+        ("How long does it take?",
+         "About 15 seconds of processing per minute of footage. Most creators go from raw file to posted video in under two minutes.")
+    ]
+    @State private var open: Set<Int> = []
+
+    var body: some View {
+        VStack(spacing: 0) {
+            LandH2(plain: "Quick ", em: "questions.")
+            VStack(spacing: 10) {
+                ForEach(qs.indices, id: \.self) { i in
+                    let isOpen = open.contains(i)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                if isOpen { open.remove(i) } else { open.insert(i) }
+                            }
+                        } label: {
+                            HStack(spacing: 8) {
+                                Text(qs[i].0)
+                                    .font(.system(size: 15, weight: .bold))
+                                    .foregroundStyle(LandColor.tx)
+                                    .multilineTextAlignment(.leading)
+                                Spacer(minLength: 6)
+                                Text(isOpen ? "−" : "+")
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(LandColor.mu)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        if isOpen {
+                            Text(qs[i].1)
+                                .font(.system(size: 14))
+                                .foregroundStyle(LandColor.mu)
+                                .lineSpacing(3)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.top, 11)
+                        }
+                    }
+                    .padding(.horizontal, 20).padding(.vertical, 16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(LandColor.srf, in: RoundedRectangle(cornerRadius: 13))
+                    .overlay(RoundedRectangle(cornerRadius: 13).stroke(LandColor.ln, lineWidth: 1))
+                }
+            }
+            .padding(.top, 36)
+        }
+        .padding(.horizontal, 18)
+    }
+}
+
+// MARK: launch offer
+//
+// The web page reads chop_offer straight from the public REST endpoint and,
+// once the cap is hit, rewrites the heading, body and CTA.
+
+struct LandOfferState {
+    var claimed = 0
+    var cap = 10
+    var defaultCredits = 3
+    var loaded = false
+    var gone: Bool { loaded && claimed >= cap }
+
+    static func load() async -> LandOfferState {
+        var s = LandOfferState()
+        let url = URL(string: "\(SB_URL)/rest/v1/chop_offer?select=claimed,cap,offer_credits,default_credits&id=eq.1")!
+        var r = URLRequest(url: url)
+        r.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+        guard let (d, resp) = try? await URLSession.shared.data(for: r),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let rows = try? JSONSerialization.jsonObject(with: d) as? [[String: Any]],
+              let row = rows.first else { return s }
+        s.claimed = row["claimed"] as? Int ?? 0
+        s.cap = row["cap"] as? Int ?? 10
+        s.defaultCredits = row["default_credits"] as? Int ?? 3
+        s.loaded = true
+        return s
+    }
+}
+
+struct LandOffer: View {
+    let state: LandOfferState
+    let signup: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            LandEyebrow(text: "Launch offer", color: LandColor.bl2)
+
+            if state.gone {
+                VStack(spacing: 0) {
+                    Text("Every new account gets").foregroundStyle(LandColor.tx)
+                    Text("\(state.defaultCredits) free videos.")
+                        .font(.custom("Georgia", size: 32).italic())
+                        .foregroundStyle(landEmGrad)
+                }
+                .font(.system(size: 32, weight: .heavy)).tracking(-0.96)
+                .multilineTextAlignment(.center).padding(.top, 14)
+
+                Text("The launch credits are gone, but your first \(state.defaultCredits) videos are still on us. No card, no code — just sign up and start chopping.")
+                    .font(.system(size: 15.5)).foregroundStyle(LandColor.mu)
+                    .multilineTextAlignment(.center).lineSpacing(3)
+                    .padding(.top, 14).padding(.bottom, 24)
+
+                LandButton(title: "Start chopping free", kind: .white, big: true, fill: true, action: signup)
+            } else {
+                VStack(spacing: 0) {
+                    Text("First \(state.cap) affiliates get").foregroundStyle(LandColor.tx)
+                    Text("\(state.cap) free credits.")
+                        .font(.custom("Georgia", size: 32).italic())
+                        .foregroundStyle(landEmGrad)
+                }
+                .font(.system(size: 32, weight: .heavy)).tracking(-0.96)
+                .multilineTextAlignment(.center).padding(.top, 14)
+
+                Text("That's \(state.cap) videos chopped, on us. Sign up and the credits land in your account automatically — no code to enter.")
+                    .font(.system(size: 15.5)).foregroundStyle(LandColor.mu)
+                    .multilineTextAlignment(.center).lineSpacing(3)
+                    .padding(.top, 14).padding(.bottom, 24)
+
+                LandButton(title: "Claim my \(state.cap) free credits", kind: .white, big: true, fill: true, action: signup)
+            }
+
+            HStack(spacing: 10) {
+                Text(state.gone ? "all \(state.cap) claimed" : "\(min(state.claimed, state.cap)) / \(state.cap) claimed")
+                    .font(.system(size: 12, weight: .bold, design: .monospaced))
+                    .foregroundStyle(LandColor.tx)
+                GeometryReader { g in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.1))
+                        Capsule().fill(landGrad)
+                            .frame(width: g.size.width * pct)
+                    }
+                }
+                .frame(width: 130, height: 6)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 15).padding(.vertical, 8)
+            .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 11))
+            .overlay(RoundedRectangle(cornerRadius: 11).stroke(LandColor.ln2, lineWidth: 1))
+            .padding(.top, 18)
+        }
+        .padding(.horizontal, 20).padding(.vertical, 36)
+        .background(
+            LinearGradient(colors: [LandColor.blue.opacity(0.13), LandColor.vio.opacity(0.07)],
+                           startPoint: .top, endPoint: .bottom),
+            in: RoundedRectangle(cornerRadius: 20))
+        .overlay(RoundedRectangle(cornerRadius: 20).stroke(LandColor.blue.opacity(0.4), lineWidth: 1))
+        .padding(.horizontal, 18)
+    }
+
+    private var pct: CGFloat {
+        guard state.cap > 0 else { return 0 }
+        return min(1, CGFloat(state.claimed) / CGFloat(state.cap))
+    }
+}
+
+// MARK: footer
+
+struct LandFooter: View {
+    let signin: () -> Void
+    let jump: (String) -> Void
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 8) {
+                ChopMarkView(size: 19, flat: LandColor.blue)
+                Text("Chop").font(.system(size: 13, weight: .heavy)).foregroundStyle(LandColor.tx)
+            }
+            Text("© 2026 ATS Collective Ltd")
+            HStack(spacing: 14) {
+                Button("Sign in", action: signin)
+                Button("Pricing") { jump("price") }
+                Button("Privacy") { openURL(URL(string: "https://chopedit.com/privacy.html")!) }
+                Button("Support") { openURL(URL(string: "mailto:hello@chopedit.com")!) }
+            }
+            .buttonStyle(.plain)
+        }
+        .font(.system(size: 13))
+        .foregroundStyle(LandColor.mu)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18).padding(.vertical, 32)
+        .overlay(alignment: .top) { Rectangle().fill(LandColor.ln).frame(height: 1) }
     }
 }
 
@@ -2907,12 +4431,12 @@ struct ChopActivity: View {
     var body: some View {
         ChopCard {
             VStack(alignment: .leading, spacing: 14) {
-                Text("Consistency").font(ChopFont.h2(17)).foregroundStyle(ChopColor.ink)
+                Text("Activity").font(ChopFont.h2(17)).foregroundStyle(ChopColor.ink)
 
                 HStack(spacing: 22) {
                     stat("\(current)", "Current streak")
                     stat("\(longest)", "Longest streak")
-                    stat("\(active30)/30", "Active days")
+
                 }
 
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -3043,6 +4567,57 @@ struct ChopLabPreview: View {
         case "sp":   return ChopColor.blue.opacity(cut ? 0.9 : 0.75)
         case "fill": return ChopColor.violet.opacity(0.7)
         default:     return ChopColor.line
+        }
+    }
+}
+
+/// The web dashboard's consistency ring: a 0-99 score with a tier label,
+/// 30-day activity and peak day. Same formula as renderHomeStats().
+struct ChopRing: View {
+    let edits: Int
+    let active30: Int
+    let streak: Int
+    let peakDay: String
+
+    private var pct: Int {
+        guard edits > 0 else { return 0 }
+        return min(99, 35 + active30 * 2 + min(20, edits) + streak * 2)
+    }
+    private var tier: String {
+        switch pct {
+        case 0:      return "Getting started"
+        case ..<45:  return "Warming up"
+        case ..<65:  return "Building a habit"
+        case ..<85:  return "Consistent"
+        default:     return "Machine"
+        }
+    }
+
+    var body: some View {
+        ChopCard {
+            HStack(spacing: 18) {
+                ZStack {
+                    Circle().stroke(ChopColor.soft2, lineWidth: 9)
+                    Circle()
+                        .trim(from: 0, to: CGFloat(pct) / 100)
+                        .stroke(chopGradient,
+                                style: StrokeStyle(lineWidth: 9, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                    Text("\(pct)%").font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(ChopColor.ink)
+                }
+                .frame(width: 84, height: 84)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(tier).font(.system(size: 15.5, weight: .heavy))
+                        .foregroundStyle(ChopColor.ink)
+                    Text("Active \(active30) / 30 days · \(streak)-day streak")
+                        .font(.system(size: 11.5)).foregroundStyle(ChopColor.muted)
+                    Text("Peak day: \(peakDay)")
+                        .font(.system(size: 11.5)).foregroundStyle(ChopColor.muted)
+                }
+                Spacer(minLength: 0)
+            }
         }
     }
 }
