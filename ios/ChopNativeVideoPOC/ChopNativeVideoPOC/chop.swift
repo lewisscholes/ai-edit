@@ -2814,6 +2814,7 @@ struct ChopTimeline: View {
     @State private var dragStartTime: Double? = nil
     // live trim: (band, side 0=left/1=right, proposed edge in EDIT time)
     @State private var trimLive: (band: Int, side: Int, t: Double)? = nil
+    @State private var trimSnapped = false   // magnetised to the playhead
 
     private let stripH: CGFloat = 56
     private let scrubH: CGFloat = 28   // TikTok thumb-scrub pad under the strip
@@ -2842,12 +2843,16 @@ struct ChopTimeline: View {
                                 .stroke(Color.black.opacity(0.5), lineWidth: 1))
                             .offset(x: x)
 
-                        // web .splitmark — white line between adjacent bands
+                        // TikTok transition badge on every cut boundary — ▶|◀
                         if i > 0 {
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(Color.white.opacity(0.8))
-                                .frame(width: 2, height: stripH - 12)
-                                .offset(x: x - 1, y: 6)
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.white)
+                                .frame(width: 26, height: 26)
+                                .overlay(Image(systemName: "arrowtriangle.right.and.line.vertical.and.arrowtriangle.left.fill")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(Color(white: 0.12)))
+                                .shadow(color: .black.opacity(0.25), radius: 3, y: 1)
+                                .offset(x: x - 13, y: (stripH - 26) / 2)
                                 .allowsHitTesting(false)
                         }
                     }
@@ -2991,17 +2996,31 @@ struct ChopTimeline: View {
             .gesture(
                 DragGesture(minimumDistance: 1, coordinateSpace: .named("chopstrip"))
                     .onChanged { g in
-                        let t = Double(g.location.x / pps)
+                        var t = Double(g.location.x / pps)
                         if side == 0 {
                             let minT = span.start - p.bandExtendLeft(sel)
-                            trimLive = (sel, 0, max(0, min(max(t, minT), span.end - 0.08)))
+                            t = max(0, min(max(t, minT), span.end - 0.08))
                         } else {
                             let maxT = span.end + p.bandExtendRight(sel)
-                            trimLive = (sel, 1, min(max(min(t, maxT), span.start + 0.08), p.duration + p.bandExtendRight(sel)))
+                            t = min(max(min(t, maxT), span.start + 0.08), p.duration + p.bandExtendRight(sel))
                         }
+                        // TikTok: the cap magnetises to the playhead for a
+                        // frame-perfect cut — keep pulling to push through
+                        let stick = p.time
+                        if stick > span.start + 0.01, stick < span.end - 0.01,
+                           abs(t - stick) * Double(pps) < 8 {
+                            if !trimSnapped {
+                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                trimSnapped = true
+                            }
+                            t = stick
+                        } else {
+                            trimSnapped = false
+                        }
+                        trimLive = (sel, side, t)
                     }
                     .onEnded { _ in
-                        defer { trimLive = nil }
+                        defer { trimLive = nil; trimSnapped = false }
                         guard let tl = trimLive, tl.band == sel else { return }
                         let delta = tl.side == 0 ? tl.t - span.start : span.end - tl.t
                         // + = trim in, − = extend out; selection is kept
