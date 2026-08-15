@@ -2520,12 +2520,11 @@ struct ChopPlayerScreen: View {
     private var toolbar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
+                // Text/Image/Captions removed for App Store review — Apple
+                // rejects visible-but-nonfunctional controls. Re-add at launch.
                 tool("retakes", "rectangle.on.rectangle", "Retakes", badge: p.undecided)
                 tool("cuts", "scissors", "Cuts")
                 tool("script", "text.alignleft", "Script")
-                tool("text", "textformat", "Text")          // web: SOON panel
-                tool("image", "photo", "Image")             // web: SOON panel
-                tool("subtitles", "captions.bubble", "Captions") // web: SOON panel
                 tool("export", "square.and.arrow.down", "Export")
             }
             .padding(.horizontal, 12)
