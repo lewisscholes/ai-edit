@@ -1102,7 +1102,7 @@ struct ChopOnboardingView: View {
                 .padding(.top, 58)
 
             TabView(selection: $page) {
-                slide(tag: "36 minutes of editing, gone",
+                slide(tag: "Your video, edited in 15 seconds",
                       headline: "Don't edit,", em: "just film.",
                       prop: AnyView(stripProp)).tag(0)
                 slide(tag: "Every retake, caught for you",
@@ -1127,8 +1127,8 @@ struct ChopOnboardingView: View {
                 Text("Get started")
                     .font(.system(size: 18, weight: .bold))
                     .frame(maxWidth: .infinity).padding(.vertical, 18)
-                    .background(ChopColor.ink, in: RoundedRectangle(cornerRadius: 18))
-                    .foregroundStyle(ChopColor.bg)
+                    .background(Color.black, in: RoundedRectangle(cornerRadius: 18))
+                    .foregroundStyle(.white)
             }
             .padding(.horizontal, 22)
             .padding(.bottom, 38)
@@ -1141,18 +1141,22 @@ struct ChopOnboardingView: View {
     private func slide(tag: String, headline: String, em: String, prop: AnyView) -> some View {
         VStack(spacing: 0) {
             Text(tag)
-                .font(.custom("Georgia-Italic", size: 22))
+                .font(.system(size: 17, weight: .bold))
                 .foregroundStyle(ChopColor.muted)
                 .padding(.top, 16)
             Spacer()
             prop
             Spacer()
-            (Text(headline + "\n") + Text(em).italic().foregroundColor(ChopColor.blue))
-                .font(.custom("Georgia-Bold", size: 40))
-                .foregroundStyle(ChopColor.ink)
-                .multilineTextAlignment(.center)
-                .lineSpacing(4)
-                .padding(.bottom, 26)
+            VStack(spacing: -7) {   // tight, wordmark-style leading
+                Text(headline)
+                    .foregroundStyle(ChopColor.ink)
+                Text(em)
+                    .foregroundStyle(ChopColor.blue)
+            }
+            .font(.system(size: 38, weight: .black))
+            .kerning(-1.2)
+            .multilineTextAlignment(.center)
+            .padding(.bottom, 26)
         }
         .padding(.horizontal, 24)
     }
@@ -1686,20 +1690,27 @@ struct ChopRootView: View {
                 // ---- the auth card (web .authform: card bg, 1px line, r20, 26×24) ----
                 VStack(spacing: 0) {
 
-                    ChopWordmark(size: 40)
-                        .scaleEffect(authGlow ? 1.03 : 1)
-                        .animation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true), value: authGlow)
-                        .padding(.bottom, 18)
+                    Rectangle().fill(Color.clear)
+                        .frame(height: 46)
+                        .frame(maxWidth: .infinity)
+                        .overlay(ChopWordmark(size: 40))
+                        .padding(.bottom, 14)
 
-                    Text(authTitle)
-                        .font(.system(size: 21, weight: .heavy))
-                        .foregroundStyle(ChopColor.ink)
-                        .padding(.bottom, 4)
-                    Text(authSub)
-                        .font(.system(size: 13.5))
-                        .foregroundStyle(ChopColor.muted)
-                        .multilineTextAlignment(.center)
-                        .padding(.bottom, 22)
+                    // no "Welcome back"/sub on the normal form — just the mark.
+                    // Reset stages keep their titles so people know where they are.
+                    if authStage != 0 {
+                        Text(authTitle)
+                            .font(.system(size: 21, weight: .heavy))
+                            .foregroundStyle(ChopColor.ink)
+                            .padding(.bottom, 4)
+                        Text(authSub)
+                            .font(.system(size: 13.5))
+                            .foregroundStyle(ChopColor.muted)
+                            .multilineTextAlignment(.center)
+                            .padding(.bottom, 22)
+                    } else {
+                        Spacer().frame(height: 8)
+                    }
 
                     if authStage == 0 {
                         HStack(spacing: 4) {
