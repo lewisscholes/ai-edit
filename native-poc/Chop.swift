@@ -31,30 +31,37 @@ private func dyn(_ light: UInt32, _ dark: UInt32) -> Color {
 // Tokens lifted verbatim from :root and html.dark in app/index.html so the
 // native app and the web app cannot drift apart.
 
+// CREAM EDITORIAL rebrand (from the onboarding mockups): light mode is warm
+// paper + ink with TikTok pink/cyan accents — purple is gone. Dark mode keeps
+// the midnight palette (and the editor always runs dark).
 enum ChopColor {
-    static let bg         = dyn(0xf6f8fb, 0x0e1014)
+    static let bg         = dyn(0xf7f3ea, 0x0e1014)   // warm paper
     static let card       = dyn(0xffffff, 0x161922)
-    static let ink        = dyn(0x101319, 0xe9edf5)
-    static let muted      = dyn(0x66707f, 0x8a93a5)
-    static let line       = dyn(0xe4e8ef, 0x262c38)
+    static let ink        = dyn(0x141821, 0xe9edf5)
+    static let muted      = dyn(0x6d7484, 0x8a93a5)
+    static let line       = dyn(0xe7dfcd, 0x262c38)   // warm hairline
     static let blue       = dyn(0x1a6dff, 0x3b82ff)
     static let blueDk     = dyn(0x0d4fc4, 0xa5c0ff)
-    static let blueSoft   = dyn(0xeaf1ff, 0x1b2a4a)
-    static let violet     = dyn(0x7c3aed, 0xb79bff)
-    static let violetSoft = dyn(0xf1e9ff, 0x271e3d)
+    static let blueSoft   = dyn(0xe9f0ff, 0x1b2a4a)
+    static let violet     = dyn(0xfe2c55, 0xff5c7d)   // TikTok pink (ex-violet)
+    static let violetSoft = dyn(0xffe4ea, 0x3a1d26)
     static let green      = dyn(0x0e9f6e, 0x3ad39c)
-    static let greenSoft  = dyn(0xe2f7ee, 0x12291f)
+    static let greenSoft  = dyn(0xe0f5ec, 0x12291f)
     static let rose       = dyn(0xdc2637, 0xf2596b)
-    static let roseSoft   = dyn(0xffe9ec, 0x331a1f)
+    static let roseSoft   = dyn(0xffe7e4, 0x331a1f)
     static let amber      = dyn(0xb45309, 0xf0b35c)
-    static let amberSoft  = dyn(0xfff4dd, 0x2c2212)
-    static let soft2      = dyn(0xeef1f6, 0x20242f)
-    static let hover      = dyn(0xf2f5f9, 0x20242f)
+    static let amberSoft  = dyn(0xfdf0d7, 0x2c2212)
+    static let soft2      = dyn(0xefe9db, 0x20242f)   // paper-2
+    static let hover      = dyn(0xf2ecdd, 0x20242f)
+    static let tkCyan     = dyn(0x14c9c4, 0x25f4ee)   // TikTok cyan accent
 }
 
 /// The web app is very bold — 83 uses of weight 800, 37 of 700, almost nothing
 /// regular. Matching that is most of what makes it read as Chop.
 enum ChopFont {
+    /// Editorial serif for hero titles — the onboarding's Georgia voice.
+    static func serif(_ s: CGFloat) -> Font { .custom("Georgia-Bold", size: s) }
+    static func serifItalic(_ s: CGFloat) -> Font { .custom("Georgia-BoldItalic", size: s) }
     static func h1(_ s: CGFloat = 30) -> Font { .system(size: s, weight: .bold) }
     static func h2(_ s: CGFloat = 21) -> Font { .system(size: s, weight: .bold) }
     static let cardBig   = Font.system(size: 30, weight: .bold)
@@ -74,8 +81,53 @@ enum ChopRadius {
     static let pill: CGFloat = 26
 }
 
-let chopGradient = LinearGradient(colors: [ChopColor.blue, ChopColor.violet],
+// purple is out — the brand gradient is now a blue sweep
+let chopGradient = LinearGradient(colors: [ChopColor.blue, Color(red: 78/255, green: 141/255, blue: 1)],
                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+
+/// The chopped wordmark from the onboarding — two halves of "Chop" offset
+/// along a diagonal cut. No icon, pure type.
+struct ChopWordmark: View {
+    var size: CGFloat = 24
+    var color: Color = ChopColor.ink
+
+    var body: some View {
+        let base = Text("Chop")
+            .font(.system(size: size, weight: .black))
+            .kerning(-size * 0.05)
+            .foregroundStyle(color)
+        return ZStack {
+            base
+                .clipShape(CutHalf(left: true))
+                .offset(x: -size * 0.055, y: -size * 0.04)
+            base
+                .clipShape(CutHalf(left: false))
+                .offset(x: size * 0.055, y: size * 0.04)
+        }
+        .fixedSize()
+        .accessibilityLabel("Chop")
+    }
+
+    private struct CutHalf: Shape {
+        let left: Bool
+        func path(in r: CGRect) -> Path {
+            var p = Path()
+            if left {
+                p.move(to: CGPoint(x: r.minX, y: r.minY))
+                p.addLine(to: CGPoint(x: r.minX + r.width * 0.58, y: r.minY))
+                p.addLine(to: CGPoint(x: r.minX + r.width * 0.42, y: r.maxY))
+                p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+            } else {
+                p.move(to: CGPoint(x: r.minX + r.width * 0.58, y: r.minY))
+                p.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+                p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+                p.addLine(to: CGPoint(x: r.minX + r.width * 0.42, y: r.maxY))
+            }
+            p.closeSubpath()
+            return p
+        }
+    }
+}
 
 // ---- reusable components ----
 
@@ -241,7 +293,8 @@ enum ChopTheme: String, CaseIterable {
         }
     }
     static var current: ChopTheme {
-        ChopTheme(rawValue: UserDefaults.standard.string(forKey: "chopTheme") ?? "dark") ?? .dark
+        // cream editorial is the default face of the app now
+        ChopTheme(rawValue: UserDefaults.standard.string(forKey: "chopTheme") ?? "light") ?? .light
     }
     static func set(_ t: ChopTheme) { UserDefaults.standard.set(t.rawValue, forKey: "chopTheme") }
 }
@@ -946,10 +999,11 @@ struct AuthIcon: Shape {
 }
 
 /// 44px grid at 9% white — the web panel's ::before overlay.
-/// Slow-drifting blue/violet glow blobs behind the auth card — the brand
-/// gradient breathing in the dark. Pure decoration, cheap to render.
+/// Cream editorial backdrop: a warm breathing sun + faint paper rule lines
+/// (the onboarding's world). In dark mode the sun cools to a blue glow.
 struct AuthBackdrop: View {
     @State private var drift = false
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         ZStack {
@@ -957,26 +1011,32 @@ struct AuthBackdrop: View {
             GeometryReader { geo in
                 let w = geo.size.width, h = geo.size.height
                 ZStack {
+                    // the sun
                     Circle()
-                        .fill(ChopColor.blue.opacity(0.20))
-                        .frame(width: w * 0.95)
-                        .blur(radius: 80)
-                        .offset(x: drift ? -w * 0.32 : w * 0.18,
-                                y: drift ? -h * 0.26 : -h * 0.38)
+                        .fill(scheme == .dark ? ChopColor.blue.opacity(0.18)
+                                              : Color(red: 1, green: 0.913, blue: 0.768).opacity(0.85))
+                        .frame(width: w * 1.45)
+                        .blur(radius: 60)
+                        .offset(y: drift ? -h * 0.44 : -h * 0.36)
+                        .scaleEffect(drift ? 1.1 : 1)
+                    // a soft second warmth low on the page
                     Circle()
-                        .fill(Color(red: 124/255, green: 58/255, blue: 237/255).opacity(0.17))
-                        .frame(width: w * 0.85)
-                        .blur(radius: 90)
-                        .offset(x: drift ? w * 0.30 : -w * 0.15,
-                                y: drift ? h * 0.30 : h * 0.44)
-                    Circle()
-                        .fill(ChopColor.blue.opacity(0.10))
-                        .frame(width: w * 0.6)
+                        .fill(scheme == .dark ? ChopColor.blue.opacity(0.08)
+                                              : Color(red: 1, green: 0.93, blue: 0.82).opacity(0.5))
+                        .frame(width: w * 0.9)
                         .blur(radius: 70)
-                        .offset(x: drift ? w * 0.05 : -w * 0.25,
-                                y: drift ? h * 0.05 : h * 0.15)
+                        .offset(x: drift ? w * 0.2 : -w * 0.1, y: h * 0.42)
                 }
                 .animation(.easeInOut(duration: 9).repeatForever(autoreverses: true), value: drift)
+
+                // paper rule lines
+                if scheme != .dark {
+                    VStack(spacing: 25) {
+                        ForEach(0..<40, id: \.self) { _ in
+                            Rectangle().fill(ChopColor.ink.opacity(0.045)).frame(height: 1)
+                        }
+                    }
+                }
             }
         }
         .ignoresSafeArea()
@@ -1140,21 +1200,13 @@ struct ChopRootView: View {
                 // ---- the auth card (web .authform: card bg, 1px line, r20, 26×24) ----
                 VStack(spacing: 0) {
 
-                    Group {
-                        if UIImage(named: "ChopMark") != nil {
-                            Image("ChopMark").resizable().scaledToFit()
-                        } else { RoundedRectangle(cornerRadius: 14).fill(chopGradient) }
-                    }
-                    .frame(width: 52, height: 52)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                    .shadow(color: ChopColor.blue.opacity(authGlow ? 0.55 : 0.15),
-                            radius: authGlow ? 22 : 10)
-                    .scaleEffect(authGlow ? 1.04 : 1)
-                    .animation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true), value: authGlow)
-                    .padding(.bottom, 18)
+                    ChopWordmark(size: 40)
+                        .scaleEffect(authGlow ? 1.03 : 1)
+                        .animation(.easeInOut(duration: 2.8).repeatForever(autoreverses: true), value: authGlow)
+                        .padding(.bottom, 18)
 
                     Text(authTitle)
-                        .font(.system(size: 21, weight: .heavy))
+                        .font(ChopFont.serif(24))
                         .foregroundStyle(ChopColor.ink)
                         .padding(.bottom, 4)
                     Text(authSub)
@@ -1386,18 +1438,8 @@ struct ChopRootView: View {
 
     private var chopHeader: some View {
         HStack(spacing: 10) {
-            Group {
-                if UIImage(named: "ChopMark") != nil {
-                    Image("ChopMark").resizable().scaledToFit()
-                } else {
-                    RoundedRectangle(cornerRadius: 9).fill(chopGradient)
-                }
-            }
-            .frame(width: 34, height: 34)
-            .clipShape(RoundedRectangle(cornerRadius: 9))
-
-            Text("Chop").font(.system(size: 20, weight: .bold))
-                .foregroundStyle(ChopColor.ink)
+            // the chopped wordmark IS the logo now — no icon
+            ChopWordmark(size: 24)
 
             Spacer()
 
@@ -1544,7 +1586,7 @@ struct ChopRootView: View {
                 Text(api.profileName.isEmpty
                      ? "Dashboard"
                      : "Hey \(api.profileName.split(separator: " ").first.map(String.init) ?? api.profileName), let's chop 👋")
-                    .font(ChopFont.h1())
+                    .font(ChopFont.serif(28))
                     .fixedSize(horizontal: false, vertical: true)
                 Text("An overview of how your chopping is going.")
                     .font(.subheadline).foregroundStyle(Color.chopMuted)
@@ -2431,6 +2473,7 @@ struct ChopPlayerScreen: View {
             }
         }
         .background(Color.chopBg)
+        .environment(\.colorScheme, .dark)   // the editor is ALWAYS dark — footage needs contrast
         .toolbar(.hidden, for: .navigationBar)   // no title bar — the editor gets every pixel
         .task { await p.open(job: job, api: api) }
         .task {
@@ -3650,7 +3693,7 @@ struct ChopBillingView: View {
                 VStack(alignment: .leading, spacing: 16) {
 
                     // hero
-                    Text("Billing").font(.system(size: 30, weight: .bold)).foregroundStyle(ChopColor.ink)
+                    Text("Billing").font(ChopFont.serif(30)).foregroundStyle(ChopColor.ink)
                     Text("Buy credits to chop your videos. One credit edits one video, any length up to 10 minutes.")
                         .font(.system(size: 15.5)).foregroundStyle(ChopColor.muted)
 
@@ -4051,7 +4094,7 @@ struct ChopQueueBody: View {
                 VStack(alignment: .leading, spacing: 16) {
 
                     Text("Review queue")
-                        .font(.system(size: 24, weight: .bold))
+                        .font(ChopFont.serif(24))
                         .foregroundStyle(ChopColor.ink)
                         .padding(.bottom, 4)
 
@@ -4245,7 +4288,7 @@ struct ChopLabBody: View {
 
                     // .hero — web parity
                     Text("Cut Lab")
-                        .font(.system(size: 30, weight: .bold))
+                        .font(ChopFont.serif(30))
                         .foregroundStyle(ChopColor.ink)
                     Text("Dial in your cutting style once — every video you drop gets chopped with these settings automatically.")
                         .font(.system(size: 15.5)).foregroundStyle(Color.chopMuted)
