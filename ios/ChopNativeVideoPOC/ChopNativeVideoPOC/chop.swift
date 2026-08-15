@@ -191,6 +191,7 @@ struct ChopField: View {
     var placeholder = ""
     var secure = false
     var prefix: String? = nil
+    var contentType: UITextContentType? = nil   // password manager / autofill hints
     @Binding var text: String
 
     var body: some View {
@@ -206,6 +207,9 @@ struct ChopField: View {
                     else { TextField(placeholder, text: $text) }
                 }
                 .font(ChopFont.body)
+                .textContentType(contentType)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
                 .padding(.horizontal, 14).padding(.vertical, 12)
             }
             .background(ChopColor.bg)
@@ -1105,10 +1109,10 @@ struct ChopOnboardingView: View {
                 slide(tag: "Your video, edited in 15 seconds",
                       headline: "Don't edit,", em: "just film.",
                       prop: AnyView(stripProp)).tag(0)
-                slide(tag: "Every retake, caught for you",
+                slide(tag: nil,
                       headline: "Mess up?", em: "Say it again.",
                       prop: AnyView(retakeProp)).tag(1)
-                slide(tag: "From raw to posted in minutes",
+                slide(tag: nil,
                       headline: "Post more.", em: "Edit nothing.",
                       prop: AnyView(exportProp)).tag(2)
             }
@@ -1138,12 +1142,14 @@ struct ChopOnboardingView: View {
         .onChange(of: startPage) { _, v in page = v }
     }
 
-    private func slide(tag: String, headline: String, em: String, prop: AnyView) -> some View {
+    private func slide(tag: String?, headline: String, em: String, prop: AnyView) -> some View {
         VStack(spacing: 0) {
-            Text(tag)
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(ChopColor.muted)
-                .padding(.top, 16)
+            if let tag {
+                Text(tag)
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(ChopColor.muted)
+                    .padding(.top, 16)
+            }
             Spacer()
             prop
             Spacer()
@@ -1724,16 +1730,20 @@ struct ChopRootView: View {
 
                     VStack(spacing: 14) {
                         if authStage != 2 {
-                            ChopField(label: "Email", placeholder: "you@example.com", text: $api.email)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled()
+                            ChopField(label: "Email", placeholder: "you@example.com",
+                                      contentType: .emailAddress, text: $api.email)
                                 .keyboardType(.emailAddress)
                         }
                         if authStage == 0 {
-                            ChopField(label: "Password", placeholder: "••••••••", secure: true, text: $api.password)
+                            // sign-in tab offers saved credentials; create-account
+                            // tab makes iOS suggest + save a strong password
+                            ChopField(label: "Password", placeholder: "••••••••", secure: true,
+                                      contentType: authMode == 1 ? .newPassword : .password,
+                                      text: $api.password)
                         }
                         if authStage == 2 {
-                            ChopField(label: "New password", placeholder: "••••••••", secure: true, text: $newPassword)
+                            ChopField(label: "New password", placeholder: "••••••••", secure: true,
+                                      contentType: .newPassword, text: $newPassword)
                         }
                     }
                     .onSubmit { Task { await runAuth() } }   // Enter submits, web parity
