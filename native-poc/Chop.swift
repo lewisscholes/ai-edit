@@ -1157,39 +1157,74 @@ struct ChopOnboardingView: View {
         .padding(.horizontal, 24)
     }
 
-    // slide 1: the timeline that cuts itself
+    // slide 1: real creator footage + the timeline cutting itself, live
     private var stripProp: some View {
-        VStack(spacing: 14) {
-            HStack(spacing: 8) {
-                onboardChip("✂ 1.4s dead air cut", bg: ChopColor.violet, fg: .white)
-                    .opacity(loop ? 1 : 0.25)
-                onboardChip("✓ retake matched", bg: ChopColor.greenSoft, fg: ChopColor.green)
-                    .opacity(loop ? 0.25 : 1)
+        VStack(spacing: 0) {
+            // the affiliate, filming — real frame in a floating card
+            ZStack(alignment: .topLeading) {
+                Image("HeroStill")
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 208)
+                    .offset(y: -34)   // crop the TikTok caption out of frame
+                    .frame(width: 208, height: 246)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                HStack(spacing: 5) {
+                    Circle().fill(Color(red: 1, green: 0.28, blue: 0.34))
+                        .frame(width: 8, height: 8)
+                        .opacity(loop ? 1 : 0.25)
+                        .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: loop)
+                    Text("FILMING").font(.system(size: 10, weight: .heavy)).foregroundStyle(.white)
+                }
+                .padding(.leading, 12).padding(.top, 12)
             }
-            .animation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true), value: loop)
+            .background(RoundedRectangle(cornerRadius: 20).fill(Color.white)
+                .padding(-8)
+                .shadow(color: .black.opacity(0.16), radius: 22, y: 12))
+            .rotationEffect(.degrees(loop ? -1.6 : -0.4))
+            .animation(.easeInOut(duration: 3.5).repeatForever(autoreverses: true), value: loop)
+            .zIndex(1)
 
+            // the strip pinned under it — the red cut section CLOSES on a loop
             HStack(spacing: 0) {
-                stripBlock(w: 86, c1: 0.28, c2: 0.20)
+                footageBlock(a: .leading, w: 76)
+                // the doomed section: red-tinted, collapses to nothing
+                ZStack {
+                    footageBlock(a: .center, w: 40)
+                        .saturation(0.2).brightness(-0.15)
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(ChopColor.violet.opacity(0.45))
+                    Image(systemName: "scissors")
+                        .font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
+                }
+                .frame(width: loop ? 0 : 40, height: 52)
+                .clipped()
+                .opacity(loop ? 0 : 1)
+                .animation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true).delay(0.6), value: loop)
+                // cut badge sits on the join
                 cutBadge
-                stripBlock(w: 108, c1: 0.24, c2: 0.16)
+                footageBlock(a: .center, w: 96)
                 cutBadge
-                stripBlock(w: 80, c1: 0.30, c2: 0.22)
+                footageBlock(a: .trailing, w: 70)
             }
-            .overlay(RoundedRectangle(cornerRadius: 3).fill(Color.white)
-                .frame(width: 3, height: 74)
-                .shadow(color: .black.opacity(0.3), radius: 3))
+            .padding(.top, 18)
 
-            Text("This video: ").font(.system(size: 13, weight: .bold)).foregroundStyle(ChopColor.muted)
+            (Text("This video: ").font(.system(size: 13, weight: .bold)).foregroundStyle(ChopColor.muted)
             + Text("−38% shorter").font(.system(size: 13, weight: .heavy)).foregroundStyle(ChopColor.green)
-            + Text(" · nothing cut without you").font(.system(size: 13, weight: .bold)).foregroundStyle(ChopColor.muted)
+            + Text(" · nothing cut without you").font(.system(size: 13, weight: .bold)).foregroundStyle(ChopColor.muted))
+                .padding(.top, 12)
         }
     }
 
-    private func stripBlock(w: CGFloat, c1: Double, c2: Double) -> some View {
-        RoundedRectangle(cornerRadius: 10)
-            .fill(LinearGradient(colors: [Color(white: c1), Color(white: c2)],
-                                 startPoint: .topLeading, endPoint: .bottomTrailing))
-            .frame(width: w, height: 60)
+    /// a window into the real footage frame, like the editor's filmstrip
+    private func footageBlock(a: Alignment, w: CGFloat) -> some View {
+        Image("HeroStill")
+            .resizable()
+            .aspectRatio(contentMode: .fill)
+            .frame(width: w, height: 52, alignment: a)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.white, lineWidth: 2))
+            .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
             .padding(.horizontal, 1)
     }
 
