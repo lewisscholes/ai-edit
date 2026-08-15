@@ -268,6 +268,57 @@ async function adminHandler(body: any, req: Request) {
       series: Object.entries(series).map(([k, v]) => ({ d: k, ...v })), creators, logs });
   }
 
+  /* ---- customers & credits ---- */
+
+  if (op === "user_find") {
+    const q = String(body.q || "").trim().toLowerCase();
+    const ur = await fetch(`${SB_URL}/auth/v1/admin/users?per_page=1000`, { headers: { apikey: SRK, Authorization: `Bearer ${SRK}` } });
+    const all = ((await ur.json()).users || []) as any[];
+    const hits = (q ? all.filter((x) => (x.email || "").toLowerCase().includes(q)) : all).slice(0, 25);
+    if (!hits.length) return json({ users: [] });
+    const ids = hits.map((h) => h.id);
+    const inList = `(${ids.join(",")})`;
+    const profiles = await db(`chop_profiles?id=in.${inList}&select=id,name,credits,avatar`);
+    const jobs = await db(`chop_jobs?user_id=in.${inList}&select=user_id,updated_at,status:data->>status&limit=5000`);
+    const pur = await db(`chop_purchases?user_id=in.${inList}&select=user_id,credits,pence`);
+    const pById: Record<string, any> = {}; profiles.forEach((p: any) => pById[p.id] = p);
+    const agg: Record<string, { videos: number; exported: number; last: string }> = {};
+    jobs.forEach((j: any) => {
+      const a = (agg[j.user_id] ||= { videos: 0, exported: 0, last: "" });
+      a.videos++; if (j.status === "exported") a.exported++;
+      if ((j.updated_at || "") > a.last) a.last = j.updated_at || "";
+    });
+    const spend: Record<string, { credits: number; pence: number }> = {};
+    pur.forEach((x: any) => { const s2 = (spend[x.user_id] ||= { credits: 0, pence: 0 }); s2.credits += x.credits || 0; s2.pence += x.pence || 0; });
+    return json({ users: hits.map((h) => ({
+      id: h.id, email: h.email, created_at: h.created_at, last_sign_in: h.last_sign_in_at,
+      name: pById[h.id]?.name || null, avatar: pById[h.id]?.avatar || null,
+      credits: pById[h.id]?.credits ?? 0,
+      videos: agg[h.id]?.videos || 0, exported: agg[h.id]?.exported || 0, last_active: agg[h.id]?.last || null,
+      bought_credits: spend[h.id]?.credits || 0, spent_pence: spend[h.id]?.pence || 0,
+    })) });
+  }
+
+  if (op === "credit_grant") {
+    const target = String(body.user_id || "");
+    const delta = Math.trunc(Number(body.delta));
+    if (!target) return json({ error: "user_id required" }, 400);
+    if (!Number.isFinite(delta) || delta === 0) return json({ error: "delta must be a non-zero whole number" }, 400);
+    if (Math.abs(delta) > 1000) return json({ error: "delta capped at 1000 — do it in smaller steps if you really mean it" }, 400);
+    const rows = await db(`rpc/chop_admin_grant`, {
+      method: "POST",
+      body: JSON.stringify({ p_user: target, p_delta: delta, p_note: String(body.note || "").slice(0, 200) || null, p_actor: u.id }),
+    });
+    return json({ balance: rows });
+  }
+
+  if (op === "credit_history") {
+    const target = String(body.user_id || "");
+    if (!target) return json({ error: "user_id required" }, 400);
+    const rows = await db(`chop_credit_ledger?user_id=eq.${target}&select=delta,balance_after,reason,note,actor,created_at&order=created_at.desc&limit=50`);
+    return json({ entries: rows });
+  }
+
   if (op === "rm_list") return json({ items: await db(`chop_roadmap?select=*&order=created_at.desc`) });
   if (op === "rm_add") {
     const rows = await db(`chop_roadmap`, { method: "POST", body: JSON.stringify({ title: String(body.title || "").slice(0, 200), tag: body.tag || "feat", status: "backlog", who: (u.email || "").split("@")[0], notes: String(body.notes || "").slice(0, 1000) || null }) });
