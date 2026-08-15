@@ -74,26 +74,17 @@ First release. Automatic cutting of dead air, filler words and retakes, a thumb-
 
 ---
 
-## App Review notes — paste into "Notes" on the submission
-```
-Chop automatically edits talking-head video. Sign in with the demo account below; it has credits already loaded.
+## App Review notes
 
-Demo account
-Email: [CREATE ONE AND PUT IT HERE]
-Password: [PASSWORD]
+**OUT OF DATE — do not use this section. Use `REVIEW_NOTES.md` instead.**
 
-To test the core feature:
-1. Sign in
-2. Tap the upload area and pick any video with speech in it (10-60 seconds is plenty)
-3. Wait for processing (roughly 15 seconds per minute of footage)
-4. The editor opens with proposed cuts. Tap "Retakes" to see repeated takes side by side.
-5. Tap Done, then Export
+This was written before the native rebuild, when credits were sold on the web
+only. It states *"The app contains no in-app purchases. Credits are not sold in
+the app."* That is now false — the iOS app ships StoreKit 2 with five consumable
+credit packs. Saying otherwise in the review notes misrepresents the app, and
+Apple tests the purchase flow, so it would be caught.
 
-Notes for review:
-- The app contains no in-app purchases. Credits are not sold in the app.
-- Video is processed on our servers for transcription and rendering; this is described in the privacy policy.
-- Photo library access is requested only when the user taps to select a video.
-```
+Use `appstore/REVIEW_NOTES.md`.
 
 ## Age rating
 4+. Answer "None" to every content question. Chop has no user-generated content shared between users, no web browsing, no gambling, no contests.
