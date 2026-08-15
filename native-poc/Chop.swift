@@ -31,28 +31,28 @@ private func dyn(_ light: UInt32, _ dark: UInt32) -> Color {
 // Tokens lifted verbatim from :root and html.dark in app/index.html so the
 // native app and the web app cannot drift apart.
 
-// CREAM EDITORIAL rebrand (from the onboarding mockups): light mode is warm
-// paper + ink with TikTok pink/cyan accents — purple is gone. Dark mode keeps
-// the midnight palette (and the editor always runs dark).
+// Light mode = clean white (the original web palette). Purple is gone — the
+// old violet slot carries TikTok pink, with cyan as a second accent. Dark mode
+// keeps the midnight palette, and the editor always runs dark.
 enum ChopColor {
-    static let bg         = dyn(0xf7f3ea, 0x0e1014)   // warm paper
+    static let bg         = dyn(0xf6f8fb, 0x0e1014)
     static let card       = dyn(0xffffff, 0x161922)
-    static let ink        = dyn(0x141821, 0xe9edf5)
-    static let muted      = dyn(0x6d7484, 0x8a93a5)
-    static let line       = dyn(0xe7dfcd, 0x262c38)   // warm hairline
+    static let ink        = dyn(0x101319, 0xe9edf5)
+    static let muted      = dyn(0x66707f, 0x8a93a5)
+    static let line       = dyn(0xe4e8ef, 0x262c38)
     static let blue       = dyn(0x1a6dff, 0x3b82ff)
     static let blueDk     = dyn(0x0d4fc4, 0xa5c0ff)
-    static let blueSoft   = dyn(0xe9f0ff, 0x1b2a4a)
+    static let blueSoft   = dyn(0xeaf1ff, 0x1b2a4a)
     static let violet     = dyn(0xfe2c55, 0xff5c7d)   // TikTok pink (ex-violet)
     static let violetSoft = dyn(0xffe4ea, 0x3a1d26)
     static let green      = dyn(0x0e9f6e, 0x3ad39c)
-    static let greenSoft  = dyn(0xe0f5ec, 0x12291f)
+    static let greenSoft  = dyn(0xe2f7ee, 0x12291f)
     static let rose       = dyn(0xdc2637, 0xf2596b)
-    static let roseSoft   = dyn(0xffe7e4, 0x331a1f)
+    static let roseSoft   = dyn(0xffe9ec, 0x331a1f)
     static let amber      = dyn(0xb45309, 0xf0b35c)
-    static let amberSoft  = dyn(0xfdf0d7, 0x2c2212)
-    static let soft2      = dyn(0xefe9db, 0x20242f)   // paper-2
-    static let hover      = dyn(0xf2ecdd, 0x20242f)
+    static let amberSoft  = dyn(0xfff4dd, 0x2c2212)
+    static let soft2      = dyn(0xeef1f6, 0x20242f)
+    static let hover      = dyn(0xf2f5f9, 0x20242f)
     static let tkCyan     = dyn(0x14c9c4, 0x25f4ee)   // TikTok cyan accent
 }
 
@@ -999,8 +999,8 @@ struct AuthIcon: Shape {
 }
 
 /// 44px grid at 9% white — the web panel's ::before overlay.
-/// Cream editorial backdrop: a warm breathing sun + faint paper rule lines
-/// (the onboarding's world). In dark mode the sun cools to a blue glow.
+/// Clean, near-invisible backdrop: white page with the faintest breathing
+/// blue glow up top (a touch stronger in dark mode).
 struct AuthBackdrop: View {
     @State private var drift = false
     @Environment(\.colorScheme) private var scheme
@@ -1010,33 +1010,12 @@ struct AuthBackdrop: View {
             ChopColor.bg.ignoresSafeArea()
             GeometryReader { geo in
                 let w = geo.size.width, h = geo.size.height
-                ZStack {
-                    // the sun
-                    Circle()
-                        .fill(scheme == .dark ? ChopColor.blue.opacity(0.18)
-                                              : Color(red: 1, green: 0.913, blue: 0.768).opacity(0.85))
-                        .frame(width: w * 1.45)
-                        .blur(radius: 60)
-                        .offset(y: drift ? -h * 0.44 : -h * 0.36)
-                        .scaleEffect(drift ? 1.1 : 1)
-                    // a soft second warmth low on the page
-                    Circle()
-                        .fill(scheme == .dark ? ChopColor.blue.opacity(0.08)
-                                              : Color(red: 1, green: 0.93, blue: 0.82).opacity(0.5))
-                        .frame(width: w * 0.9)
-                        .blur(radius: 70)
-                        .offset(x: drift ? w * 0.2 : -w * 0.1, y: h * 0.42)
-                }
-                .animation(.easeInOut(duration: 9).repeatForever(autoreverses: true), value: drift)
-
-                // paper rule lines
-                if scheme != .dark {
-                    VStack(spacing: 25) {
-                        ForEach(0..<40, id: \.self) { _ in
-                            Rectangle().fill(ChopColor.ink.opacity(0.045)).frame(height: 1)
-                        }
-                    }
-                }
+                Circle()
+                    .fill(ChopColor.blue.opacity(scheme == .dark ? 0.14 : 0.05))
+                    .frame(width: w * 1.4)
+                    .blur(radius: 70)
+                    .offset(y: drift ? -h * 0.5 : -h * 0.42)
+                    .animation(.easeInOut(duration: 9).repeatForever(autoreverses: true), value: drift)
             }
         }
         .ignoresSafeArea()
@@ -1110,6 +1089,7 @@ struct ChopRootView: View {
     @State private var newPassword = ""
     @State private var authAppeared = false   // entrance animation
     @State private var authGlow = false       // logo breathing glow
+    @State private var authIntro = true       // Flow-style welcome before the form
     @State private var theme = ChopTheme.current
 
     var body: some View {
@@ -1131,9 +1111,10 @@ struct ChopRootView: View {
             let args = ProcessInfo.processInfo.arguments
             if let i = args.firstIndex(of: "-screen"), i + 1 < args.count {
                 switch args[i + 1] {
-                case "auth":       showAuth = true; authMode = 0
-                case "auth-up":    showAuth = true; authMode = 1
-                case "auth-reset": showAuth = true; authStage = 1
+                case "auth":       break   // the intro IS the first screen
+                case "auth-in":    authIntro = false; authMode = 0
+                case "auth-up":    authIntro = false; authMode = 1
+                case "auth-reset": authIntro = false; authStage = 1
                 case "dash":       api.signedIn = true; api.profileName = "Lewis"; api.credits = 169
                 case "queue":      api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; tab = 1
                 case "lab":        api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; tab = 2
@@ -1188,14 +1169,86 @@ struct ChopRootView: View {
 
     private var signIn: some View {
         ZStack {
-            AuthBackdrop()   // slow-drifting brand glow — the page breathes
-            signInContent
+            AuthBackdrop()   // clean white with a whisper of blue
+            if authIntro {
+                authIntroView
+            } else {
+                signInContent
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(.spring(response: 0.45, dampingFraction: 0.9), value: authIntro)
+    }
+
+    /// Flow-style welcome: wordmark up top, one serif line that says it all,
+    /// two big buttons, legal note. Nothing else.
+    private var authIntroView: some View {
+        VStack(spacing: 0) {
+            ChopWordmark(size: 40)
+                .padding(.top, 84)
+
+            Spacer()
+
+            (Text("Get 10 minutes of editing,\ndone in ")
+             + Text("15 seconds").foregroundColor(ChopColor.blue))
+                .font(.custom("Georgia", size: 32))
+                .foregroundStyle(ChopColor.ink)
+                .multilineTextAlignment(.center)
+                .lineSpacing(6)
+                .padding(.horizontal, 26)
+
+            Spacer()
+
+            VStack(spacing: 12) {
+                Button {
+                    authMode = 1; authIntro = false
+                } label: {
+                    Text("Create your account")
+                        .font(.system(size: 17, weight: .bold))
+                        .frame(maxWidth: .infinity).padding(.vertical, 17)
+                        .background(ChopColor.ink, in: RoundedRectangle(cornerRadius: 18))
+                        .foregroundStyle(ChopColor.bg)
+                }
+                Button {
+                    authMode = 0; authIntro = false
+                } label: {
+                    Text("I already have an account")
+                        .font(.system(size: 17, weight: .bold))
+                        .frame(maxWidth: .infinity).padding(.vertical, 17)
+                        .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 18))
+                        .overlay(RoundedRectangle(cornerRadius: 18).stroke(ChopColor.ink.opacity(0.25), lineWidth: 1.5))
+                        .foregroundStyle(ChopColor.ink)
+                }
+            }
+            .padding(.horizontal, 22)
+
+            Text("By continuing, you acknowledge that you have read\nand agreed to our Terms of Service and Privacy Policy.")
+                .font(.system(size: 12.5))
+                .foregroundStyle(ChopColor.muted)
+                .multilineTextAlignment(.center)
+                .padding(.top, 22)
+                .padding(.bottom, 40)
         }
     }
 
     private var signInContent: some View {
         ScrollView {
             VStack(spacing: 16) {
+
+                // back to the welcome screen
+                HStack {
+                    Button {
+                        authIntro = true
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "chevron.left").font(.system(size: 13, weight: .bold))
+                            Text("Back").font(.system(size: 14, weight: .bold))
+                        }
+                        .foregroundStyle(ChopColor.muted)
+                    }
+                    Spacer()
+                }
+                .padding(.top, 16)
 
                 // ---- the auth card (web .authform: card bg, 1px line, r20, 26×24) ----
                 VStack(spacing: 0) {
