@@ -87,45 +87,41 @@ enum ChopRadius {
 let chopGradient = LinearGradient(colors: [ChopColor.blue, Color(red: 78/255, green: 141/255, blue: 1)],
                                   startPoint: .topLeading, endPoint: .bottomTrailing)
 
-/// The chopped wordmark from the onboarding — two halves of "Chop" offset
-/// along a diagonal cut. No icon, pure type.
+/// The wordmark: heavy lowercase "chop" with the bottom sliced clean off,
+/// the cut band drifting away like a dropped frame. No icon, pure type.
 struct ChopWordmark: View {
     var size: CGFloat = 24
     var color: Color = ChopColor.ink
 
     var body: some View {
-        let base = Text("Chop")
+        let base = Text("chop")
             .font(.system(size: size, weight: .black))
-            .kerning(-size * 0.05)
+            .kerning(-size * 0.045)
             .foregroundStyle(color)
         return ZStack {
             base
-                .clipShape(CutHalf(left: true))
-                .offset(x: -size * 0.055, y: -size * 0.04)
+                .clipShape(SliceBand(top: true))
             base
-                .clipShape(CutHalf(left: false))
-                .offset(x: size * 0.055, y: size * 0.04)
+                .clipShape(SliceBand(top: false))
+                .offset(x: size * 0.045, y: size * 0.02)
+                .rotationEffect(.degrees(2), anchor: .bottomLeading)
         }
         .fixedSize()
         .accessibilityLabel("Chop")
     }
 
-    private struct CutHalf: Shape {
-        let left: Bool
+    /// top = everything above the slice line · bottom = the drifting band
+    private struct SliceBand: Shape {
+        let top: Bool
         func path(in r: CGRect) -> Path {
             var p = Path()
-            if left {
-                p.move(to: CGPoint(x: r.minX, y: r.minY))
-                p.addLine(to: CGPoint(x: r.minX + r.width * 0.58, y: r.minY))
-                p.addLine(to: CGPoint(x: r.minX + r.width * 0.42, y: r.maxY))
-                p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+            if top {
+                p.addRect(CGRect(x: r.minX, y: r.minY,
+                                 width: r.width, height: r.height * 0.72))
             } else {
-                p.move(to: CGPoint(x: r.minX + r.width * 0.58, y: r.minY))
-                p.addLine(to: CGPoint(x: r.maxX, y: r.minY))
-                p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
-                p.addLine(to: CGPoint(x: r.minX + r.width * 0.42, y: r.maxY))
+                p.addRect(CGRect(x: r.minX, y: r.minY + r.height * 0.76,
+                                 width: r.width, height: r.height * 0.5))
             }
-            p.closeSubpath()
             return p
         }
     }
