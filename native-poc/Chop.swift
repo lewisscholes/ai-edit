@@ -1206,7 +1206,7 @@ struct ChopRootView: View {
                         .padding(.bottom, 18)
 
                     Text(authTitle)
-                        .font(ChopFont.serif(24))
+                        .font(.system(size: 21, weight: .heavy))
                         .foregroundStyle(ChopColor.ink)
                         .padding(.bottom, 4)
                     Text(authSub)
@@ -1586,7 +1586,7 @@ struct ChopRootView: View {
                 Text(api.profileName.isEmpty
                      ? "Dashboard"
                      : "Hey \(api.profileName.split(separator: " ").first.map(String.init) ?? api.profileName), let's chop 👋")
-                    .font(ChopFont.serif(28))
+                    .font(ChopFont.h1())
                     .fixedSize(horizontal: false, vertical: true)
                 Text("An overview of how your chopping is going.")
                     .font(.subheadline).foregroundStyle(Color.chopMuted)
@@ -3693,7 +3693,7 @@ struct ChopBillingView: View {
                 VStack(alignment: .leading, spacing: 16) {
 
                     // hero
-                    Text("Billing").font(ChopFont.serif(30)).foregroundStyle(ChopColor.ink)
+                    Text("Billing").font(.system(size: 30, weight: .bold)).foregroundStyle(ChopColor.ink)
                     Text("Buy credits to chop your videos. One credit edits one video, any length up to 10 minutes.")
                         .font(.system(size: 15.5)).foregroundStyle(ChopColor.muted)
 
@@ -4094,7 +4094,7 @@ struct ChopQueueBody: View {
                 VStack(alignment: .leading, spacing: 16) {
 
                     Text("Review queue")
-                        .font(ChopFont.serif(24))
+                        .font(.system(size: 24, weight: .bold))
                         .foregroundStyle(ChopColor.ink)
                         .padding(.bottom, 4)
 
@@ -4288,7 +4288,7 @@ struct ChopLabBody: View {
 
                     // .hero — web parity
                     Text("Cut Lab")
-                        .font(ChopFont.serif(30))
+                        .font(.system(size: 30, weight: .bold))
                         .foregroundStyle(ChopColor.ink)
                     Text("Dial in your cutting style once — every video you drop gets chopped with these settings automatically.")
                         .font(.system(size: 15.5)).foregroundStyle(Color.chopMuted)
