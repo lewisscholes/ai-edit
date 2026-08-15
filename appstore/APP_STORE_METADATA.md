@@ -4,32 +4,37 @@ Fill the bracketed bits, paste the rest straight in.
 
 ---
 
-## App name (30 char limit)
-`Chop` is almost certainly taken — check before committing. Options in order of preference:
+## App name (30 char limit) — DECIDED
+```
+Chop Editor
+```
+11 characters. Confirm it's free on the App Store before creating the record.
 
-- `Chop: Auto Video Editor` (23)
-- `ChopEdit` (8)
-- `Chop — Don't Edit, Just Film` (28)
+Home screen name is separate and already set to `Chop` via CFBundleDisplayName —
+"Chop Editor" would truncate under the icon, "Chop" won't.
 
-**Whatever you pick must be free on the App Store.** Search first.
+The App Store name is NOT permanent. It can be changed with any future version
+submission. Only the bundle ID (`com.chopedit.chop`) is fixed forever.
 
 ## Subtitle (30 char limit)
-`Don't edit, just film` (21)
-
-Alternatives:
-- `Cut dead air automatically` (26)
-- `Auto-cut your talking heads` (27)
-
-## Promotional text (170 char limit, editable without review)
-> First 100 creators get 10 free credits. Drop in raw footage, get back a clean cut in seconds — dead air, filler words and bad takes gone.
-
-## Keywords (100 chars total, comma separated, NO spaces after commas)
 ```
-video editor,auto edit,tiktok,ugc,creator,silence remover,filler words,retake,talking head,shorts
+Don't edit, just film
 ```
-(99 chars)
 
-Notes: don't repeat words already in the name or subtitle — Apple indexes those anyway. Don't use competitor names, it's a rejection risk.
+## Promotional text (170 char limit, editable without a review)
+```
+First 100 creators get 10 free credits. Drop in raw footage, get back a clean cut in seconds — dead air, filler words and bad takes gone.
+```
+
+## Keywords (100 chars, comma separated, NO spaces after commas)
+```
+video,auto edit,tiktok,ugc,creator,silence remover,filler words,retake,talking head,shorts,reels
+```
+96 characters.
+
+"chop" and "editor" are deliberately absent — Apple already indexes the app name,
+so repeating them wastes the allowance. Don't add competitor names; that's a
+rejection risk.
 
 ## Description
 ```
