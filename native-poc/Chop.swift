@@ -10,6 +10,8 @@ import Photos
 import UIKit
 import PhotosUI
 import StoreKit
+import AuthenticationServices
+import CryptoKit
 
 let SB_URL  = "https://vcrforlyuhapvkewsogq.supabase.co"
 let SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZjcmZvcmx5dWhhcHZrZXdzb2dxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzODk4NzAsImV4cCI6MjA5NTk2NTg3MH0.lcFC5aJFUGYrj4iw8oJ8R1bci4y_-aYKyQg8v9zrMqQ"
@@ -617,6 +619,97 @@ final class ChopAPI: ObservableObject {
         }
     }
 
+    // MARK: social sign-in --------------------------------------------------
+    // Both roads end in the same Supabase session as email sign-in.
+    // Requires the providers to be switched on in Supabase → Auth → Providers
+    // (Apple: services ID + key · Google: client ID/secret) — flag for Aaron.
+
+    private func adoptSession(token: String, uid: String) async {
+        accessToken = token
+        userId = uid
+        signedIn = true
+        await loadProfile()
+        await loadJobs()
+    }
+
+    /// Native Sign in with Apple → exchange the identity token with Supabase.
+    func signInWithApple() async {
+        error = ""; busy = true
+        defer { busy = false }
+        do {
+            let (idToken, nonce) = try await AppleSignInCoordinator.shared.run()
+            guard var comps = URLComponents(string: "\(SB_URL)/auth/v1/token") else { return }
+            comps.queryItems = [URLQueryItem(name: "grant_type", value: "id_token")]
+            guard let url = comps.url else { return }
+            var req = URLRequest(url: url)
+            req.httpMethod = "POST"
+            req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try? JSONSerialization.data(withJSONObject: [
+                "provider": "apple", "id_token": idToken, "nonce": nonce,
+            ])
+            let (data, _) = try await URLSession.shared.data(for: req)
+            guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let token = obj["access_token"] as? String,
+                  let user = obj["user"] as? [String: Any],
+                  let uid = user["id"] as? String else {
+                error = "Apple sign-in isn't available yet — use email below."
+                return
+            }
+            await adoptSession(token: token, uid: uid)
+        } catch is CancellationError {
+            // user closed the sheet — say nothing
+        } catch let e as ASAuthorizationError where e.code == .canceled {
+            // user closed the sheet — say nothing
+        } catch {
+            self.error = "Apple sign-in isn't available yet — use email below."
+        }
+    }
+
+    /// Google through Supabase's hosted OAuth in a system web session.
+    /// Tokens come back on the chopedit:// callback fragment.
+    func signInWithGoogle() async {
+        error = ""; busy = true
+        defer { busy = false }
+        guard let url = URL(string:
+            "\(SB_URL)/auth/v1/authorize?provider=google&redirect_to=chopedit://auth-callback")
+        else { return }
+        do {
+            let cb: URL = try await withCheckedThrowingContinuation { cont in
+                let s = ASWebAuthenticationSession(url: url, callbackURLScheme: "chopedit") { u, e in
+                    if let u { cont.resume(returning: u) }
+                    else { cont.resume(throwing: e ?? URLError(.userCancelledAuthentication)) }
+                }
+                s.presentationContextProvider = WebAuthCoordinator.shared
+                s.start()
+            }
+            var frag: [String: String] = [:]
+            for pair in (cb.fragment ?? "").split(separator: "&") {
+                let kv = pair.split(separator: "=", maxSplits: 1)
+                if kv.count == 2 { frag[String(kv[0])] = String(kv[1]) }
+            }
+            guard let token = frag["access_token"] else {
+                error = "Google sign-in isn't available yet — use email below."
+                return
+            }
+            // who is this? ask Supabase with the fresh token
+            var req = URLRequest(url: URL(string: "\(SB_URL)/auth/v1/user")!)
+            req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            let (data, _) = try await URLSession.shared.data(for: req)
+            guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let uid = obj["id"] as? String else {
+                error = "Google sign-in isn't available yet — use email below."
+                return
+            }
+            await adoptSession(token: token, uid: uid)
+        } catch let e as ASWebAuthenticationSessionError where e.code == .canceledLogin {
+            // user closed the sheet — say nothing
+        } catch {
+            self.error = "Google sign-in isn't available yet — use email below."
+        }
+    }
+
     /// Save a new password mid-recovery (mode `new`). PUT /auth/v1/user.
     func updatePassword(_ newPassword: String) async -> Bool {
         guard let url = URL(string: "\(SB_URL)/auth/v1/user") else { return false }
@@ -999,6 +1092,278 @@ struct AuthIcon: Shape {
 }
 
 /// 44px grid at 9% white — the web panel's ::before overlay.
+// MARK: - Onboarding (3 slides → Get started → welcome)
+
+struct ChopOnboardingView: View {
+    let done: () -> Void
+    @State private var page = 0
+    @State private var loop = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ChopWordmark(size: 34)
+                .padding(.top, 58)
+
+            TabView(selection: $page) {
+                slide(tag: "36 minutes of editing, gone",
+                      headline: "Don't edit,", em: "just film.",
+                      prop: AnyView(stripProp)).tag(0)
+                slide(tag: "Every retake, caught for you",
+                      headline: "Mess up?", em: "Say it again.",
+                      prop: AnyView(retakeProp)).tag(1)
+                slide(tag: "From raw to posted in minutes",
+                      headline: "Post more.", em: "Edit nothing.",
+                      prop: AnyView(exportProp)).tag(2)
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+
+            HStack(spacing: 7) {
+                ForEach(0..<3, id: \.self) { i in
+                    Capsule().fill(i == page ? ChopColor.ink : ChopColor.ink.opacity(0.22))
+                        .frame(width: i == page ? 22 : 7, height: 7)
+                }
+            }
+            .animation(.spring(response: 0.35), value: page)
+            .padding(.bottom, 20)
+
+            Button(action: done) {
+                Text("Get started")
+                    .font(.system(size: 18, weight: .bold))
+                    .frame(maxWidth: .infinity).padding(.vertical, 18)
+                    .background(ChopColor.ink, in: RoundedRectangle(cornerRadius: 18))
+                    .foregroundStyle(ChopColor.bg)
+            }
+            .padding(.horizontal, 22)
+            .padding(.bottom, 38)
+        }
+        .background(ChopColor.bg.ignoresSafeArea())
+        .onAppear { loop = true }
+    }
+
+    private func slide(tag: String, headline: String, em: String, prop: AnyView) -> some View {
+        VStack(spacing: 0) {
+            Text(tag)
+                .font(.custom("Georgia-Italic", size: 22))
+                .foregroundStyle(ChopColor.muted)
+                .padding(.top, 16)
+            Spacer()
+            prop
+            Spacer()
+            (Text(headline + "\n") + Text(em).italic().foregroundColor(ChopColor.blue))
+                .font(.custom("Georgia-Bold", size: 40))
+                .foregroundStyle(ChopColor.ink)
+                .multilineTextAlignment(.center)
+                .lineSpacing(4)
+                .padding(.bottom, 26)
+        }
+        .padding(.horizontal, 24)
+    }
+
+    // slide 1: the timeline that cuts itself
+    private var stripProp: some View {
+        VStack(spacing: 14) {
+            HStack(spacing: 8) {
+                onboardChip("✂ 1.4s dead air cut", bg: ChopColor.violet, fg: .white)
+                    .opacity(loop ? 1 : 0.25)
+                onboardChip("✓ retake matched", bg: ChopColor.greenSoft, fg: ChopColor.green)
+                    .opacity(loop ? 0.25 : 1)
+            }
+            .animation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true), value: loop)
+
+            HStack(spacing: 0) {
+                stripBlock(w: 86, c1: 0.28, c2: 0.20)
+                cutBadge
+                stripBlock(w: 108, c1: 0.24, c2: 0.16)
+                cutBadge
+                stripBlock(w: 80, c1: 0.30, c2: 0.22)
+            }
+            .overlay(RoundedRectangle(cornerRadius: 3).fill(Color.white)
+                .frame(width: 3, height: 74)
+                .shadow(color: .black.opacity(0.3), radius: 3))
+
+            Text("This video: ").font(.system(size: 13, weight: .bold)).foregroundStyle(ChopColor.muted)
+            + Text("−38% shorter").font(.system(size: 13, weight: .heavy)).foregroundStyle(ChopColor.green)
+            + Text(" · nothing cut without you").font(.system(size: 13, weight: .bold)).foregroundStyle(ChopColor.muted)
+        }
+    }
+
+    private func stripBlock(w: CGFloat, c1: Double, c2: Double) -> some View {
+        RoundedRectangle(cornerRadius: 10)
+            .fill(LinearGradient(colors: [Color(white: c1), Color(white: c2)],
+                                 startPoint: .topLeading, endPoint: .bottomTrailing))
+            .frame(width: w, height: 60)
+            .padding(.horizontal, 1)
+    }
+
+    private var cutBadge: some View {
+        Image(systemName: "arrowtriangle.right.and.line.vertical.and.arrowtriangle.left.fill")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(Color(white: 0.12))
+            .frame(width: 24, height: 24)
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 8))
+            .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
+            .zIndex(2)
+            .padding(.horizontal, -10)
+    }
+
+    // slide 2: the retake decision
+    private var retakeProp: some View {
+        VStack(spacing: 12) {
+            takeCard(label: "TAKE 1 · first attempt · 2.6s",
+                     quote: "“Because as somebody who has struggled with hair—”",
+                     pick: false)
+                .opacity(loop ? 0.45 : 1)
+                .animation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true), value: loop)
+            takeCard(label: "TAKE 2 · final attempt · 7.4s",
+                     quote: "“Because as somebody who has struggled with hair thinning for years…”",
+                     pick: true)
+        }
+        .padding(.horizontal, 6)
+    }
+
+    private func takeCard(label: String, quote: String, pick: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
+                Text(label).font(.system(size: 11.5, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                if pick {
+                    Text("AI pick").font(.system(size: 10, weight: .heavy))
+                        .foregroundStyle(ChopColor.blue)
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(ChopColor.blueSoft, in: RoundedRectangle(cornerRadius: 6))
+                }
+                Spacer()
+            }
+            Text(quote)
+                .font(.custom("Georgia", size: 14.5))
+                .foregroundStyle(ChopColor.ink)
+                .strikethrough(!pick, color: ChopColor.violet)
+            if pick {
+                Text("Keep this take")
+                    .font(.system(size: 13.5, weight: .heavy)).foregroundStyle(.white)
+                    .frame(maxWidth: .infinity).padding(.vertical, 11)
+                    .background(ChopColor.blue, in: RoundedRectangle(cornerRadius: 11))
+            }
+        }
+        .padding(13)
+        .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 15))
+        .overlay(RoundedRectangle(cornerRadius: 15)
+            .stroke(pick ? ChopColor.blue.opacity(0.4) : ChopColor.line, lineWidth: 1))
+        .shadow(color: .black.opacity(0.07), radius: 14, y: 8)
+    }
+
+    // slide 3: the export finishing itself
+    private var exportProp: some View {
+        VStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 11) {
+                HStack(spacing: 10) {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(LinearGradient(colors: [Color(white: 0.26), Color(white: 0.16)],
+                                             startPoint: .top, endPoint: .bottom))
+                        .frame(width: 46, height: 66)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Serum review.mp4").font(.system(size: 14, weight: .heavy))
+                            .foregroundStyle(ChopColor.ink)
+                        Text("1:42 → 1:04 · 12 cuts made")
+                            .font(.system(size: 12, weight: .bold)).foregroundStyle(ChopColor.muted)
+                    }
+                    Spacer()
+                }
+                ZStack {
+                    HStack(spacing: 8) {
+                        ProgressView().scaleEffect(0.7).tint(ChopColor.blue)
+                        Text("Exporting…").font(.system(size: 12.5, weight: .bold))
+                            .foregroundStyle(ChopColor.muted)
+                        Spacer()
+                    }
+                    .opacity(loop ? 0 : 1)
+                    HStack(spacing: 7) {
+                        Image(systemName: "checkmark").font(.system(size: 12, weight: .heavy))
+                        Text("Saved to camera roll").font(.system(size: 13.5, weight: .heavy))
+                        Spacer()
+                    }
+                    .foregroundStyle(ChopColor.green)
+                    .opacity(loop ? 1 : 0)
+                }
+                .animation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true), value: loop)
+            }
+            .padding(14)
+            .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).stroke(ChopColor.line, lineWidth: 1))
+            .shadow(color: .black.opacity(0.07), radius: 16, y: 9)
+
+            HStack(spacing: 9) {
+                ForEach(["TikTok", "Reels", "Shorts"], id: \.self) { t in
+                    Text(t).font(.system(size: 12, weight: .heavy)).foregroundStyle(.white)
+                        .padding(.horizontal, 14).padding(.vertical, 8)
+                        .background(ChopColor.ink, in: Capsule())
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+    }
+
+    private func onboardChip(_ t: String, bg: Color, fg: Color) -> some View {
+        Text(t).font(.system(size: 12, weight: .heavy)).foregroundStyle(fg)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(bg, in: Capsule())
+    }
+}
+
+// MARK: social sign-in plumbing
+
+/// Runs the native Sign in with Apple sheet and returns (identityToken, rawNonce).
+final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerDelegate,
+                                    ASAuthorizationControllerPresentationContextProviding {
+    static let shared = AppleSignInCoordinator()
+    private var cont: CheckedContinuation<(String, String), Error>?
+    private var rawNonce = ""
+
+    func run() async throws -> (String, String) {
+        try await withCheckedThrowingContinuation { c in
+            cont = c
+            rawNonce = UUID().uuidString + UUID().uuidString
+            let hashed = SHA256.hash(data: Data(rawNonce.utf8))
+                .map { String(format: "%02x", $0) }.joined()
+            let req = ASAuthorizationAppleIDProvider().createRequest()
+            req.requestedScopes = [.email]
+            req.nonce = hashed
+            let ctrl = ASAuthorizationController(authorizationRequests: [req])
+            ctrl.delegate = self
+            ctrl.presentationContextProvider = self
+            ctrl.performRequests()
+        }
+    }
+
+    func authorizationController(controller: ASAuthorizationController,
+                                 didCompleteWithAuthorization auth: ASAuthorization) {
+        guard let cred = auth.credential as? ASAuthorizationAppleIDCredential,
+              let data = cred.identityToken,
+              let token = String(data: data, encoding: .utf8) else {
+            cont?.resume(throwing: URLError(.badServerResponse)); cont = nil; return
+        }
+        cont?.resume(returning: (token, rawNonce)); cont = nil
+    }
+
+    func authorizationController(controller: ASAuthorizationController,
+                                 didCompleteWithError error: Error) {
+        cont?.resume(throwing: error); cont = nil
+    }
+
+    func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow }.first ?? ASPresentationAnchor()
+    }
+}
+
+/// Presentation anchor for the Google web session.
+final class WebAuthCoordinator: NSObject, ASWebAuthenticationPresentationContextProviding {
+    static let shared = WebAuthCoordinator()
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { ($0 as? UIWindowScene)?.keyWindow }.first ?? ASPresentationAnchor()
+    }
+}
+
 /// Clean, near-invisible backdrop: white page with the faintest breathing
 /// blue glow up top (a touch stronger in dark mode).
 struct AuthBackdrop: View {
@@ -1090,15 +1455,20 @@ struct ChopRootView: View {
     @State private var authAppeared = false   // entrance animation
     @State private var authGlow = false       // logo breathing glow
     @State private var authIntro = true       // Flow-style welcome before the form
+    @State private var seenIntro = UserDefaults.standard.bool(forKey: "chopSeenIntro")
     @State private var theme = ChopTheme.current
 
     var body: some View {
         Group {
             if api.signedIn {
                 app
+            } else if !seenIntro {
+                // first open: the 3-slide story, then Get started → welcome
+                ChopOnboardingView {
+                    UserDefaults.standard.set(true, forKey: "chopSeenIntro")
+                    withAnimation(.spring(response: 0.5, dampingFraction: 0.9)) { seenIntro = true }
+                }
             } else {
-                // straight to Sign in — the marketing landing lives on the web.
-                // Anyone opening the app came from there and wants an account.
                 NavigationStack { signIn.background(Color.chopBg) }
             }
         }
@@ -1111,10 +1481,11 @@ struct ChopRootView: View {
             let args = ProcessInfo.processInfo.arguments
             if let i = args.firstIndex(of: "-screen"), i + 1 < args.count {
                 switch args[i + 1] {
-                case "auth":       break   // the intro IS the first screen
-                case "auth-in":    authIntro = false; authMode = 0
-                case "auth-up":    authIntro = false; authMode = 1
-                case "auth-reset": authIntro = false; authStage = 1
+                case "intro":      seenIntro = false
+                case "auth":       seenIntro = true   // welcome page
+                case "auth-in":    seenIntro = true; authIntro = false; authMode = 0
+                case "auth-up":    seenIntro = true; authIntro = false; authMode = 1
+                case "auth-reset": seenIntro = true; authIntro = false; authStage = 1
                 case "dash":       api.signedIn = true; api.profileName = "Lewis"; api.credits = 169
                 case "queue":      api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; tab = 1
                 case "lab":        api.signedIn = true; api.profileName = "Lewis"; api.credits = 169; tab = 2
@@ -1180,54 +1551,80 @@ struct ChopRootView: View {
         .animation(.spring(response: 0.45, dampingFraction: 0.9), value: authIntro)
     }
 
-    /// Flow-style welcome: wordmark up top, one serif line that says it all,
-    /// two big buttons, legal note. Nothing else.
+    /// The Whisperflow welcome, one for one: wordmark up top, serif title split
+    /// over two lines mid-page, Google + Apple buttons, More options, legal.
     private var authIntroView: some View {
         VStack(spacing: 0) {
-            ChopWordmark(size: 40)
-                .padding(.top, 84)
+            ChopWordmark(size: 38)
+                .padding(.top, 66)
 
             Spacer()
 
             (Text("Get 10 minutes of editing,\ndone in ")
              + Text("15 seconds").foregroundColor(ChopColor.blue))
-                .font(.custom("Georgia", size: 32))
+                .font(.custom("Georgia", size: 31))
                 .foregroundStyle(ChopColor.ink)
                 .multilineTextAlignment(.center)
-                .lineSpacing(6)
-                .padding(.horizontal, 26)
+                .lineSpacing(7)
+                .padding(.horizontal, 24)
 
             Spacer()
 
-            VStack(spacing: 12) {
+            VStack(spacing: 13) {
                 Button {
-                    authMode = 1; authIntro = false
+                    Task { await api.signInWithGoogle() }
                 } label: {
-                    Text("Create your account")
-                        .font(.system(size: 17, weight: .bold))
-                        .frame(maxWidth: .infinity).padding(.vertical, 17)
-                        .background(ChopColor.ink, in: RoundedRectangle(cornerRadius: 18))
-                        .foregroundStyle(ChopColor.bg)
+                    HStack(spacing: 10) {
+                        Text("G")
+                            .font(.system(size: 19, weight: .bold))
+                            .foregroundStyle(Color(red: 0.26, green: 0.52, blue: 0.96))
+                        Text("Continue with Google")
+                            .font(.system(size: 17.5, weight: .bold))
+                    }
+                    .frame(maxWidth: .infinity).padding(.vertical, 17)
+                    .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 20))
+                    .overlay(RoundedRectangle(cornerRadius: 20)
+                        .stroke(ChopColor.ink.opacity(0.7), lineWidth: 1.5))
+                    .foregroundStyle(ChopColor.ink)
                 }
                 Button {
-                    authMode = 0; authIntro = false
+                    Task { await api.signInWithApple() }
                 } label: {
-                    Text("I already have an account")
-                        .font(.system(size: 17, weight: .bold))
-                        .frame(maxWidth: .infinity).padding(.vertical, 17)
-                        .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 18))
-                        .overlay(RoundedRectangle(cornerRadius: 18).stroke(ChopColor.ink.opacity(0.25), lineWidth: 1.5))
+                    HStack(spacing: 10) {
+                        Image(systemName: "applelogo").font(.system(size: 18, weight: .semibold))
+                        Text("Continue with Apple")
+                            .font(.system(size: 17.5, weight: .bold))
+                    }
+                    .frame(maxWidth: .infinity).padding(.vertical, 17)
+                    .background(Color(red: 0.16, green: 0.17, blue: 0.20),
+                                in: RoundedRectangle(cornerRadius: 20))
+                    .foregroundStyle(.white)
+                }
+                Button {
+                    authMode = 0; authIntro = false   // email lives behind More options
+                } label: {
+                    Text("More options")
+                        .font(.system(size: 18, weight: .bold))
                         .foregroundStyle(ChopColor.ink)
+                        .padding(.vertical, 12)
                 }
             }
             .padding(.horizontal, 22)
+
+            if !api.error.isEmpty {
+                Text(api.error)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(ChopColor.rose)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24).padding(.top, 4)
+            }
 
             Text("By continuing, you acknowledge that you have read\nand agreed to our Terms of Service and Privacy Policy.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(ChopColor.muted)
                 .multilineTextAlignment(.center)
-                .padding(.top, 22)
-                .padding(.bottom, 40)
+                .padding(.top, 14)
+                .padding(.bottom, 36)
         }
     }
 
