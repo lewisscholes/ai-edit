@@ -4217,6 +4217,22 @@ async function routeAuth(session){
   authUser=session?session.user:null;
   if(!authUser){ userProfile=null; syncHeaderProfile(); setAuthMode(window.__authMode==='up'?'up':'in'); showView('auth'); return; }
   if(_recovering){ showView('auth'); setAuthMode('newpass'); return; }
+  /* ACCOUNT BARRIER: the local library on this device belongs to ONE account.
+     If a different account signs in, wipe local jobs/media/credits/stats and
+     boot clean — otherwise the old library loads AND gets pushed into the new
+     account's cloud, merging two people's videos. Same account = untouched. */
+  try{
+    const owner=localStorage.getItem('chopOwner');
+    if(owner&&owner!==authUser.id){
+      try{ await idbTx('jobs','readwrite',st=>st.clear()); }catch(e){}
+      try{ await idbTx('media','readwrite',st=>st.clear()); }catch(e){}
+      ['chopCredits','aiEditStats','chopDefaults'].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
+      localStorage.setItem('chopOwner',authUser.id);
+      location.reload();
+      return;
+    }
+    localStorage.setItem('chopOwner',authUser.id);
+  }catch(e){}
   try{
     const {data}=await sb.from('chop_profiles').select('*').eq('id',authUser.id).maybeSingle();
     userProfile=data||null;
