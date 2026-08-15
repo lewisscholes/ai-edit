@@ -946,6 +946,45 @@ struct AuthIcon: Shape {
 }
 
 /// 44px grid at 9% white — the web panel's ::before overlay.
+/// Slow-drifting blue/violet glow blobs behind the auth card — the brand
+/// gradient breathing in the dark. Pure decoration, cheap to render.
+struct AuthBackdrop: View {
+    @State private var drift = false
+
+    var body: some View {
+        ZStack {
+            ChopColor.bg.ignoresSafeArea()
+            GeometryReader { geo in
+                let w = geo.size.width, h = geo.size.height
+                ZStack {
+                    Circle()
+                        .fill(ChopColor.blue.opacity(0.20))
+                        .frame(width: w * 0.95)
+                        .blur(radius: 80)
+                        .offset(x: drift ? -w * 0.32 : w * 0.18,
+                                y: drift ? -h * 0.26 : -h * 0.38)
+                    Circle()
+                        .fill(Color(red: 124/255, green: 58/255, blue: 237/255).opacity(0.17))
+                        .frame(width: w * 0.85)
+                        .blur(radius: 90)
+                        .offset(x: drift ? w * 0.30 : -w * 0.15,
+                                y: drift ? h * 0.30 : h * 0.44)
+                    Circle()
+                        .fill(ChopColor.blue.opacity(0.10))
+                        .frame(width: w * 0.6)
+                        .blur(radius: 70)
+                        .offset(x: drift ? w * 0.05 : -w * 0.25,
+                                y: drift ? h * 0.05 : h * 0.15)
+                }
+                .animation(.easeInOut(duration: 9).repeatForever(autoreverses: true), value: drift)
+            }
+        }
+        .ignoresSafeArea()
+        .onAppear { drift = true }
+        .allowsHitTesting(false)
+    }
+}
+
 struct AuthGridOverlay: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
@@ -1009,6 +1048,8 @@ struct ChopRootView: View {
     @State private var authMode = 0
     @State private var authStage = 0   // 0 auth · 1 reset · 2 new password
     @State private var newPassword = ""
+    @State private var authAppeared = false   // entrance animation
+    @State private var authGlow = false       // logo breathing glow
     @State private var theme = ChopTheme.current
 
     var body: some View {
@@ -1086,6 +1127,13 @@ struct ChopRootView: View {
     }
 
     private var signIn: some View {
+        ZStack {
+            AuthBackdrop()   // slow-drifting brand glow — the page breathes
+            signInContent
+        }
+    }
+
+    private var signInContent: some View {
         ScrollView {
             VStack(spacing: 16) {
 
@@ -1099,6 +1147,10 @@ struct ChopRootView: View {
                     }
                     .frame(width: 52, height: 52)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .shadow(color: ChopColor.blue.opacity(authGlow ? 0.55 : 0.15),
+                            radius: authGlow ? 22 : 10)
+                    .scaleEffect(authGlow ? 1.04 : 1)
+                    .animation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true), value: authGlow)
                     .padding(.bottom, 18)
 
                     Text(authTitle)
@@ -1187,20 +1239,29 @@ struct ChopRootView: View {
                 }
                 .padding(.vertical, 26).padding(.horizontal, 24)
                 .frame(maxWidth: 440)
-                .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 20))
+                .background(ChopColor.card.opacity(0.94), in: RoundedRectangle(cornerRadius: 20))
                 .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(ChopColor.line, lineWidth: 1))
                 .padding(.top, 14)
+                // cinematic entrance: card rises + fades in
+                .opacity(authAppeared ? 1 : 0)
+                .offset(y: authAppeared ? 0 : 26)
 
                 // ---- .abenefit — gradient sell panel, BELOW the form on phone ----
                 authBenefits
                     .frame(maxWidth: 440)
+                    .opacity(authAppeared ? 1 : 0)
+                    .offset(y: authAppeared ? 0 : 34)
 
                 Spacer(minLength: 20)
             }
             .padding(.horizontal, 18)
             .frame(maxWidth: .infinity)
         }
-        .background(ChopColor.bg)
+        .background(Color.clear)
+        .onAppear {
+            authGlow = true
+            withAnimation(.spring(response: 0.7, dampingFraction: 0.85)) { authAppeared = true }
+        }
         .onChange(of: api.wantsSignInMode) { _, flip in
             if flip { authMode = 0; api.wantsSignInMode = false }   // keep the typed email
         }
