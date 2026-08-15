@@ -1096,6 +1096,7 @@ struct AuthIcon: Shape {
 
 struct ChopOnboardingView: View {
     let done: () -> Void
+    var startPage = 0            // debug screenshots of slides 2/3
     @State private var page = 0
     @State private var loop = false
 
@@ -1137,7 +1138,8 @@ struct ChopOnboardingView: View {
             .padding(.bottom, 38)
         }
         .background(ChopColor.bg.ignoresSafeArea())
-        .onAppear { loop = true }
+        .onAppear { loop = true; if startPage > 0 { page = startPage } }
+        .onChange(of: startPage) { _, v in page = v }
     }
 
     private func slide(tag: String, headline: String, em: String, prop: AnyView) -> some View {
@@ -1456,6 +1458,7 @@ struct ChopRootView: View {
     @State private var authGlow = false       // logo breathing glow
     @State private var authIntro = true       // Flow-style welcome before the form
     @State private var seenIntro = UserDefaults.standard.bool(forKey: "chopSeenIntro")
+    @State private var introStart = 0   // debug: jump to slide 2/3 for screenshots
     @State private var theme = ChopTheme.current
 
     var body: some View {
@@ -1464,10 +1467,10 @@ struct ChopRootView: View {
                 app
             } else if !seenIntro {
                 // first open: the 3-slide story, then Get started → welcome
-                ChopOnboardingView {
+                ChopOnboardingView(done: {
                     UserDefaults.standard.set(true, forKey: "chopSeenIntro")
                     withAnimation(.spring(response: 0.5, dampingFraction: 0.9)) { seenIntro = true }
-                }
+                }, startPage: introStart)
             } else {
                 NavigationStack { signIn.background(Color.chopBg) }
             }
@@ -1482,6 +1485,8 @@ struct ChopRootView: View {
             if let i = args.firstIndex(of: "-screen"), i + 1 < args.count {
                 switch args[i + 1] {
                 case "intro":      seenIntro = false
+                case "intro-2":    seenIntro = false; introStart = 1
+                case "intro-3":    seenIntro = false; introStart = 2
                 case "auth":       seenIntro = true   // welcome page
                 case "auth-in":    seenIntro = true; authIntro = false; authMode = 0
                 case "auth-up":    seenIntro = true; authIntro = false; authMode = 1
