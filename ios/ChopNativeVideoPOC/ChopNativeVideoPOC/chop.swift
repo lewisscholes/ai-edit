@@ -1197,9 +1197,23 @@ final class ChopAPI: ObservableObject {
     }
 
     /// Read-modify-write on a job's data blob — always fetches the FRESH row
-    /// first so concurrent writers (edit saves, status moves, thumb backfill)
-    /// can never clobber each other. Pass NSNull() as a value to delete a key.
+    /// first so concurrent writers (edit saves, status moves, video sync,
+    /// thumb backfill) can never clobber each other, and SERIALISED per job so
+    /// two writers can't interleave their read and write windows either.
+    /// Pass NSNull() as a value to delete a key.
+    @MainActor private var mergeChains: [String: Task<Void, Never>] = [:]
+    @MainActor
     func mergeJobData(_ name: String, fields: [String: Any]) async {
+        let prev = mergeChains[name]
+        let task = Task { [weak self] in
+            await prev?.value
+            await self?.performMerge(name, fields: fields)
+        }
+        mergeChains[name] = task
+        await task.value
+    }
+
+    private func performMerge(_ name: String, fields: [String: Any]) async {
         let enc = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name
         guard let getURL = URL(string: "\(SB_URL)/rest/v1/chop_jobs?select=data&user_id=eq.\(userId)&name=eq.\(enc)") else { return }
         var get = URLRequest(url: getURL)
@@ -2610,6 +2624,7 @@ final class ChopPlayer: ObservableObject {
     @Published var showEdited = true
     @Published var rawDuration: Double = 0
     @Published var editedDuration: Double = 0
+    @Published var videoAspect: CGFloat = 9.0 / 16.0   // display aspect after rotation — the zoom cage
     @Published var rawCuts: [(start: Double, end: Double)] = []   // red bands, raw time
 
     private var localURL: URL?
@@ -3472,6 +3487,9 @@ final class ChopPlayer: ObservableObject {
         composition = comp
         editedDuration = cursor.seconds
         rawDuration = src.duration.seconds
+        // the cage: the video's true display aspect (rotation applied)
+        let vb = CGRect(origin: .zero, size: srcV.naturalSize).applying(srcV.preferredTransform)
+        if abs(vb.width) > 1, abs(vb.height) > 1 { videoAspect = abs(vb.width) / abs(vb.height) }
         // the red bands are always derived from the LIVE kept list, so any
         // delete / split / restore / retune redraws them automatically
         rawCuts = ChopPlayer.cutGaps(kept: kept, rawDur: rawDuration)
@@ -3578,13 +3596,17 @@ struct ChopPlayerScreen: View {
 
                 // ---- video stage: 50% of the screen, 24% when the panel is up ----
                 ZStack(alignment: .top) {
+                    // THE CAGE (Lewis): the video sits in a frame matching its
+                    // true aspect; zoom scales INSIDE that frame and crops at
+                    // its edges — never spilling into the letterbox — so the
+                    // preview is exactly what the export renders.
                     PlayerLayerView(player: p.player)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        // per-clip zoom: live while pinching, else whatever
-                        // zoom is in force at the playhead's clip
+                        .aspectRatio(p.videoAspect, contentMode: .fit)
                         .scaleEffect(pinchLive ?? p.zoomScale(atEditTime: p.time))
                         .animation(.easeInOut(duration: 0.15),
                                    value: pinchLive ?? p.zoomScale(atEditTime: p.time))
+                        .clipped()   // the cage wall
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Color.black)
 
                     HStack(spacing: 2) {
@@ -4918,7 +4940,10 @@ final class ChopImporter: ObservableObject {
             guard let (vPut, vKey) = await api.presignPut(filename: "sync-" + name) else { return }
             let ok = await api.putFile(pickedURL, to: vPut)
             guard ok else { return }
-            await api.saveJob(name: name, payload: payload, rawSec: rawSec, videoKey: vKey, thumb: thumb)
+            // MERGE, don't overwrite: the old saveJob upsert rebuilt the whole
+            // data blob and raced the editor's auto-save — losing videoKey
+            // (the 'not synced yet' export bug) or nuking fresh edits.
+            await api.mergeJobData(name, fields: ["videoKey": vKey])
             await api.loadJobs()
             await MainActor.run {
                 self?.syncMsg = "Full quality video synced — export is ready"

@@ -188,6 +188,33 @@ function applyRetakes(segs: Seg[], utts: Utt[], groups: { members: number[]; sim
   return kept;
 }
 
+/* Deepgram's 0.4s utterance split merges a quick false start ("this bundle
+   is—") straight into the retake that follows it, so the pair never forms and
+   an obvious retake gets missed. Rebuild utterances from word timings with a
+   tighter 0.28s gap, unioned with Deepgram's own boundaries. This feeds
+   RETAKE DETECTION ONLY — the cut logic never sees these. */
+function buildUtterances(words: Word[], dgUtts: Utt[]): Utt[] {
+  if (!words.length) return dgUtts;
+  const bounds = new Set(dgUtts.map((u) => Math.round(u.start * 1000)));
+  const out: Utt[] = [];
+  let cur: Word[] = [];
+  const flush = () => {
+    if (!cur.length) return;
+    out.push({ start: cur[0].start, end: cur[cur.length - 1].end,
+               transcript: cur.map((w) => w.punctuated_word || w.word).join(" ") });
+    cur = [];
+  };
+  for (const w of words) {
+    if (cur.length) {
+      const gap = w.start - cur[cur.length - 1].end;
+      if (gap >= 0.28 || bounds.has(Math.round(w.start * 1000))) flush();
+    }
+    cur.push(w);
+  }
+  flush();
+  return out;
+}
+
 async function processJob(jobId: string, key: string) {
   try {
     const getUrl = await presign("GET", key, 7200);
@@ -201,7 +228,8 @@ async function processJob(jobId: string, key: string) {
     const res = await dg.json();
     const duration: number = res.metadata?.duration ?? 0;
     const words: Word[] = res.results?.channels?.[0]?.alternatives?.[0]?.words ?? [];
-    const utts: Utt[] = (res.results?.utterances ?? []).map((u: any) => ({ start: u.start, end: u.end, transcript: u.transcript }));
+    const dgUtts: Utt[] = (res.results?.utterances ?? []).map((u: any) => ({ start: u.start, end: u.end, transcript: u.transcript }));
+    const utts = buildUtterances(words, dgUtts);
     if (!words.length) throw new Error("No speech detected in this video");
     const segs = buildSegments(words, duration);
     const groups = detectRetakes(utts);
