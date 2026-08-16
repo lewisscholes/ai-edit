@@ -3435,15 +3435,25 @@ final class ChopPlayer: ObservableObject {
     }
 
     /// Jump the player to where a line starts, in EDIT time.
+    /// The line's EXACT start is usually shaved by the clip pads (−260ms on
+    /// Recommended), so match the first kept moment that OVERLAPS the line —
+    /// the old exact-start lookup missed and fell back to 0, restarting the
+    /// whole video instead of playing the take.
     func playFrom(segment i: Int) {
         guard let e = edit, i < e.segments.count else { return }
-        let raw = e.segments[i].start
+        let seg = e.segments[i]
         var acc = 0.0
         for clip in e.keptClips() {
-            if raw >= clip.start && raw <= clip.end { seekExact(to: acc + (raw - clip.start)); return }
+            let s = max(seg.start, clip.start)
+            let en = min(seg.end, clip.end)
+            if en - s > 0.02 {   // first kept slice of this line
+                seekExact(to: min(acc + (s - clip.start), max(0, duration - 0.02)))
+                return
+            }
             acc += clip.end - clip.start
         }
-        seekExact(to: 0)
+        // the whole line is cut — never jump to 0, just say so
+        ChopToasts.shared.show("That take is cut from the edit — Keep it to preview")
     }
 
     /// Recompute the cuts and rebuild the composition. No re-download.
