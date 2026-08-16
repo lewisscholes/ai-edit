@@ -4226,8 +4226,14 @@ struct ChopTimeline: View {
                         let x = CGFloat(s) * pps + shift
                         let bw = max(3, CGFloat(e - s) * pps)
 
-                        bandThumbs(span: (s, e), width: bw, pps: pps, dur: dur)
-                            .frame(width: bw, height: stripH)
+                        // While the LEFT cap is dragged the frames anchor to the
+                        // fixed RIGHT edge (and vice versa): the images freeze in
+                        // place and the cap simply crops them — TikTok rigid.
+                        let anchorRight = (tl?.band == i && tl?.side == 0)
+                        bandThumbs(span: (s, e), width: bw, pps: pps, dur: dur,
+                                   anchorRight: anchorRight)
+                            .frame(width: bw, height: stripH,
+                                   alignment: anchorRight ? .trailing : .leading)
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                             .overlay(RoundedRectangle(cornerRadius: 8)
                                 .stroke(Color.black.opacity(0.5), lineWidth: 1))
@@ -4307,7 +4313,8 @@ struct ChopTimeline: View {
     // you zoom — frames never stretch, more tiles just appear
     @ViewBuilder
     private func bandThumbs(span: (start: Double, end: Double),
-                            width: CGFloat, pps: CGFloat, dur: Double) -> some View {
+                            width: CGFloat, pps: CGFloat, dur: Double,
+                            anchorRight: Bool = false) -> some View {
         if p.strip.isEmpty {
             LinearGradient(colors: [Color(red: 0.24, green: 0.27, blue: 0.33),
                                     Color(red: 0.15, green: 0.17, blue: 0.21)],
@@ -4317,8 +4324,12 @@ struct ChopTimeline: View {
             let count = max(1, Int(ceil(width / tileW)))
             HStack(spacing: 0) {
                 ForEach(0..<count, id: \.self) { k in
-                    // the frame whose time sits at this tile's centre
-                    let t = span.start + (Double(k) + 0.5) * Double(tileW / pps)
+                    // the frame whose time sits at this tile's centre.
+                    // anchorRight (left-cap trim): times count back from the
+                    // FIXED end, so the visible tiles never re-map mid-drag.
+                    let t = anchorRight
+                        ? span.end - (Double(count - k) - 0.5) * Double(tileW / pps)
+                        : span.start + (Double(k) + 0.5) * Double(tileW / pps)
                     let idx = min(p.strip.count - 1,
                                   max(0, Int(t / dur * Double(p.strip.count))))
                     Image(uiImage: p.strip[idx]).resizable().scaledToFill()
@@ -4326,7 +4337,8 @@ struct ChopTimeline: View {
                         .clipped()
                 }
             }
-            .frame(width: width, height: stripH, alignment: .leading)
+            .frame(width: width, height: stripH,
+                   alignment: anchorRight ? .trailing : .leading)
         }
     }
 
