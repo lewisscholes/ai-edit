@@ -3517,20 +3517,24 @@ struct ChopPlayerScreen: View {
     }
 
     // ---- the icon-square toolbar, same shape as the web editor ----
+    // Locked in place: four buttons fit on every phone, so no ScrollView —
+    // a stray swipe can no longer drag the row sideways and bounce it back.
     private var toolbar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                // Text/Image/Captions removed for App Store review — Apple
-                // rejects visible-but-nonfunctional controls. Re-add at launch.
-                tool("retakes", "rectangle.on.rectangle", "Retakes", badge: p.undecided)
-                tool("cuts", "scissors", "Cuts")
-                tool("script", "text.alignleft", "Script")
-                tool("export", "square.and.arrow.down", "Export")
-            }
-            .padding(.horizontal, 12)
+        HStack(spacing: 8) {
+            // Text/Image/Captions removed for App Store review — Apple
+            // rejects visible-but-nonfunctional controls. Re-add at launch
+            // (restore the ScrollView + .scrollBounceBehavior(.basedOnSize) then).
+            tool("retakes", "rectangle.on.rectangle", "Retakes", badge: p.undecided)
+            tool("cuts", "scissors", "Cuts")
+            tool("script", "text.alignleft", "Script")
+            tool("export", "square.and.arrow.down", "Export")
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 12)
         .padding(.vertical, 6)
+        .frame(maxWidth: .infinity)
         .background(ChopColor.card)
+        .contentShape(Rectangle())   // swipes on the row's empty space go nowhere
     }
 
     /// web mobile .rail .rbtn — 64×62 r14 square, icon+label inside,
