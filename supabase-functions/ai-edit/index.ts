@@ -122,6 +122,11 @@ function prefixOverlap(a: string[], b: string[]) {
   let k = 0; while (k < n && a[k] === b[k]) k++;
   return k / n;
 }
+function leadRun(a: string[], b: string[]) {   // identical opening words, absolute count
+  const n = Math.min(a.length, b.length);
+  let k = 0; while (k < n && a[k] === b[k]) k++;
+  return k;
+}
 
 type Utt = { start: number; end: number; transcript: string };
 function detectRetakes(utts: Utt[]) {
@@ -136,9 +141,15 @@ function detectRetakes(utts: Utt[]) {
       if (toks[j].length < 2) continue;
       const short = Math.min(toks[i].length, toks[j].length) < 3;
       const score = Math.max(levSim(toks[i], toks[j]), prefixOverlap(toks[i], toks[j]));
+      const lead = leadRun(toks[i], toks[j]);
       const strongTh = short ? SHORT_THRESHOLD : RETAKE_THRESHOLD;
       if (score >= strongTh) { const a = find(i), b = find(j); if (a !== b) parent[b] = a; scores[`${i}-${j}`] = score; }
-      else if (!short && score >= WEAK_THRESHOLD) weakCand.push({ i, j, score });
+      /* the 'potential retake' net: a weak overall score still gets flagged
+         for review when it clears 0.5, OR when both takes OPEN with the same
+         3+ words — restarts share their opening even when the rest diverges */
+      else if (!short && (score >= WEAK_THRESHOLD || lead >= 3)) {
+        weakCand.push({ i, j, score: Math.max(score, 0.5) });
+      }
     }
   }
   const groups: Record<number, number[]> = {};

@@ -2678,6 +2678,7 @@ final class ChopPlayer: ObservableObject {
         var fillers: Bool
         var soft: Bool
         var splits: [Double] = []
+        var zooms: [(start: Double, end: Double, scale: CGFloat)] = []
     }
     private var past: [Snapshot] = []
     private var future: [Snapshot] = []
@@ -2775,38 +2776,45 @@ final class ChopPlayer: ObservableObject {
         let kept = e.keptClips()
         guard !kept.isEmpty else { exportMsg = "Nothing to export"; return }
 
-        guard let originalKey = job.videoKey else {
-            exportMsg = "The full-quality video isn't synced yet — open it on the web once to upload it."
+        // LOCAL FIRST — export must NEVER block on cloud sync. A fresh import's
+        // original is still on the phone; the old guard demanded videoKey
+        // before even looking, which is what threw the 'open it on the web'
+        // error while the background sync was still running.
+        let localImport: URL? = api.localImports[job.name].flatMap {
+            FileManager.default.fileExists(atPath: $0.path) ? $0 : nil
+        }
+        guard localImport != nil || job.videoKey != nil else {
+            exportMsg = "The full-quality video is still syncing — give it a minute and try again."
             return
         }
 
         exporting = true; exportPct = 0
         defer { exporting = false }
 
-        // Fast paths first — the original is often already on the phone:
-        // fresh imports keep their picked file, and earlier downloads are cached.
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let cached = cacheDir.appendingPathComponent(
-            "chop-" + originalKey.replacingOccurrences(of: "/", with: "_") + ".mp4")
         let local: URL
-        if let imported = api.localImports[job.name],
-           FileManager.default.fileExists(atPath: imported.path) {
-            local = imported                       // zero network
-        } else if FileManager.default.fileExists(atPath: cached.path) {
-            local = cached                         // downloaded before — reuse
+        if let imported = localImport {
+            local = imported                       // zero network, sync irrelevant
         } else {
-            exportMsg = "Fetching the original…"
-            guard let signed = await api.presignGet(originalKey) else {
-                exportMsg = "Couldn't fetch the original"; return
-            }
-            exportMsg = "Downloading…"
-            do {
-                let (tmp, _) = try await URLSession.shared.download(from: signed)
-                try? FileManager.default.removeItem(at: cached)
-                try FileManager.default.moveItem(at: tmp, to: cached)
-                local = cached                     // cache for every future export
-            } catch {
-                exportMsg = "Download failed: \(error.localizedDescription)"; return
+            let originalKey = job.videoKey!        // guarded above
+            let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            let cached = cacheDir.appendingPathComponent(
+                "chop-" + originalKey.replacingOccurrences(of: "/", with: "_") + ".mp4")
+            if FileManager.default.fileExists(atPath: cached.path) {
+                local = cached                     // downloaded before — reuse
+            } else {
+                exportMsg = "Fetching the original…"
+                guard let signed = await api.presignGet(originalKey) else {
+                    exportMsg = "Couldn't fetch the original"; return
+                }
+                exportMsg = "Downloading…"
+                do {
+                    let (tmp, _) = try await URLSession.shared.download(from: signed)
+                    try? FileManager.default.removeItem(at: cached)
+                    try FileManager.default.moveItem(at: tmp, to: cached)
+                    local = cached                 // cache for every future export
+                } catch {
+                    exportMsg = "Download failed: \(error.localizedDescription)"; return
+                }
             }
         }
 
@@ -3082,12 +3090,13 @@ final class ChopPlayer: ObservableObject {
                  manualCuts: edit?.manualCuts ?? [],
                  manualKeeps: edit?.manualKeeps ?? [],
                  minSil: minSil, fillers: fillers, soft: softFillers,
-                 splits: splits)
+                 splits: splits, zooms: zooms)
     }
     private func apply(_ s: Snapshot) {
         pairs = s.pairs; segments = s.segments
         minSil = s.minSil; fillers = s.fillers; softFillers = s.soft
         splits = s.splits
+        zooms = s.zooms   // undo reverts the WHOLE zoom, not a frame of it
         if var e = edit { e.manualCuts = s.manualCuts; e.manualKeeps = s.manualKeeps; edit = e }
         rebuildKeepingTime()   // undo/redo must not throw the playhead to 0
     }
@@ -3675,7 +3684,10 @@ struct ChopPlayerScreen: View {
                 .simultaneousGesture(MagnificationGesture()
                     .onChanged { v in
                         guard p.showEdited, let sel = selected, sel < p.bands.count else { return }
-                        if pinchStart == nil { pinchStart = p.zoom(forBand: sel) }
+                        if pinchStart == nil {
+                            pinchStart = p.zoom(forBand: sel)
+                            p.pushHistory()   // one pinch = one undoable action
+                        }
                         let s = min(3, max(1, (pinchStart ?? 1) * v))
                         pinchLive = s
                         p.setZoom(s, forBand: sel)
@@ -6135,13 +6147,15 @@ final class ChopExporter {
         var e = ChopEdit(job: job)
         if (job.data["settings"] as? [String: Any]) == nil { e.settings = ChopPresets.saved }
         let kept = e.keptClips()
-        guard !kept.isEmpty, let originalKey = job.videoKey else { return false }
+        guard !kept.isEmpty else { return false }
 
-        // fresh import still on the phone? zero network
+        // fresh import still on the phone? zero network — and NEVER blocked
+        // on the background sync (videoKey only needed for the cloud path)
         if let imported = api.localImports[job.name],
            FileManager.default.fileExists(atPath: imported.path) {
             return await finishExport(src: AVURLAsset(url: imported), kept: kept, job: job, api: api)
         }
+        guard let originalKey = job.videoKey else { return false }
         // reuse the editor's download cache — no double downloads
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let local = cacheDir.appendingPathComponent(
