@@ -536,6 +536,7 @@ final class ChopAPI: ObservableObject {
     @Published var jobs: [ChopJob] = []
     @Published var credits: Int = 0
     @Published var editorOpen = false   // hides the glass nav while editing
+    @Published var openJob: ChopJob?    // set after import → root presents the editor directly
     @Published var profileName = ""
     @Published var profileTiktok = ""
     @Published var profileAvatar = ""
@@ -1572,6 +1573,9 @@ struct ChopRootView: View {
                 .sheet(isPresented: $showSettings) { ChopSettingsView(api: api) { theme = $0 } }
                 .sheet(isPresented: $showBilling) { ChopBillingView(api: api) }
                 .fullScreenCover(item: $demoJob) { j in
+                    NavigationStack { ChopPlayerScreen(job: j, api: api) }
+                }
+                .fullScreenCover(item: $api.openJob) { j in   // straight-to-editor after import
                     NavigationStack { ChopPlayerScreen(job: j, api: api) }
                 }
                 .sheet(isPresented: $showOOC) { OutOfCreditsSheet() }
@@ -4025,13 +4029,6 @@ struct ImportSheet: View {
                 .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 18))
                 .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.chopLine, lineWidth: 1))
                 .padding(.top, 24)
-            } else if imp.done {
-                Image(systemName: "checkmark.circle.fill").font(.largeTitle).foregroundStyle(.green)
-                Text("Chopped").font(ChopFont.bodyBold)
-                Text(imp.syncMsg)
-                    .font(.caption2).foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                Button("Done") { dismiss() }.buttonStyle(.borderedProminent)
             } else if api.credits <= 0 {
                 Image(systemName: "bolt.slash").font(.largeTitle).foregroundStyle(.orange)
                 Text("You're out of credits").font(.subheadline.weight(.medium))
@@ -4058,6 +4055,7 @@ struct ImportSheet: View {
             guard !items.isEmpty else { return }
             Task {
                 // one at a time — parallel imports exhaust memory on a phone
+                var lastName: String?
                 for (n, item) in items.enumerated() {
                     guard let movie = try? await item.loadTransferable(type: ChopMovie.self) else {
                         imp.failed = "Couldn't read that video"; continue
@@ -4065,7 +4063,18 @@ struct ImportSheet: View {
                     let df = DateFormatter(); df.dateFormat = "d MMM, HH.mm"
                     var friendly = "Chop " + df.string(from: Date())
                     if items.count > 1 { friendly += " (\(n + 1))" }
-                    await imp.run(pickedURL: movie.url, name: friendly + ".mp4", api: api)
+                    friendly += ".mp4"
+                    await imp.run(pickedURL: movie.url, name: friendly, api: api)
+                    if imp.done { lastName = friendly }
+                }
+                // No done screen — the moment the edit is saved, close the sheet
+                // and drop straight into the editor for the fresh chop.
+                if let lastName, let job = api.jobs.first(where: { $0.name == lastName }) {
+                    dismiss()
+                    try? await Task.sleep(nanoseconds: 450_000_000)   // let the sheet settle first
+                    api.openJob = job
+                } else if imp.failed.isEmpty {
+                    dismiss()
                 }
             }
         }
