@@ -2336,6 +2336,13 @@ final class ChopPlayer: ObservableObject {
     @Published var isPlaying = false
     @Published var strip: [UIImage] = []
 
+    // Raw / Edited mode — Edited plays the composition (today's behaviour);
+    // Raw plays the FULL original with the cut sections banded in red.
+    @Published var showEdited = true
+    @Published var rawDuration: Double = 0
+    @Published var editedDuration: Double = 0
+    @Published var rawCuts: [(start: Double, end: Double)] = []   // red bands, raw time
+
     private var localURL: URL?
     private var edit: ChopEdit?
     private var composition: AVMutableComposition?
@@ -2589,7 +2596,7 @@ final class ChopPlayer: ObservableObject {
 
     /// Frames straight off the composition, so the strip shows the EDIT,
     /// not the raw footage — same as the web app's edited view.
-    private func buildStrip(_ comp: AVMutableComposition) {
+    private func buildStrip(_ comp: AVAsset) {
         stripTask?.cancel()
         // keep the old frames on screen while the new ones generate —
         // clearing here made the whole timeline flash blank after every edit
@@ -2789,6 +2796,8 @@ final class ChopPlayer: ObservableObject {
     /// Time is written synchronously and the clock muted briefly, so the UI
     /// never renders a stale frame between rebuild and seek.
     private func rebuildKeepingTime() {
+        // raw mode: rebuild() already holds the raw playhead in place
+        guard showEdited else { rebuild(); return }
         let anchor = raw(fromEdit: time)
         scrubbing = true
         rebuild()
@@ -2983,13 +2992,70 @@ final class ChopPlayer: ObservableObject {
         vTrack.preferredTransform = srcV.preferredTransform
 
         let wasPlaying = player.rate > 0
-        player.replaceCurrentItem(with: AVPlayerItem(asset: comp))
         composition = comp
-        duration = cursor.seconds
+        editedDuration = cursor.seconds
+        rawDuration = src.duration.seconds
+        // the red bands are always derived from the LIVE kept list, so any
+        // delete / split / restore / retune redraws them automatically
+        rawCuts = ChopPlayer.cutGaps(kept: kept, rawDur: rawDuration)
+        if showEdited {
+            player.replaceCurrentItem(with: AVPlayerItem(asset: comp))
+            duration = editedDuration
+            buildStrip(comp)
+        } else {
+            // stay on the raw footage — refresh the item and let the bands redraw
+            let keep = min(time, max(0, rawDuration - 0.05))
+            player.replaceCurrentItem(with: AVPlayerItem(asset: src))
+            duration = rawDuration
+            buildStrip(src)
+            seekExact(to: keep)
+        }
         ready = true
         status = ""
         observeTime()
-        buildStrip(comp)
+        if wasPlaying { player.play() }
+    }
+
+    /// Complement of the kept clips over the raw timeline — everything cut out.
+    private static func cutGaps(kept: [ChopClip], rawDur: Double) -> [(start: Double, end: Double)] {
+        var out: [(start: Double, end: Double)] = []
+        var pos = 0.0
+        for c in kept.sorted(by: { $0.start < $1.start }) {
+            if c.start > pos + 0.05 { out.append((pos, c.start)) }
+            pos = max(pos, c.end)
+        }
+        if rawDur > pos + 0.05 { out.append((pos, rawDur)) }
+        return out
+    }
+
+    /// Flip between the edit and the full original, keeping the playhead on
+    /// the same moment of footage in both directions.
+    func setMode(edited: Bool) {
+        guard edited != showEdited else { return }
+        guard let local = localURL else { showEdited = edited; return }
+        let wasPlaying = player.rate > 0
+        player.pause()
+        if edited {
+            let anchorRaw = time   // raw seconds while in raw mode
+            showEdited = true
+            guard let comp = composition else { return }
+            player.replaceCurrentItem(with: AVPlayerItem(asset: comp))
+            duration = editedDuration
+            buildStrip(comp)
+            observeTime()
+            let t = editTime(fromRaw: anchorRaw) ?? 0
+            seekExact(to: min(t, max(0, duration - 0.05)))
+        } else {
+            let anchorRaw = raw(fromEdit: time) ?? 0
+            showEdited = false
+            let src = AVURLAsset(url: local)
+            player.replaceCurrentItem(with: AVPlayerItem(asset: src))
+            rawDuration = src.duration.seconds
+            duration = rawDuration
+            buildStrip(src)
+            observeTime()
+            seekExact(to: min(anchorRaw, max(0, duration - 0.05)))
+        }
         if wasPlaying { player.play() }
     }
 }
@@ -2999,7 +3065,6 @@ struct ChopPlayerScreen: View {
     @ObservedObject var api: ChopAPI
     @StateObject private var p = ChopPlayer()
     @State private var panel: String? = "retakes"
-    @State private var showEdited = true
     @State private var marking = false
     @State private var selected: Int? = nil   // selected timeline section
     @State private var compact = false        // web body.stagecompact: 50dvh ↔ 24dvh
@@ -3020,13 +3085,29 @@ struct ChopPlayerScreen: View {
                         .background(Color.black)
 
                     HStack(spacing: 2) {
-                        modePill("Raw", on: !showEdited)
-                        modePill("Edited", on: showEdited)
+                        modePill("Raw", on: !p.showEdited)
+                        modePill("Edited", on: p.showEdited)
                     }
                     .padding(3)
                     .background(.ultraThinMaterial, in: Capsule())
                     .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 1))
                     .padding(.top, 10)
+
+                    // Raw mode: the whole point — how much time Chop is saving
+                    if !p.showEdited, p.rawDuration > p.editedDuration + 0.5 {
+                        VStack {
+                            Spacer()
+                            Text("Saving you \(Int((p.rawDuration - p.editedDuration).rounded()))s of dead air & fillers")
+                                .font(.system(size: 11.5, weight: .heavy))
+                                .foregroundStyle(ChopColor.green)
+                                .padding(.horizontal, 13).padding(.vertical, 6)
+                                .background(Color(red: 10/255, green: 12/255, blue: 18/255).opacity(0.6), in: Capsule())
+                                .overlay(Capsule().stroke(ChopColor.green.opacity(0.4), lineWidth: 1))
+                                .padding(.bottom, 12)
+                        }
+                        .frame(maxHeight: .infinity)
+                        .allowsHitTesting(false)
+                    }
 
                     // back (doubles as Queue) top-left · green Done tick top-right
                     HStack(spacing: 6) {
@@ -3190,7 +3271,10 @@ struct ChopPlayerScreen: View {
             .foregroundStyle(on ? Color.black : .white)
             .padding(.horizontal, 14).padding(.vertical, 6)
             .background(on ? Color.white : Color.clear, in: Capsule())
-            .onTapGesture { showEdited = (label == "Edited") }
+            .onTapGesture {
+                selected = nil   // clip selection is an edited-mode tool
+                p.setMode(edited: label == "Edited")
+            }
     }
 
     // TikTok play bar: time left · small centred play · undo/redo right
@@ -3200,8 +3284,8 @@ struct ChopPlayerScreen: View {
                 Text("\(clock(p.time)) / \(clock(p.duration))")
                     .font(.system(size: 13, weight: .semibold).monospacedDigit())
                     .foregroundStyle(Color.chopMuted)
-                if p.duration > 0, job.rawSec > 0 {
-                    Text("\(Int((1 - p.duration / job.rawSec) * 100))% shorter")
+                if p.editedDuration > 0, job.rawSec > 0 {
+                    Text("\(Int((1 - p.editedDuration / job.rawSec) * 100))% shorter")
                         .font(.system(size: 11, weight: .bold)).foregroundStyle(Color.chopGreen)
                 }
                 Spacer()
@@ -3600,6 +3684,43 @@ struct ChopTimeline: View {
     private let stripH: CGFloat = 44   // TikTok strip height
     private let scrubH: CGFloat = 56   // TikTok-sized thumb-scrub pad (doubled)
 
+    /// RAW mode strip: the full original as one continuous band of frames,
+    /// with red striped overlays on every cut-out section. Drawn straight
+    /// from p.rawCuts, so it redraws the moment any edit changes the cuts.
+    private func rawStrip(contentW: CGFloat, pps: CGFloat) -> some View {
+        ZStack(alignment: .topLeading) {
+            HStack(spacing: 0) {
+                ForEach(Array(p.strip.enumerated()), id: \.offset) { _, img in
+                    Image(uiImage: img)
+                        .resizable().scaledToFill()
+                        .frame(width: contentW / CGFloat(max(1, p.strip.count)), height: stripH)
+                        .clipped()
+                }
+            }
+            .frame(width: contentW, height: stripH, alignment: .leading)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.black.opacity(0.5), lineWidth: 1))
+
+            ForEach(Array(p.rawCuts.enumerated()), id: \.offset) { _, cut in
+                let w = max(3, CGFloat(cut.end - cut.start) * pps)
+                ZStack {
+                    Rectangle().fill(ChopColor.rose.opacity(0.42))
+                    if w > 26 {
+                        Image(systemName: "scissors")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.6), radius: 2)
+                    }
+                }
+                .overlay(Rectangle().stroke(ChopColor.rose, lineWidth: 1.5))
+                .frame(width: w, height: stripH)
+                .offset(x: CGFloat(cut.start) * pps)
+                .allowsHitTesting(false)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: p.rawCuts.map(\.start))
+    }
+
     var body: some View {
         GeometryReader { geo in
             let vw = max(1, geo.size.width)
@@ -3615,6 +3736,11 @@ struct ChopTimeline: View {
 
                 // ---- the strip: bands + white split marks, pans under the stick ----
                 ZStack(alignment: .topLeading) {
+                    if !p.showEdited {
+                        // RAW mode: one continuous strip of the full original,
+                        // with everything that's been cut banded in red
+                        rawStrip(contentW: contentW, pps: pps)
+                    } else {
                     ForEach(Array(spans.enumerated()), id: \.offset) { i, span in
                         // TikTok live trim: the dragged edge moves, neighbours
                         // slide with it, nothing is "previewed" in red
@@ -3660,6 +3786,7 @@ struct ChopTimeline: View {
                     if let sel = selected?.wrappedValue, sel < spans.count {
                         selectionFrame(sel: sel, spans: spans, pps: pps)
                     }
+                    }   // end edited-mode strip
                 }
                 .frame(width: contentW, height: stripH, alignment: .topLeading)
                 .coordinateSpace(name: "chopstrip")   // stable space for cap drags
@@ -3681,6 +3808,7 @@ struct ChopTimeline: View {
             // drag = scrub · pinch = zoom. Pan needs 10pt, which keeps pinch easy.
             .gesture(SpatialTapGesture()
                 .onEnded { g in
+                    guard p.showEdited else { return }   // selection is an edited-mode tool
                     guard let bind = selected else { return }
                     // tap in the thumb-scrub pad = deselect everything
                     guard g.location.y <= stripH else { bind.wrappedValue = nil; return }
