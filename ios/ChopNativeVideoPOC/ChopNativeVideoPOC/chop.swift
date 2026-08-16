@@ -3210,7 +3210,7 @@ struct ChopPlayerScreen: View {
         .init(id: "tour-retakes", title: "Retakes",
               text: "Repeated takes appear side by side — pick the keeper. The orange badge counts the ones still undecided."),
         .init(id: "tour-cuts", title: "Cuts",
-              text: "A cut too tight, or a pause left in? Sliders, clip pads and one-tap presets (Relaxed · Balanced · Snappy) live here."),
+              text: "A cut too tight, or a pause left in? Sliders, clip pads and one-tap presets live here — Recommended ★ is on by default."),
         .init(id: "tour-export", title: "Export",
               text: "Renders the final cut and saves it straight to your camera roll."),
         .init(id: "tour-done", title: "Approve",
@@ -3743,11 +3743,12 @@ struct ChopPlayerScreen: View {
                     // panel stays lean but nobody has to hunt for them
                     DisclosureGroup {
                         VStack(alignment: .leading, spacing: 10) {
-                            Text("One tap sets the silence threshold, fillers and clip pads together. Balanced is the recommended start; Snappy suits fast talking-head videos; Relaxed keeps more breathing room. Clips feeling too short or too long? Nudge the Clip start / Clip end pads below.")
+                            Text("One tap sets the silence threshold, fillers and clip pads together. Recommended is the default — the tightest clean cut. Relaxed keeps more breathing room; Snappy suits fast talking heads. Clips feeling too short or too long? Nudge the Clip start / Clip end pads below.")
                                 .font(.system(size: 12)).foregroundStyle(Color.chopMuted)
+                            presetChip("Recommended ★", ChopPresets.recommended)
                             HStack(spacing: 8) {
                                 presetChip("Relaxed", ChopPresets.relaxed)
-                                presetChip("Balanced ★", ChopPresets.balanced)
+                                presetChip("Balanced", ChopPresets.balanced)
                                 presetChip("Snappy", ChopPresets.snappy)
                             }
                         }
@@ -5573,13 +5574,16 @@ struct QueueCard: View {
 /// The three presets from the web app, plus whatever the creator saves.
 /// Stored on the device like the web app's localStorage chopDefaults.
 enum ChopPresets {
+    /// THE default (Lewis): every video uses this until the creator saves
+    /// their own — silences 0.01s, both clip pads at −260ms.
+    static let recommended = ChopSettings(minSil: 0.01, fillers: true, soft: false, startPadMs: -260, endPadMs: -260)
     static let relaxed  = ChopSettings(minSil: 0.7,  fillers: true, soft: false, startPadMs: 60, endPadMs: 0)
     static let balanced = ChopSettings(minSil: 0.4,  fillers: true, soft: false, startPadMs: 40, endPadMs: -40)
     static let snappy   = ChopSettings(minSil: 0.05, fillers: true, soft: false, startPadMs: 0,  endPadMs: -140)
 
     static var saved: ChopSettings {
         let d = UserDefaults.standard
-        guard d.object(forKey: "chopMinSil") != nil else { return balanced }
+        guard d.object(forKey: "chopMinSil") != nil else { return recommended }
         return ChopSettings(minSil: d.double(forKey: "chopMinSil"),
                             fillers: d.bool(forKey: "chopFillers"),
                             soft: false,   // soft-fillers option removed from the product
@@ -5597,6 +5601,7 @@ enum ChopPresets {
     }
 
     static func name(_ s: ChopSettings) -> String {
+        if s.matches(recommended) { return "Recommended" }
         if s.matches(relaxed)  { return "Relaxed" }
         if s.matches(balanced) { return "Balanced" }
         if s.matches(snappy)   { return "Snappy" }
@@ -5622,6 +5627,7 @@ struct ChopLabBody: View {
 
     // web PRESETS copy, verbatim
     private let presetMeta: [(String, String, ChopSettings?)] = [
+        ("Recommended", "Our pick, on by default. Silences over 0.01s, −260ms clip pads — the tightest clean cut.", ChopPresets.recommended),
         ("Relaxed",  "Keeps natural pauses. Silences over 0.7s, hard fillers only.",            ChopPresets.relaxed),
         ("Balanced", "The Chop standard. Silences over 0.4s, fillers removed.",                 ChopPresets.balanced),
         ("Snappy",   "TikTok-tight. Silences over 0.05s, all fillers, tight clip ends.",        ChopPresets.snappy),
@@ -5680,9 +5686,9 @@ struct ChopLabBody: View {
                                     .background(ChopColor.blue, in: RoundedRectangle(cornerRadius: 12))
                             }
                             Button {
-                                s = ChopPresets.balanced; savedNote = false
+                                s = ChopPresets.recommended; savedNote = false
                             } label: {
-                                Text("Reset to Balanced")
+                                Text("Reset to Recommended")
                                     .font(.system(size: 13, weight: .bold)).foregroundStyle(ChopColor.ink)
                                     .padding(.vertical, 13).padding(.horizontal, 20)
                                     .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 12))
