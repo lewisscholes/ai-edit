@@ -3371,7 +3371,7 @@ struct ChopPlayerScreen: View {
                 .frame(height: p.ready ? geo.size.height * (compact ? 0.24 : 0.50)
                                        : geo.size.height * 0.50)
                 .clipped()
-                .animation(.easeInOut(duration: 0.35), value: compact)
+                .animation(.spring(response: 0.38, dampingFraction: 0.85), value: compact)
                 .onTapGesture {
                     if compact { compact = false }        // bring the video back first
                     else if p.ready { p.togglePlay() }    // CapCut: tap preview = play/pause
@@ -3394,17 +3394,29 @@ struct ChopPlayerScreen: View {
                     // ---- panel: fills the rest; grabber swipes video small/big ----
                     if let panel {
                         VStack(spacing: 0) {
-                            Capsule().fill(Color.chopMuted.opacity(0.5))
-                                .frame(width: 40, height: 4.5)
+                            // Grabber: bigger target, reacts mid-swipe (no hunting
+                            // for a release point), and a plain tap toggles too.
+                            Capsule().fill(Color.chopMuted.opacity(0.55))
+                                .frame(width: 44, height: 5)
                                 .frame(maxWidth: .infinity)
-                                .padding(.vertical, 8)
+                                .frame(height: 30)   // generous grab zone
                                 .background(ChopColor.card)
                                 .contentShape(Rectangle())
+                                .onTapGesture {
+                                    withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) {
+                                        compact.toggle()
+                                    }
+                                }
                                 .gesture(
-                                    DragGesture(minimumDistance: 12)
-                                        .onEnded { g in
-                                            if g.translation.height < -24 { compact = true }
-                                            if g.translation.height > 24 { compact = false }
+                                    DragGesture(minimumDistance: 5)
+                                        .onChanged { g in
+                                            // fire the moment the direction is clear
+                                            if g.translation.height < -12, !compact {
+                                                withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) { compact = true }
+                                            }
+                                            if g.translation.height > 12, compact {
+                                                withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) { compact = false }
+                                            }
                                         }
                                 )
                             panelBody(panel)
