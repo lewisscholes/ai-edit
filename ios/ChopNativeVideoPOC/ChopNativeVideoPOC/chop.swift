@@ -2821,26 +2821,33 @@ final class ChopPlayer: ObservableObject {
         player.seek(to: t, toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
-    // TikTok trim-follow: while a cap is dragged, playback pauses and the
-    // preview scrubs to the exact frame under the handle — you watch your
-    // new start/end frame, not wherever the playhead happened to be.
+    // TikTok trim-follow: while a cap is dragged the VIDEO scrubs to the frame
+    // under the handle, but `time` is never touched — the strip must stay
+    // perfectly still (moving `time` pans the whole timeline: the glitch).
     private var trimPreviewActive = false
+    private var lastTrimSeek = Date.distantPast
     func trimPreview(toEditTime t: Double) {
         if !trimPreviewActive {
             trimPreviewActive = true
-            scrubbing = true          // mute the clock so it can't fight the drag
+            scrubbing = true          // mute the clock — seeks must not write `time`
             player.pause()
         }
+        // ~12 previews/sec with a whisker of tolerance: smooth pace, no seek spam
+        let now = Date()
+        guard now.timeIntervalSince(lastTrimSeek) > 0.08 else { return }
+        lastTrimSeek = now
         let clamped = max(0, min(t, max(0, duration - 0.02)))
-        time = clamped
+        player.currentItem?.cancelPendingSeeks()
+        let tol = CMTime(seconds: 0.04, preferredTimescale: 600)
         player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600),
-                    toleranceBefore: .zero, toleranceAfter: .zero)
+                    toleranceBefore: tol, toleranceAfter: tol)
     }
-    /// Release: the playhead lands on the new edge, ready to play from there.
+    /// Release: NOW the playhead glides to the new edge, frame-exact.
     func endTrimPreview(atEditTime t: Double) {
         trimPreviewActive = false
         let clamped = max(0, min(t, max(0, duration - 0.02)))
-        time = clamped
+        player.currentItem?.cancelPendingSeeks()
+        withAnimation(.easeOut(duration: 0.22)) { time = clamped }
         seekExact(to: clamped)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             self?.scrubbing = false
@@ -4199,22 +4206,14 @@ struct ChopTimeline: View {
                         rawStrip(contentW: contentW, pps: pps)
                     } else {
                     ForEach(Array(spans.enumerated()), id: \.offset) { i, span in
-                        // TikTok live trim: the dragged edge moves, neighbours
-                        // slide with it, nothing is "previewed" in red
+                        // TikTok live trim (per Lewis's reference recording):
+                        // ONLY the dragged edge moves. Neighbours and the other
+                        // edge hold perfectly still; everything reflows in one
+                        // smooth animated pass after release.
                         let tl = trimLive
                         let s: Double = (tl?.band == i && tl?.side == 0) ? tl!.t : span.start
                         let e: Double = (tl?.band == i && tl?.side == 1) ? tl!.t : span.end
-                        let shift: CGFloat = {
-                            guard let tl, tl.band != i, tl.band < spans.count else { return 0 }
-                            if tl.side == 0, i < tl.band {
-                                return CGFloat(tl.t - spans[tl.band].start) * pps
-                            }
-                            if tl.side == 1, i > tl.band {
-                                return CGFloat(tl.t - spans[tl.band].end) * pps
-                            }
-                            return 0
-                        }()
-                        let x = CGFloat(s) * pps + shift
+                        let x = CGFloat(s) * pps
                         let bw = max(3, CGFloat(e - s) * pps)
 
                         bandThumbs(span: (s, e), width: bw, pps: pps, dur: dur)
