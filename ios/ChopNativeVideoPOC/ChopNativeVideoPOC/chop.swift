@@ -3101,6 +3101,22 @@ final class ChopPlayer: ObservableObject {
         guard idx < pairs.count else { return }
         pushHistory()
         pairs[idx].choice = take
+        // WEB PARITY (clearRtManuals) — the missing line that let a chosen-away
+        // take survive: a Restore from the Cuts list or a transcript tap sets a
+        // manual keep flag on the segment, and manual outranks the retake
+        // decision in isCut. The choice is the newest intent, so it wins:
+        for i in segments.indices where segments[i].pair == idx && segments[i].retake != nil {
+            segments[i].manual = nil
+        }
+        // Same story for reclaimed footage: a manualKeep overlapping the losing
+        // take would resurrect it in cutIntervals — carve it off.
+        if let t = take, t == "a" || t == "b", var e = edit {
+            let loser = (t == "a") ? "b" : "a"
+            for sg in segments where sg.pair == idx && sg.retake == loser {
+                e.carveKeeps(for: ChopClip(start: sg.start, end: sg.end))
+            }
+            edit = e
+        }
         rebuildKeepingTime()
     }
 
