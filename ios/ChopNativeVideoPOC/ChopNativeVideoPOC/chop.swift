@@ -2842,13 +2842,14 @@ final class ChopPlayer: ObservableObject {
         player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600),
                     toleranceBefore: tol, toleranceAfter: tol)
     }
-    /// Release: NOW the playhead glides to the new edge, frame-exact.
-    func endTrimPreview(atEditTime t: Double) {
+    /// Release: TikTok stillness — the timeline doesn't move a pixel. The
+    /// playhead stays where it is; rebuildKeepingTime remaps it into the new
+    /// edit, which exactly cancels the content shift on screen. The preview
+    /// just returns from the edge frame to the frame under the stick.
+    func endTrimPreview() {
         trimPreviewActive = false
-        let clamped = max(0, min(t, max(0, duration - 0.02)))
         player.currentItem?.cancelPendingSeeks()
-        withAnimation(.easeOut(duration: 0.22)) { time = clamped }
-        seekExact(to: clamped)
+        seekExact(to: time)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             self?.scrubbing = false
         }
@@ -4411,11 +4412,12 @@ struct ChopTimeline: View {
                     .onEnded { _ in
                         defer { trimLive = nil; trimSnapped = false; trimAnchorTime = nil }
                         guard let tl = trimLive, tl.band == sel else {
-                            p.endTrimPreview(atEditTime: p.time); return
+                            p.endTrimPreview(); return
                         }
-                        // playhead lands on the new edge — resizeBand's rebuild
-                        // then re-anchors to this exact moment of footage
-                        p.endTrimPreview(atEditTime: tl.t)
+                        // TikTok stillness: the playhead is NOT moved — the
+                        // rebuild remaps it, which cancels the reflow on screen
+                        // so the un-dragged side never budges
+                        p.endTrimPreview()
                         let delta = tl.side == 0 ? tl.t - span.start : span.end - tl.t
                         // + = trim in, − = extend out; selection is kept
                         p.resizeBand(sel, side: tl.side, deltaSeconds: delta)
