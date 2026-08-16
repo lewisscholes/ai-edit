@@ -1623,6 +1623,8 @@ struct ChopRootView: View {
     @State private var showSettings = false
     @State private var showBilling = false
     @State private var demoJob: ChopJob? = nil   // -screen editor design preview
+    @AppStorage("chopTourSeen") private var tourSeen = false
+    @State private var showTour = false          // one-time app tour
 
     /// Fake processed job pointing at a local test video — design preview only.
     static func makeDemoJob() -> ChopJob {
@@ -1765,6 +1767,8 @@ struct ChopRootView: View {
                     // approved in the editor → land on the Queue tab, next video ready
                     if go { tab = 1; api.goToQueue = false }
                 }
+                .sheet(isPresented: $showTour, onDismiss: { tourSeen = true }) { ChopTourView() }
+                .onAppear { if !tourSeen { showTour = true } }   // first launch only
                 .refreshable { await api.loadJobs() }
             }
             if !api.editorOpen {   // web: no Dashboard/Queue/Cut Lab pill inside the editor
@@ -2542,22 +2546,31 @@ final class ChopPlayer: ObservableObject {
         exporting = true; exportPct = 0
         defer { exporting = false }
 
-        exportMsg = "Fetching the original…"
-        guard let signed = await api.presignGet(originalKey) else {
-            exportMsg = "Couldn't fetch the original"; return
-        }
-
-        exportMsg = "Downloading…"
+        // Fast paths first — the original is often already on the phone:
+        // fresh imports keep their picked file, and earlier downloads are cached.
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let cached = cacheDir.appendingPathComponent(
+            "chop-" + originalKey.replacingOccurrences(of: "/", with: "_") + ".mp4")
         let local: URL
-        do {
-            let (tmp, _) = try await URLSession.shared.download(from: signed)
-            let dest = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString + "-src.mp4")
-            try? FileManager.default.removeItem(at: dest)
-            try FileManager.default.moveItem(at: tmp, to: dest)
-            local = dest
-        } catch {
-            exportMsg = "Download failed: \(error.localizedDescription)"; return
+        if let imported = api.localImports[job.name],
+           FileManager.default.fileExists(atPath: imported.path) {
+            local = imported                       // zero network
+        } else if FileManager.default.fileExists(atPath: cached.path) {
+            local = cached                         // downloaded before — reuse
+        } else {
+            exportMsg = "Fetching the original…"
+            guard let signed = await api.presignGet(originalKey) else {
+                exportMsg = "Couldn't fetch the original"; return
+            }
+            exportMsg = "Downloading…"
+            do {
+                let (tmp, _) = try await URLSession.shared.download(from: signed)
+                try? FileManager.default.removeItem(at: cached)
+                try FileManager.default.moveItem(at: tmp, to: cached)
+                local = cached                     // cache for every future export
+            } catch {
+                exportMsg = "Download failed: \(error.localizedDescription)"; return
+            }
         }
 
         exportMsg = "Building the edit…"
@@ -3362,6 +3375,26 @@ struct ChopPlayerScreen: View {
         .opacity(enabled ? 1 : 0.4)
     }
 
+    /// One-tap preset chip inside the Cuts panel's fold.
+    private func presetChip(_ label: String, _ s: ChopSettings) -> some View {
+        Button {
+            p.minSil = s.minSil
+            p.fillers = s.fillers
+            p.padStart = s.startPadMs
+            p.padEnd = s.endPadMs
+            p.retune()
+            ChopToasts.shared.show("\(label.replacingOccurrences(of: " ★", with: "")) preset applied")
+        } label: {
+            Text(label)
+                .font(.system(size: 12.5, weight: .heavy))
+                .foregroundStyle(ChopColor.ink)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 9)
+                .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.chopLine, lineWidth: 1))
+        }
+    }
+
     private func modePill(_ label: String, on: Bool) -> some View {
         Text(label)
             .font(.caption.weight(.bold))
@@ -3655,6 +3688,29 @@ struct ChopPlayerScreen: View {
                     }
                     .tint(Color.chopBlue)
                     .onChange(of: p.fillers) { _, _ in p.retune() }
+                    // Presets & recommendations — tucked in a fold so the
+                    // panel stays lean but nobody has to hunt for them
+                    DisclosureGroup {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("One tap sets the silence threshold, fillers and clip pads together. Balanced is the recommended start; Snappy suits fast talking-head videos; Relaxed keeps more breathing room. Clips feeling too short or too long? Nudge the Clip start / Clip end pads below.")
+                                .font(.system(size: 12)).foregroundStyle(Color.chopMuted)
+                            HStack(spacing: 8) {
+                                presetChip("Relaxed", ChopPresets.relaxed)
+                                presetChip("Balanced ★", ChopPresets.balanced)
+                                presetChip("Snappy", ChopPresets.snappy)
+                            }
+                        }
+                        .padding(.top, 8)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "wand.and.stars")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("Presets & recommendations")
+                                .font(.subheadline.weight(.bold))
+                        }
+                        .foregroundStyle(ChopColor.blue)
+                    }
+                    .tint(ChopColor.blue)
                     // web Clip start / Clip end pads (±300ms, step 10)
                     HStack {
                         Text("Clip start").font(.subheadline.weight(.bold))
@@ -4753,6 +4809,7 @@ struct ChopSettingsView: View {
     @State private var deleting = false
     @State private var failed = ""
     @State private var pwSent = false
+    @State private var showTour = false
 
     var body: some View {
         NavigationStack {
@@ -4844,6 +4901,8 @@ struct ChopSettingsView: View {
                         }
                         .padding(.horizontal, 15).padding(.vertical, 10)
                         divider
+                        row("App tour", action: "Replay", chevron: true) { showTour = true }
+                        divider
                         Link(destination: URL(string: "https://chopedit.com/privacy.html")!) {
                             HStack {
                                 Text("Privacy policy").font(ChopFont.body).foregroundStyle(ChopColor.ink)
@@ -4907,6 +4966,7 @@ struct ChopSettingsView: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
             .sheet(isPresented: $showProfile) { ChopProfileView(api: api) }
             .sheet(isPresented: $showBilling) { ChopBillingView(api: api) }
+            .sheet(isPresented: $showTour) { ChopTourView() }
             .alert("Delete your account?", isPresented: $confirming) {
                 Button("Cancel", role: .cancel) {}
                 Button("Delete", role: .destructive) {
@@ -4975,6 +5035,91 @@ struct ChopSettingsView: View {
 }
 
 
+// MARK: - App tour (one-time onboarding, replayable from Settings → App tour)
+
+struct ChopTourView: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var page = 0
+
+    private struct TourPage {
+        let icon: String; let tint: Color; let soft: Color
+        let title: String; let body: String
+    }
+    private let pages: [TourPage] = [
+        .init(icon: "scissors", tint: ChopColor.blue, soft: ChopColor.blueSoft,
+              title: "Welcome to Chop",
+              body: "One upload in, one clean cut out. Chop finds the dead air, filler words and repeated takes in your footage, cuts them automatically, and hands you a finished edit in seconds."),
+        .init(icon: "square.and.arrow.up", tint: ChopColor.blue, soft: ChopColor.blueSoft,
+              title: "Upload, then relax",
+              body: "Tap the upload card on the dashboard and pick a video from your library. Around 15 seconds of processing per minute of footage — then you land straight in the editor with the edit already made."),
+        .init(icon: "rectangle.on.rectangle", tint: ChopColor.amber, soft: ChopColor.amberSoft,
+              title: "Retakes, side by side",
+              body: "Said the same line twice? Chop pairs the takes so you choose the keeper. The orange badge on Retakes counts the ones still waiting — the green tick won't approve a video until every retake is decided."),
+        .init(icon: "play.rectangle", tint: ChopColor.rose, soft: ChopColor.roseSoft,
+              title: "Raw vs Edited",
+              body: "Flip to Raw to watch the full original with everything Chop removed banded in red — and see exactly how much time you saved. Edited is the final version. Tap any clip in the timeline to Split, Delete or Restore it."),
+        .init(icon: "wand.and.stars", tint: ChopColor.blue, soft: ChopColor.blueSoft,
+              title: "Cuts, presets & the Cut Lab",
+              body: "A cut feels too tight, or a pause survived? Open Cuts: 'Remove silences over' decides how long a pause can be (lower = tighter), and the Clip start / end pads add or shave a few frames at every cut — the fix when clips feel too short or too long. Presets — Relaxed, Balanced ★, Snappy — set everything in one tap, and the Cut Lab on the dashboard saves your defaults for every new video."),
+        .init(icon: "checkmark.circle", tint: ChopColor.green, soft: ChopColor.greenSoft,
+              title: "Approve, export, done",
+              body: "The green tick moves a finished video to Ready to export. Use Select in the queue to export several to your camera roll at once. Exported videos rest in Downloaded for 7 days, then tidy themselves away. Replay this tour any time from Settings."),
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button("Skip") { dismiss() }
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(ChopColor.muted)
+            }
+            .padding(.horizontal, 20).padding(.top, 16)
+
+            TabView(selection: $page) {
+                ForEach(Array(pages.enumerated()), id: \.offset) { i, pg in
+                    VStack(spacing: 18) {
+                        Spacer()
+                        Image(systemName: pg.icon)
+                            .font(.system(size: 40, weight: .semibold))
+                            .foregroundStyle(pg.tint)
+                            .frame(width: 100, height: 100)
+                            .background(pg.soft, in: Circle())
+                        Text(pg.title)
+                            .font(.system(size: 23, weight: .bold))
+                            .foregroundStyle(ChopColor.ink)
+                            .multilineTextAlignment(.center)
+                        Text(pg.body)
+                            .font(.system(size: 14.5))
+                            .foregroundStyle(ChopColor.muted)
+                            .multilineTextAlignment(.center)
+                            .lineSpacing(3)
+                            .padding(.horizontal, 30)
+                        Spacer()
+                        Spacer()
+                    }
+                    .tag(i)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .always))
+            .indexViewStyle(.page(backgroundDisplayMode: .always))
+
+            Button {
+                if page < pages.count - 1 { withAnimation { page += 1 } } else { dismiss() }
+            } label: {
+                Text(page < pages.count - 1 ? "Next" : "Let's chop")
+                    .font(.system(size: 15.5, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 15)
+                    .background(ChopColor.blue, in: RoundedRectangle(cornerRadius: 14))
+            }
+            .padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 18)
+        }
+        .background(Color.chopBg)
+    }
+}
+
 // MARK: - Queue
 
 /// Exports a job WITHOUT opening the editor — powers the queue's Select flow.
@@ -4990,6 +5135,11 @@ final class ChopExporter {
         let kept = e.keptClips()
         guard !kept.isEmpty, let originalKey = job.videoKey else { return false }
 
+        // fresh import still on the phone? zero network
+        if let imported = api.localImports[job.name],
+           FileManager.default.fileExists(atPath: imported.path) {
+            return await finishExport(src: AVURLAsset(url: imported), kept: kept, job: job, api: api)
+        }
         // reuse the editor's download cache — no double downloads
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let local = cacheDir.appendingPathComponent(
@@ -5003,7 +5153,11 @@ final class ChopExporter {
             } catch { return false }
         }
 
-        let src = AVURLAsset(url: local)
+        return await finishExport(src: AVURLAsset(url: local), kept: kept, job: job, api: api)
+    }
+
+    /// Comp build → 1080p render → camera roll → status flips to Downloaded.
+    private func finishExport(src: AVURLAsset, kept: [ChopClip], job: ChopJob, api: ChopAPI) async -> Bool {
         let comp = AVMutableComposition()
         guard let srcV = src.tracks(withMediaType: .video).first,
               let vTrack = comp.addMutableTrack(withMediaType: .video,
