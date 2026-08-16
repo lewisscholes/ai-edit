@@ -2258,7 +2258,7 @@ final class ChopPlayer: ObservableObject {
             let e = ChopEdit(job: job)
             minSil = e.settings.minSil
             fillers = e.settings.fillers
-            softFillers = e.settings.soft
+            softFillers = false   // soft-fillers option removed from the product
             padStart = e.settings.startPadMs
             padEnd = e.settings.endPadMs
             edit = e
@@ -2273,7 +2273,7 @@ final class ChopPlayer: ObservableObject {
         if (job.data["settings"] as? [String: Any]) == nil { e.settings = ChopPresets.saved }
         minSil = e.settings.minSil
         fillers = e.settings.fillers
-        softFillers = e.settings.soft
+        softFillers = false   // soft-fillers option removed from the product
         padStart = e.settings.startPadMs
         padEnd = e.settings.endPadMs
         edit = e
@@ -3340,15 +3340,6 @@ struct ChopPlayerScreen: View {
                     }
                     .tint(Color.chopBlue)
                     .onChange(of: p.fillers) { _, _ in p.retune() }
-                    Toggle(isOn: $p.softFillers) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Also soft fillers").font(.subheadline.weight(.bold))
-                            Text("like, you know, I mean — only when isolated")
-                                .font(.system(size: 12)).foregroundStyle(Color.chopMuted)
-                        }
-                    }
-                    .tint(Color.chopBlue)
-                    .onChange(of: p.softFillers) { _, _ in p.retune() }
                     // web Clip start / Clip end pads (±300ms, step 10)
                     HStack {
                         Text("Clip start").font(.subheadline.weight(.bold))
@@ -4745,14 +4736,14 @@ struct QueueCard: View {
 enum ChopPresets {
     static let relaxed  = ChopSettings(minSil: 0.7,  fillers: true, soft: false, startPadMs: 60, endPadMs: 0)
     static let balanced = ChopSettings(minSil: 0.4,  fillers: true, soft: false, startPadMs: 40, endPadMs: -40)
-    static let snappy   = ChopSettings(minSil: 0.05, fillers: true, soft: true,  startPadMs: 0,  endPadMs: -140)
+    static let snappy   = ChopSettings(minSil: 0.05, fillers: true, soft: false, startPadMs: 0,  endPadMs: -140)
 
     static var saved: ChopSettings {
         let d = UserDefaults.standard
         guard d.object(forKey: "chopMinSil") != nil else { return balanced }
         return ChopSettings(minSil: d.double(forKey: "chopMinSil"),
                             fillers: d.bool(forKey: "chopFillers"),
-                            soft: d.bool(forKey: "chopSoft"),
+                            soft: false,   // soft-fillers option removed from the product
                             startPadMs: d.double(forKey: "chopStartPad"),
                             endPadMs: d.double(forKey: "chopEndPad"))
     }
@@ -4830,7 +4821,6 @@ struct ChopLabBody: View {
                                note: "Any pause longer than this is cut automatically.")
 
                         toggleRow("Remove filler words", "um, uh, hmm…", $s.fillers)
-                        toggleRow("Also soft fillers", "like, you know, I mean — only when isolated", $s.soft)
 
                         slider("Clip start", value: $s.startPadMs,
                                range: -300...300, step: 10, fmt: { Self.ms($0) },
