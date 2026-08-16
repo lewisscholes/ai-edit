@@ -2781,6 +2781,13 @@ final class ChopPlayer: ObservableObject {
         session.outputURL = out
         session.outputFileType = .mp4
         session.shouldOptimizeForNetworkUse = true
+        // bake per-clip pinch zooms into the file — what you saw is what you post
+        if !zooms.isEmpty, let compV = comp.tracks(withMediaType: .video).first {
+            session.videoComposition = ChopPlayer.zoomComposition(
+                track: compV, srcTransform: srcV.preferredTransform,
+                srcNatural: srcV.naturalSize, kept: kept,
+                zooms: zooms, totalDuration: comp.duration)
+        }
 
         exportMsg = "Rendering…"
         // iOS suspends us the moment the app goes to the background. This buys
@@ -2822,6 +2829,71 @@ final class ChopPlayer: ObservableObject {
         } else {
             ChopToasts.shared.show("Couldn't save to Photos")
         }
+    }
+
+    /// Video composition that applies each clip's pinch zoom (centre-anchored),
+    /// rotation-safe: the base transform reproduces the source orientation and
+    /// the zoom is applied on the render canvas about its centre.
+    static func zoomComposition(track: AVAssetTrack,
+                                srcTransform: CGAffineTransform,
+                                srcNatural: CGSize,
+                                kept: [ChopClip],
+                                zooms: [(start: Double, end: Double, scale: CGFloat)],
+                                totalDuration: CMTime) -> AVMutableVideoComposition {
+        let bounds = CGRect(origin: .zero, size: srcNatural).applying(srcTransform)
+        let base = srcTransform.concatenating(
+            CGAffineTransform(translationX: -bounds.minX, y: -bounds.minY))
+        let renderSize = CGSize(width: abs(bounds.width), height: abs(bounds.height))
+        let cx = renderSize.width / 2, cy = renderSize.height / 2
+
+        // split the OUTPUT timeline at clip joins and zoom edges, back-to-back
+        // so the instructions tile the whole duration with no gaps
+        struct Piece { let start: CMTime; let duration: CMTime; let scale: CGFloat }
+        var pieces: [Piece] = []
+        var outCursor = CMTime.zero
+        for clip in kept {
+            var marks: [Double] = [clip.start, clip.end]
+            for z in zooms {
+                if z.start > clip.start, z.start < clip.end { marks.append(z.start) }
+                if z.end > clip.start, z.end < clip.end { marks.append(z.end) }
+            }
+            marks.sort()
+            for k in 0..<(marks.count - 1) {
+                let s = marks[k], e = marks[k + 1]
+                guard e - s > 0.004 else { continue }
+                let mid = (s + e) / 2
+                let scale = zooms.first(where: { mid >= $0.start && mid <= $0.end })?.scale ?? 1
+                let dur = CMTime(seconds: e - s, preferredTimescale: 600)
+                pieces.append(Piece(start: outCursor, duration: dur, scale: scale))
+                outCursor = CMTimeAdd(outCursor, dur)
+            }
+        }
+        // rounding drift: stretch the final piece to the exact end
+        if var last = pieces.popLast() {
+            let dur = CMTimeSubtract(totalDuration, last.start)
+            last = Piece(start: last.start, duration: dur, scale: last.scale)
+            pieces.append(last)
+        }
+
+        let vc = AVMutableVideoComposition()
+        vc.renderSize = renderSize
+        vc.frameDuration = CMTime(value: 1, timescale: 30)
+        vc.instructions = pieces.map { piece in
+            let inst = AVMutableVideoCompositionInstruction()
+            inst.timeRange = CMTimeRange(start: piece.start, duration: piece.duration)
+            let li = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
+            var t = base
+            if piece.scale > 1.01 {
+                t = base
+                    .concatenating(CGAffineTransform(translationX: -cx, y: -cy))
+                    .concatenating(CGAffineTransform(scaleX: piece.scale, y: piece.scale))
+                    .concatenating(CGAffineTransform(translationX: cx, y: cy))
+            }
+            li.setTransform(t, at: piece.start)
+            inst.layerInstructions = [li]
+            return inst
+        }
+        return vc
     }
 
     private func saveToPhotos(_ url: URL) async -> Bool {
@@ -3054,6 +3126,28 @@ final class ChopPlayer: ObservableObject {
     // change, NO rebuild — which is why Split never jumps.
 
     @Published var splits: [Double] = []   // raw times
+
+    // MARK: per-clip zoom — TikTok pinch on the video. Raw-time ranges, so
+    // zooms survive trims/splits. In-memory for the session, like splits.
+    @Published var zooms: [(start: Double, end: Double, scale: CGFloat)] = []
+
+    func zoom(forBand i: Int) -> CGFloat {
+        guard i < bands.count else { return 1 }
+        let b = bands[i]
+        return zooms.first(where: { $0.start < b.end && $0.end > b.start })?.scale ?? 1
+    }
+    func setZoom(_ scale: CGFloat, forBand i: Int) {
+        guard i < bands.count else { return }
+        let b = bands[i]
+        zooms.removeAll { $0.start < b.end && $0.end > b.start }
+        let s = min(3, max(1, scale))
+        if s > 1.01 { zooms.append((b.start, b.end, s)) }
+    }
+    /// The zoom in force at a moment of the EDIT — drives playback preview.
+    func zoomScale(atEditTime t: Double) -> CGFloat {
+        guard let r = raw(fromEdit: t) else { return 1 }
+        return zooms.first(where: { r >= $0.start - 0.001 && r <= $0.end + 0.001 })?.scale ?? 1
+    }
 
     /// Kept footage subdivided by splits — the web's qeBands(), in raw time.
     var bands: [(start: Double, end: Double)] {
@@ -3378,6 +3472,8 @@ struct ChopPlayerScreen: View {
     @AppStorage("chopEditorTourSeen") private var editorTourSeen = false
     @State private var showEditorTour = false
     @State private var showFinishSheet = false   // tick → export or save for later
+    @State private var pinchStart: CGFloat? = nil   // pinch-zoom on the selected clip
+    @State private var pinchLive: CGFloat? = nil
     @Environment(\.dismiss) private var dismiss
 
     static let tourSteps: [ChopCoachStep] = [
@@ -3407,6 +3503,11 @@ struct ChopPlayerScreen: View {
                 ZStack(alignment: .top) {
                     PlayerLayerView(player: p.player)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        // per-clip zoom: live while pinching, else whatever
+                        // zoom is in force at the playhead's clip
+                        .scaleEffect(pinchLive ?? p.zoomScale(atEditTime: p.time))
+                        .animation(.easeInOut(duration: 0.15),
+                                   value: pinchLive ?? p.zoomScale(atEditTime: p.time))
                         .background(Color.black)
 
                     HStack(spacing: 2) {
@@ -3471,6 +3572,24 @@ struct ChopPlayerScreen: View {
                     if compact { compact = false }        // bring the video back first
                     else if p.ready { p.togglePlay() }    // CapCut: tap preview = play/pause
                 }
+                // TikTok: pinch the video to zoom the SELECTED clip only
+                .simultaneousGesture(MagnificationGesture()
+                    .onChanged { v in
+                        guard p.showEdited, let sel = selected, sel < p.bands.count else { return }
+                        if pinchStart == nil { pinchStart = p.zoom(forBand: sel) }
+                        let s = min(3, max(1, (pinchStart ?? 1) * v))
+                        pinchLive = s
+                        p.setZoom(s, forBand: sel)
+                    }
+                    .onEnded { _ in
+                        defer { pinchStart = nil; pinchLive = nil }
+                        guard p.showEdited, let sel = selected, sel < p.bands.count,
+                              pinchStart != nil else { return }
+                        let z = p.zoom(forBand: sel)
+                        ChopToasts.shared.show(z > 1.01
+                            ? String(format: "Zoomed %.1f× — this clip only", z)
+                            : "Zoom reset")
+                    })
 
                 if p.ready {
                     playBar
@@ -4742,7 +4861,70 @@ final class ChopImporter: ObservableObject {
         return "data:image/jpeg;base64," + jpeg.base64EncodedString()
     }
 
+    /// WEB PARITY (retake fix): the web app sends Deepgram 16 kHz MONO audio;
+    /// this used to send the raw 44.1 kHz stereo track. Deepgram's utterance
+    /// splitting — which retake detection hangs off — hears those differently,
+    /// which is how an obvious retake could be missed on iOS but caught on web.
+    /// Now iOS transcodes to the exact same shape (16 kHz mono AAC 48k).
     private func extractAudio(_ asset: AVAsset) async -> URL? {
+        guard let track = asset.tracks(withMediaType: .audio).first else { return nil }
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chop-\(UUID().uuidString).m4a")
+        try? FileManager.default.removeItem(at: out)
+        do {
+            let reader = try AVAssetReader(asset: asset)
+            let readerOut = AVAssetReaderTrackOutput(track: track, outputSettings: [
+                AVFormatIDKey: kAudioFormatLinearPCM,
+                AVSampleRateKey: 16000,
+                AVNumberOfChannelsKey: 1,
+                AVLinearPCMBitDepthKey: 16,
+                AVLinearPCMIsFloatKey: false,
+                AVLinearPCMIsNonInterleaved: false,
+            ])
+            guard reader.canAdd(readerOut) else { return await legacyExtractAudio(asset) }
+            reader.add(readerOut)
+
+            let writer = try AVAssetWriter(outputURL: out, fileType: .m4a)
+            let writerIn = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+                AVFormatIDKey: kAudioFormatMPEG4AAC,
+                AVSampleRateKey: 16000,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderBitRateKey: 48000,
+            ])
+            writerIn.expectsMediaDataInRealTime = false
+            guard writer.canAdd(writerIn) else { return await legacyExtractAudio(asset) }
+            writer.add(writerIn)
+
+            guard reader.startReading(), writer.startWriting() else {
+                return await legacyExtractAudio(asset)
+            }
+            writer.startSession(atSourceTime: .zero)
+            await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                let q = DispatchQueue(label: "chop-audio-transcode")
+                writerIn.requestMediaDataWhenReady(on: q) {
+                    while writerIn.isReadyForMoreMediaData {
+                        if let buf = readerOut.copyNextSampleBuffer() {
+                            writerIn.append(buf)
+                        } else {
+                            writerIn.markAsFinished()
+                            c.resume()
+                            return
+                        }
+                    }
+                }
+            }
+            await writer.finishWriting()
+            guard writer.status == .completed, reader.status == .completed else {
+                return await legacyExtractAudio(asset)
+            }
+            return out
+        } catch {
+            return await legacyExtractAudio(asset)   // never fail the upload over parity
+        }
+    }
+
+    /// The old passthrough export — kept as the safety net only.
+    private func legacyExtractAudio(_ asset: AVAsset) async -> URL? {
         guard let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetAppleM4A)
         else { return nil }
         let out = FileManager.default.temporaryDirectory
