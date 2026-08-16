@@ -2288,9 +2288,11 @@ struct ChopRootView: View {
                         .padding(.vertical, 22)
                 }
 
-                // One swipeable shelf — sideways scroll, no more endless stacking
+                // One swipeable shelf — sideways scroll, no more endless stacking.
+                // Plain HStack + explicit height: a LazyHStack nested inside the
+                // page's LazyVStack collapses to zero height and renders nothing.
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 12) {
+                    HStack(alignment: .top, spacing: 12) {
                         ForEach(api.jobs) { job in
                             NavigationLink { ChopPlayerScreen(job: job, api: api) } label: {
                                 EditCard(job: job)
@@ -2301,6 +2303,7 @@ struct ChopRootView: View {
                     }
                     .padding(.horizontal, 16)
                 }
+                .frame(height: 274)
                 .padding(.horizontal, -16)   // bleed the shelf to the screen edges
             }
             .padding(16)
