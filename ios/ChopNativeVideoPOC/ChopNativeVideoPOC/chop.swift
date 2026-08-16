@@ -3009,7 +3009,7 @@ struct ChopPlayerScreen: View {
     private func selBar(_ sel: Int) -> some View {
         let span = p.bandSpansEdit[sel]
         return HStack(spacing: 8) {
-            ctxTool("Split", "scissors", Color.chopInk) {
+            ctxTool("Split", "scissors") {
                 // web qeSplit: split stays visible, RIGHT band stays selected,
                 // nothing rebuilds, nothing jumps
                 if span.start + 0.05 < p.time, p.time < span.end - 0.05 {
@@ -3018,31 +3018,34 @@ struct ChopPlayerScreen: View {
                     ChopToasts.shared.show("Drag the playhead inside the selected section, then split")
                 }
             }
-            ctxTool("Delete", "trash", ChopColor.rose) {
+            ctxTool("Delete", "trash") {
                 p.deleteBand(sel); selected = nil
             }
-            ctxTool("Restore", "arrow.uturn.backward", ChopColor.green) {
+            ctxTool("Restore", "arrow.uturn.backward") {
                 p.undo(); selected = nil
             }
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(ChopColor.card)
     }
 
-    private func ctxTool(_ label: String, _ icon: String, _ tint: Color,
+    /// Same recipe as the toolbar's tool() squares — one button language
+    /// everywhere in the editor (Lewis: no colour tints, exact match).
+    private func ctxTool(_ label: String, _ icon: String,
                          _ action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 12, weight: .semibold))
-                Text(label).font(.system(size: 12, weight: .bold)).lineLimit(1)
+            VStack(spacing: 3) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .medium))
+                Text(label).font(.system(size: 9.5, weight: .semibold))
             }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 9)
-            .background(ChopColor.soft2)
-            .foregroundStyle(tint)
-            .clipShape(RoundedRectangle(cornerRadius: 11))
-            .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.chopLine, lineWidth: 1))
+            .frame(width: 60, height: 52)
+            .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14)
+                .stroke(Color.chopLine, lineWidth: 1))
+            .foregroundStyle(Color.chopMuted)
         }
     }
 
