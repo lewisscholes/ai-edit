@@ -365,6 +365,12 @@ Deno.serve(async (req: Request) => {
       const url = await presign("GET", String(body.key), 7200);
       return json({ url });
     }
+    if (body.action === "presign_delete") {
+      // additive: lets the apps clean old Downloaded videos out of R2
+      if (!body.key || !String(body.key).startsWith("uploads/")) return json({ error: "bad key" }, 400);
+      const url = await presign("DELETE", String(body.key), 600);
+      return json({ url });
+    }
     if (body.action === "process") {
       if (!body.key || !String(body.key).startsWith("uploads/")) return json({ error: "bad key" }, 400);
       const rows = await db("ai_edit_jobs", { method: "POST", body: JSON.stringify({ key: body.key, status: "processing" }) });

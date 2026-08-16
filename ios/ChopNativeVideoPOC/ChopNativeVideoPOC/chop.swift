@@ -783,6 +783,10 @@ final class ChopAPI: ObservableObject {
                     data: d
                 )
             }
+            // 7-day Downloaded clean-up — once per session, out of imports' way
+            if !cleanedOldDownloads, !importActive {
+                Task { await self.cleanOldDownloads() }
+            }
             // any card still missing a preview frame? fill it in quietly —
             // but NEVER while an import is running (it would fight the audio
             // upload for bandwidth and slow the whole edit down), and never
@@ -837,6 +841,50 @@ final class ChopAPI: ObservableObject {
             wroteAny = true
         }
         if wroteAny { await loadJobs() }
+    }
+
+    /// Signed DELETE URL — used only by the 7-day Downloaded clean-up.
+    func presignDelete(_ key: String) async -> URL? {
+        guard let url = URL(string: "\(SB_URL)/functions/v1/ai-edit") else { return nil }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["action": "presign_delete", "key": key])
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let s = obj["url"] as? String else { return nil }
+        return URL(string: s)
+    }
+
+    /// 7-day rule: anything sitting in Downloaded for over a week is removed —
+    /// cloud files first, then the row — so storage and the app stay clean.
+    /// Runs once per session, never while an import is busy.
+    private var cleanedOldDownloads = false
+    func cleanOldDownloads() async {
+        guard !cleanedOldDownloads else { return }
+        cleanedOldDownloads = true
+        let cutoff = Date().timeIntervalSince1970 * 1000 - 7 * 24 * 3600 * 1000
+        var removedAny = false
+        for job in jobs where job.status == "exported" || job.status == "downloaded" {
+            guard let ms = job.data["statusAt"] as? Double, ms < cutoff else { continue }
+            for key in [job.videoKey, job.data["proxyKey"] as? String].compactMap({ $0 }) {
+                if let del = await presignDelete(key) {
+                    var req = URLRequest(url: del)
+                    req.httpMethod = "DELETE"
+                    _ = try? await URLSession.shared.data(for: req)
+                }
+            }
+            guard let url = URL(string: "\(SB_URL)/rest/v1/chop_jobs?user_id=eq.\(userId)&name=eq.\(job.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? job.name)") else { continue }
+            var req = URLRequest(url: url)
+            req.httpMethod = "DELETE"
+            req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+            req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            _ = try? await URLSession.shared.data(for: req)
+            removedAny = true
+        }
+        if removedAny { await loadJobs() }
     }
 
     /// Ask the existing ai-edit edge function for a signed R2 URL.
@@ -2588,7 +2636,14 @@ final class ChopPlayer: ObservableObject {
         exportMsg = "Saving to your camera roll…"
         let ok = await saveToPhotos(out)
         exportMsg = ok ? "Saved to your camera roll" : "Couldn't save — check Photos permission in Settings"
-        ChopToasts.shared.show(ok ? "Saved to your camera roll ✓" : "Couldn't save to Photos")
+        if ok {
+            // big green centre-screen confirmation + the job moves to Downloaded,
+            // so the tick can never bounce it back into Ready to export
+            ChopToasts.shared.showBig("Exported to your camera roll")
+            await api.setStatus(job, to: "exported")
+        } else {
+            ChopToasts.shared.show("Couldn't save to Photos")
+        }
     }
 
     private func saveToPhotos(_ url: URL) async -> Bool {
@@ -3431,6 +3486,14 @@ struct ChopPlayerScreen: View {
     // ---- persistent Done / Queue pills ----
     /// Green tick on the video — web's approve flow. Back arrow = queue.
     private func doneTapped() {
+        // already exported? it lives in Downloaded now — never re-approve it
+        let live = api.jobs.first(where: { $0.name == job.name })?.status ?? job.status
+        if live == "exported" || live == "downloaded" {
+            ChopToasts.shared.show("Already exported — this video is in Downloaded")
+            api.goToQueue = true
+            dismiss()
+            return
+        }
         let pend = p.undecided
         if pend > 0 {
             panel = "retakes"
@@ -4914,9 +4977,111 @@ struct ChopSettingsView: View {
 
 // MARK: - Queue
 
+/// Exports a job WITHOUT opening the editor — powers the queue's Select flow.
+/// Same recipe as ChopPlayer.export, deliberately duplicated rather than
+/// refactored so the editor's proven export path stays untouched.
+@MainActor
+final class ChopExporter {
+    static let shared = ChopExporter()
+
+    func exportToCameraRoll(job: ChopJob, api: ChopAPI) async -> Bool {
+        var e = ChopEdit(job: job)
+        if (job.data["settings"] as? [String: Any]) == nil { e.settings = ChopPresets.saved }
+        let kept = e.keptClips()
+        guard !kept.isEmpty, let originalKey = job.videoKey else { return false }
+
+        // reuse the editor's download cache — no double downloads
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let local = cacheDir.appendingPathComponent(
+            "chop-" + originalKey.replacingOccurrences(of: "/", with: "_") + ".mp4")
+        if !FileManager.default.fileExists(atPath: local.path) {
+            guard let signed = await api.presignGet(originalKey) else { return false }
+            do {
+                let (tmp, _) = try await URLSession.shared.download(from: signed)
+                try? FileManager.default.removeItem(at: local)
+                try FileManager.default.moveItem(at: tmp, to: local)
+            } catch { return false }
+        }
+
+        let src = AVURLAsset(url: local)
+        let comp = AVMutableComposition()
+        guard let srcV = src.tracks(withMediaType: .video).first,
+              let vTrack = comp.addMutableTrack(withMediaType: .video,
+                                                preferredTrackID: kCMPersistentTrackID_Invalid)
+        else { return false }
+        let srcA = src.tracks(withMediaType: .audio).first
+        let aTrack = comp.addMutableTrack(withMediaType: .audio,
+                                          preferredTrackID: kCMPersistentTrackID_Invalid)
+        var cursor = CMTime.zero
+        for clip in kept {
+            let range = CMTimeRange(start: CMTime(seconds: clip.start, preferredTimescale: 600),
+                                    duration: CMTime(seconds: max(0, clip.end - clip.start),
+                                                     preferredTimescale: 600))
+            do {
+                try vTrack.insertTimeRange(range, of: srcV, at: cursor)
+                if let srcA, let aTrack { try aTrack.insertTimeRange(range, of: srcA, at: cursor) }
+                cursor = CMTimeAdd(cursor, range.duration)
+            } catch { return false }
+        }
+        vTrack.preferredTransform = srcV.preferredTransform
+
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chop-\(UUID().uuidString).mp4")
+        try? FileManager.default.removeItem(at: out)
+        let preset = AVAssetExportSession.exportPresets(compatibleWith: comp)
+            .contains(AVAssetExportPreset1920x1080)
+            ? AVAssetExportPreset1920x1080 : AVAssetExportPresetMediumQuality
+        guard let session = AVAssetExportSession(asset: comp, presetName: preset) else { return false }
+        session.outputURL = out
+        session.outputFileType = .mp4
+        session.shouldOptimizeForNetworkUse = true
+        await session.export()
+        guard session.status == .completed else { return false }
+
+        let ok = await savePhotos(out)
+        if ok { await api.setStatus(job, to: "exported") }   // → Downloaded column
+        return ok
+    }
+
+    private func savePhotos(_ url: URL) async -> Bool {
+        let status = await withCheckedContinuation { (c: CheckedContinuation<PHAuthorizationStatus, Never>) in
+            PHPhotoLibrary.requestAuthorization(for: .addOnly) { c.resume(returning: $0) }
+        }
+        guard status == .authorized || status == .limited else { return false }
+        return await withCheckedContinuation { (c: CheckedContinuation<Bool, Never>) in
+            PHPhotoLibrary.shared().performChanges({
+                PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: url)
+            }, completionHandler: { done, _ in c.resume(returning: done) })
+        }
+    }
+}
+
 struct ChopQueueBody: View {
     @ObservedObject var api: ChopAPI
     @State private var expandedCols: Set<Int> = []   // See more / See less, per column
+    @State private var selectMode = false            // Ready to export: pick & batch-export
+    @State private var picked: Set<String> = []
+    @State private var exportingBatch = false
+    @State private var batchNote = ""
+
+    private func exportPicked(_ list: [ChopJob]) async {
+        exportingBatch = true
+        defer { exportingBatch = false }
+        let chosen = list.filter { picked.contains($0.name) }
+        var okCount = 0
+        for (n, job) in chosen.enumerated() {
+            batchNote = "Exporting \(n + 1) of \(chosen.count)…"
+            if await ChopExporter.shared.exportToCameraRoll(job: job, api: api) { okCount += 1 }
+        }
+        picked = []; selectMode = false
+        if okCount > 0 {
+            ChopToasts.shared.showBig(okCount == 1
+                ? "Exported to your camera roll"
+                : "\(okCount) videos exported to your camera roll")
+        } else {
+            ChopToasts.shared.show("Export failed — open the video and try from the editor")
+        }
+    }
 
     private func bucket(_ j: ChopJob) -> Int {
         switch j.status {
@@ -4961,6 +5126,17 @@ struct ChopQueueBody: View {
                                     .padding(.horizontal, 9).padding(.vertical, 1)
                                     .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 10))
                                 Spacer()
+                                if i == 2, !list.isEmpty {
+                                    Button {
+                                        selectMode.toggle(); picked = []
+                                    } label: {
+                                        Text(selectMode ? "Cancel" : "Select")
+                                            .font(.system(size: 12.5, weight: .heavy))
+                                            .foregroundStyle(ChopColor.blue)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(exportingBatch)
+                                }
                             }
                             if list.isEmpty {
                                 Text(empties[i])
@@ -4976,10 +5152,29 @@ struct ChopQueueBody: View {
                                 let visible = expanded ? list : Array(list.prefix(3))
                                 let rows = VStack(alignment: .leading, spacing: 12) {
                                     ForEach(visible) { job in
-                                        NavigationLink { ChopPlayerScreen(job: job, api: api) } label: {
-                                            QueueCard(job: job, current: false)
+                                        if i == 2 && selectMode {
+                                            // select mode: tap toggles the tick, nothing navigates
+                                            Button {
+                                                if picked.contains(job.name) { picked.remove(job.name) }
+                                                else { picked.insert(job.name) }
+                                            } label: {
+                                                HStack(spacing: 10) {
+                                                    Image(systemName: picked.contains(job.name)
+                                                          ? "checkmark.circle.fill" : "circle")
+                                                        .font(.system(size: 21))
+                                                        .foregroundStyle(picked.contains(job.name)
+                                                                         ? ChopColor.green : ChopColor.muted)
+                                                    QueueCard(job: job, current: false)
+                                                }
+                                            }
+                                            .buttonStyle(.plain)
+                                            .disabled(exportingBatch)
+                                        } else {
+                                            NavigationLink { ChopPlayerScreen(job: job, api: api) } label: {
+                                                QueueCard(job: job, current: false)
+                                            }
+                                            .buttonStyle(.plain)
                                         }
-                                        .buttonStyle(.plain)
                                     }
                                 }
                                 if expanded && list.count > 10 {
@@ -5007,6 +5202,32 @@ struct ChopQueueBody: View {
                                         .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 11))
                                     }
                                     .buttonStyle(.plain)
+                                }
+                                if i == 2, selectMode {
+                                    Button {
+                                        Task { await exportPicked(list) }
+                                    } label: {
+                                        HStack(spacing: 7) {
+                                            if exportingBatch {
+                                                ProgressView().tint(.white).scaleEffect(0.8)
+                                            } else {
+                                                Image(systemName: "square.and.arrow.down")
+                                                    .font(.system(size: 13, weight: .bold))
+                                            }
+                                            Text(exportingBatch ? batchNote
+                                                 : "Export \(picked.count) video\(picked.count == 1 ? "" : "s")")
+                                        }
+                                        .font(.system(size: 13.5, weight: .heavy))
+                                        .foregroundStyle(.white)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                        .background(picked.isEmpty && !exportingBatch
+                                                    ? AnyShapeStyle(ChopColor.muted.opacity(0.5))
+                                                    : AnyShapeStyle(ChopColor.green),
+                                                    in: RoundedRectangle(cornerRadius: 12))
+                                    }
+                                    .buttonStyle(.plain)
+                                    .disabled(picked.isEmpty || exportingBatch)
                                 }
                             }
                         }
