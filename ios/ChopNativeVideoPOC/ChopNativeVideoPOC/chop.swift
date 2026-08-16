@@ -4982,12 +4982,23 @@ final class ChopImporter: ObservableObject {
             }
             writer.startSession(atSourceTime: .zero)
             await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
-                let q = DispatchQueue(label: "chop-audio-transcode")
+                let q = DispatchQueue(label: "chop-audio-transcode", qos: .userInitiated)
+                var finished = false   // q is serial — this guard is safe
                 writerIn.requestMediaDataWhenReady(on: q) {
+                    // NOTE: iOS may invoke this block again after the media is
+                    // exhausted — the `finished` guard stops a double resume
+                    // (which would crash) and the append-failure path stops a
+                    // silent hang if the writer errors mid-stream.
                     while writerIn.isReadyForMoreMediaData {
-                        if let buf = readerOut.copyNextSampleBuffer() {
-                            writerIn.append(buf)
-                        } else {
+                        guard !finished else { return }
+                        guard let buf = readerOut.copyNextSampleBuffer() else {
+                            finished = true
+                            writerIn.markAsFinished()
+                            c.resume()
+                            return
+                        }
+                        guard writerIn.append(buf) else {
+                            finished = true
                             writerIn.markAsFinished()
                             c.resume()
                             return
@@ -4996,7 +5007,8 @@ final class ChopImporter: ObservableObject {
                 }
             }
             await writer.finishWriting()
-            guard writer.status == .completed, reader.status == .completed else {
+            guard writer.status == .completed, reader.status == .completed,
+                  (try? out.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0) ?? 0 > 1024 else {
                 return await legacyExtractAudio(asset)
             }
             return out
