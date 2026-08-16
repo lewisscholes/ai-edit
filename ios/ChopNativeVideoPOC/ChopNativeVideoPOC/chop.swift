@@ -4206,14 +4206,23 @@ struct ChopTimeline: View {
                         rawStrip(contentW: contentW, pps: pps)
                     } else {
                     ForEach(Array(spans.enumerated()), id: \.offset) { i, span in
-                        // TikTok live trim (per Lewis's reference recording):
-                        // ONLY the dragged edge moves. Neighbours and the other
-                        // edge hold perfectly still; everything reflows in one
-                        // smooth animated pass after release.
+                        // TikTok live trim: the dragged edge moves and the
+                        // neighbours on THAT side pull along with it — no gap,
+                        // no jump at release. The other side stays rock still.
                         let tl = trimLive
                         let s: Double = (tl?.band == i && tl?.side == 0) ? tl!.t : span.start
                         let e: Double = (tl?.band == i && tl?.side == 1) ? tl!.t : span.end
-                        let x = CGFloat(s) * pps
+                        let shift: CGFloat = {
+                            guard let tl, tl.band != i, tl.band < spans.count else { return 0 }
+                            if tl.side == 0, i < tl.band {   // left cap: left side follows
+                                return CGFloat(tl.t - spans[tl.band].start) * pps
+                            }
+                            if tl.side == 1, i > tl.band {   // right cap: right side follows
+                                return CGFloat(tl.t - spans[tl.band].end) * pps
+                            }
+                            return 0
+                        }()
+                        let x = CGFloat(s) * pps + shift
                         let bw = max(3, CGFloat(e - s) * pps)
 
                         bandThumbs(span: (s, e), width: bw, pps: pps, dur: dur)
