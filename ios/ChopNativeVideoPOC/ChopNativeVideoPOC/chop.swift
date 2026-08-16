@@ -5161,8 +5161,11 @@ struct ChopBillingView: View {
     @ObservedObject var api: ChopAPI
     @StateObject private var store = ChopStore()
     @Environment(\.dismiss) private var dismiss
-    @State private var n: Double = 50
+    // V2+V3 hybrid (Lewis-approved): £1 first-chop hero for the easy first
+    // purchase, savings ladder for AOV, upgrade bump on 50, value reframe.
+    @State private var sel: Int = 1
     @State private var note = ""
+    private let packs = [5, 50, 100, 200, 300]
 
     /// The 5p-a-step ladder (Lewis, 16 Aug 26): £1 baseline, 95p at 50,
     /// 90p at 100, 85p at 200, 80p at 300+. NOTE: the web app still runs the
@@ -5178,10 +5181,10 @@ struct ChopBillingView: View {
     private func perLabel(_ v: Double) -> String { v < 1 ? "\(Int((v * 100).rounded()))p" : gbp(v) }
 
     var body: some View {
-        let count = Int(n)
+        let count = sel
         let per = perCredit(count)
         let total = Double(count) * per
-        let save = Double(count) * 1.0 - total
+        let _ = Double(count) * 1.0 - total
 
         NavigationStack {
             ScrollView {
@@ -5210,34 +5213,27 @@ struct ChopBillingView: View {
                     .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 16))
                     .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.chopLine, lineWidth: 1))
 
-                    // slide card (web .slidecard)
+                    // pricing card — hero, ladder, bump, value reframe
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("How many videos do you want to chop?")
-                            .font(.system(size: 16, weight: .bold)).foregroundStyle(ChopColor.ink)
-                        Text("One credit chops one video. The more you buy, the less each video costs.")
-                            .font(.system(size: 13)).foregroundStyle(ChopColor.muted)
 
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text("\(count)").font(.system(size: 44, weight: .heavy)).foregroundStyle(ChopColor.ink)
-                            Text("credits").font(.system(size: 15)).foregroundStyle(ChopColor.muted)
-                        }
-                        .padding(.top, 6)
-
-                        Slider(value: $n, in: 1...300, step: 1).tint(ChopColor.blue)
-
-                        HStack {
-                            ForEach(["£1.00", "85p", "75p", "70p", "65p", "60p"], id: \.self) { t in
-                                Text(t).font(.system(size: 11, weight: .bold)).foregroundStyle(ChopColor.muted)
-                                if t != "60p" { Spacer() }
-                            }
-                        }
+                        heroCard
 
                         HStack(spacing: 10) {
-                            crStat("Per video", perLabel(per), ChopColor.ink)
-                            crStat("Total", gbp(total), ChopColor.ink)
-                            crStat("You save", save > 0 ? gbp(save) : "—", ChopColor.green)
+                            Rectangle().fill(Color.chopLine).frame(height: 1)
+                            Text("OR STOCK UP & SAVE")
+                                .font(.system(size: 9.5, weight: .black)).kerning(0.8)
+                                .foregroundStyle(ChopColor.muted)
+                                .fixedSize()
+                            Rectangle().fill(Color.chopLine).frame(height: 1)
                         }
-                        .padding(.top, 8)
+                        .padding(.vertical, 4)
+
+                        ForEach(packs, id: \.self) { p in
+                            packRow(p)
+                            if p == 50, sel == 50 { bumpCard }
+                        }
+
+                        if sel >= 5 { valueCard(count, total: total) }
 
                         if store.products.isEmpty {
                             // Purchases go live with the App Store release —
@@ -5245,7 +5241,8 @@ struct ChopBillingView: View {
                             Button {
                                 note = "Purchases aren’t available in this build yet — they arrive with the App Store release."
                             } label: {
-                                Text("Buy \(count) credit\(count == 1 ? "" : "s") for \(gbp(total))")
+                                Text(count == 1 ? "Edit my first video — £1"
+                                                : "Get \(count) credits — \(gbp(total))")
                                     .font(.system(size: 15, weight: .heavy))
                                     .frame(maxWidth: .infinity).padding(.vertical, 14)
                                     .background(ChopColor.blue, in: RoundedRectangle(cornerRadius: 14))
@@ -5256,32 +5253,28 @@ struct ChopBillingView: View {
                                 Text(note).font(.system(size: 12.5)).foregroundStyle(ChopColor.amber)
                             }
                         } else {
-                            // live App Store packs — the slider highlights the closest one
-                            VStack(spacing: 8) {
-                                ForEach(store.products, id: \.id) { product in
-                                    let pc = ChopPacks.credits(in: product.id)
-                                    let closest = store.products.min {
-                                        abs(ChopPacks.credits(in: $0.id) - count) < abs(ChopPacks.credits(in: $1.id) - count)
-                                    }?.id == product.id
-                                    Button {
-                                        Task { await store.buy(product, api: api) }
-                                    } label: {
-                                        HStack {
-                                            Text("\(pc) credits").font(.system(size: 14.5, weight: .heavy))
-                                            Spacer()
-                                            Text(product.displayPrice).font(.system(size: 14.5, weight: .heavy))
-                                        }
-                                        .padding(.horizontal, 16).padding(.vertical, 13)
-                                        .background(closest ? ChopColor.blue : ChopColor.soft2,
-                                                    in: RoundedRectangle(cornerRadius: 14))
-                                        .foregroundStyle(closest ? .white : ChopColor.ink)
-                                        .overlay(RoundedRectangle(cornerRadius: 14)
-                                            .stroke(closest ? Color.clear : Color.chopLine, lineWidth: 1))
-                                    }
-                                    .disabled(store.buying)
+                            // live App Store purchase for the selected pack
+                            Button {
+                                if let product = store.products.first(where: {
+                                    ChopPacks.credits(in: $0.id) == count
+                                }) {
+                                    Task { await store.buy(product, api: api) }
+                                } else {
+                                    note = "That pack isn't available right now — try another."
                                 }
+                            } label: {
+                                Text(count == 1 ? "Edit my first video — £1"
+                                                : "Get \(count) credits — \(gbp(total))")
+                                    .font(.system(size: 15, weight: .heavy))
+                                    .frame(maxWidth: .infinity).padding(.vertical, 14)
+                                    .background(ChopColor.blue, in: RoundedRectangle(cornerRadius: 14))
+                                    .foregroundStyle(.white)
                             }
+                            .disabled(store.buying)
                             .padding(.top, 12)
+                            if !note.isEmpty {
+                                Text(note).font(.system(size: 12.5)).foregroundStyle(ChopColor.amber)
+                            }
                             if store.buying {
                                 HStack(spacing: 8) {
                                     ProgressView().scaleEffect(0.7).tint(ChopColor.blue)
@@ -5302,7 +5295,7 @@ struct ChopBillingView: View {
                     .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 18))
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.chopLine, lineWidth: 1))
 
-                    Text("Credits never expire · VAT included")
+                    Text("Credits never expire · buy once, chop whenever · VAT included")
                         .font(.system(size: 12.5)).foregroundStyle(ChopColor.muted)
                         .frame(maxWidth: .infinity)
                         .padding(.top, 4)
@@ -5313,16 +5306,114 @@ struct ChopBillingView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
             .task { await store.load() }
+            .onAppear {
+                // returning buyers skip the hook — default straight to the
+                // popular pack (default bias works both ways)
+                if api.credits > 3 { sel = 100 }
+            }
         }
     }
 
-    private func crStat(_ label: String, _ value: String, _ tint: Color) -> some View {
-        VStack(spacing: 3) {
-            Text(label).font(.system(size: 11.5)).foregroundStyle(ChopColor.muted)
-            Text(value).font(.system(size: 16, weight: .heavy)).foregroundStyle(tint)
+    /// The £1 first chop — foot-in-the-door, risk reversed.
+    private var heroCard: some View {
+        Button { withAnimation(.easeInOut(duration: 0.18)) { sel = 1 } } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("FIRST TIME? START HERE")
+                    .font(.system(size: 9.5, weight: .black)).kerning(0.8)
+                    .foregroundStyle(.white.opacity(0.85))
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Your first chop")
+                        .font(.system(size: 19, weight: .heavy)).foregroundStyle(.white)
+                    Spacer()
+                    Text("£1").font(.system(size: 25, weight: .black)).foregroundStyle(.white)
+                }
+                Text("One video, fully edited. If you don't love it, you've risked a coffee.")
+                    .font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.88))
+            }
+            .padding(16)
+            .background(LinearGradient(colors: [Color(red: 0x1a/255, green: 0x6d/255, blue: 1.0),
+                                                Color(red: 0x4e/255, green: 0x8d/255, blue: 1.0)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing),
+                        in: RoundedRectangle(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16)
+                .stroke(sel == 1 ? Color.white : Color.clear, lineWidth: 2.5))
+            .shadow(color: Color.chopBlue.opacity(0.3), radius: 10, y: 4)
         }
-        .frame(maxWidth: .infinity).padding(.vertical, 12)
-        .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 12))
+        .buttonStyle(.plain)
+    }
+
+    /// One rung of the savings ladder.
+    private func packRow(_ p: Int) -> some View {
+        let on = sel == p
+        let per = perCredit(p)
+        let save = Double(p) - Double(p) * per
+        return Button { withAnimation(.easeInOut(duration: 0.18)) { sel = p } } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(p) credits")
+                        .font(.system(size: 14.5, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                    Text("\(perLabel(per)) per video")
+                        .font(.system(size: 10.5)).foregroundStyle(ChopColor.muted)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(gbp(Double(p) * per))
+                        .font(.system(size: 15, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                    if save > 0 {
+                        Text("save \(gbp(save))")
+                            .font(.system(size: 9.5, weight: .heavy)).foregroundStyle(ChopColor.green)
+                    }
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .background(on ? ChopColor.blueSoft : ChopColor.soft2,
+                        in: RoundedRectangle(cornerRadius: 13))
+            .overlay(RoundedRectangle(cornerRadius: 13)
+                .stroke(on ? ChopColor.blue : Color.chopLine, lineWidth: on ? 1.5 : 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The order bump — appears only under a selected 50-pack.
+    private var bumpCard: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Wait — for £42.50 more you'd get double.")
+                .font(.system(size: 12, weight: .heavy)).foregroundStyle(ChopColor.amber)
+            Text("100 credits drops you to 90p a video and saves £10 total.")
+                .font(.system(size: 11.5)).foregroundStyle(ChopColor.muted)
+            Button { withAnimation(.easeInOut(duration: 0.18)) { sel = 100 } } label: {
+                Text("Upgrade to 100 → £90.00")
+                    .font(.system(size: 12, weight: .heavy))
+                    .foregroundStyle(Color(red: 0x3d/255, green: 0x2e/255, blue: 0x05/255))
+                    .padding(.horizontal, 13).padding(.vertical, 8)
+                    .background(Color(red: 0xe8/255, green: 0xb9/255, blue: 0x3c/255),
+                                in: RoundedRectangle(cornerRadius: 9))
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(13)
+        .background(ChopColor.amberSoft, in: RoundedRectangle(cornerRadius: 13))
+        .overlay(RoundedRectangle(cornerRadius: 13)
+            .strokeBorder(style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+            .foregroundStyle(ChopColor.amber.opacity(0.5)))
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    /// Value reframe: the price is small next to the editing time it buys.
+    private func valueCard(_ n: Int, total: Double) -> some View {
+        let hours = Double(n) * 0.25          // ~15 min of manual editing per video
+        let worth = hours * 30                // the dashboard's £30/h yardstick
+        return (
+            Text("≈ \(Int(hours.rounded())) hours of editing saved. ")
+                .font(.system(size: 11.5, weight: .heavy)) +
+            Text("At £30/h, that's \(gbp(worth)) of editing time for \(gbp(total)).")
+                .font(.system(size: 11.5))
+        )
+        .foregroundStyle(ChopColor.green)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(ChopColor.greenSoft, in: RoundedRectangle(cornerRadius: 12))
     }
 }
 
