@@ -2821,6 +2821,32 @@ final class ChopPlayer: ObservableObject {
         player.seek(to: t, toleranceBefore: .zero, toleranceAfter: .zero)
     }
 
+    // TikTok trim-follow: while a cap is dragged, playback pauses and the
+    // preview scrubs to the exact frame under the handle — you watch your
+    // new start/end frame, not wherever the playhead happened to be.
+    private var trimPreviewActive = false
+    func trimPreview(toEditTime t: Double) {
+        if !trimPreviewActive {
+            trimPreviewActive = true
+            scrubbing = true          // mute the clock so it can't fight the drag
+            player.pause()
+        }
+        let clamped = max(0, min(t, max(0, duration - 0.02)))
+        time = clamped
+        player.seek(to: CMTime(seconds: clamped, preferredTimescale: 600),
+                    toleranceBefore: .zero, toleranceAfter: .zero)
+    }
+    /// Release: the playhead lands on the new edge, ready to play from there.
+    func endTrimPreview(atEditTime t: Double) {
+        trimPreviewActive = false
+        let clamped = max(0, min(t, max(0, duration - 0.02)))
+        time = clamped
+        seekExact(to: clamped)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.scrubbing = false
+        }
+    }
+
     func togglePlay() {
         if player.rate > 0 { player.pause() } else {
             if time >= duration - 0.05 { seekExact(to: 0) }
@@ -4109,6 +4135,7 @@ struct ChopTimeline: View {
     // live trim: (band, side 0=left/1=right, proposed edge in EDIT time)
     @State private var trimLive: (band: Int, side: Int, t: Double)? = nil
     @State private var trimSnapped = false   // magnetised to the playhead
+    @State private var trimAnchorTime: Double? = nil   // playhead when the drag began (magnet target)
     @State private var baseDur: Double = 0   // pins px-per-second so edits never rescale the strip
 
     private let stripH: CGFloat = 44   // TikTok strip height
@@ -4353,8 +4380,11 @@ struct ChopTimeline: View {
                             t = min(max(min(t, maxT), span.start + 0.08), p.duration + p.bandExtendRight(sel))
                         }
                         // TikTok: the cap magnetises to the playhead for a
-                        // frame-perfect cut — keep pulling to push through
-                        let stick = p.time
+                        // frame-perfect cut — keep pulling to push through.
+                        // (Anchored at drag start: trim-follow moves p.time
+                        // with the handle, so the live value can't be the magnet.)
+                        if trimAnchorTime == nil { trimAnchorTime = p.time }
+                        let stick = trimAnchorTime ?? p.time
                         if stick > span.start + 0.01, stick < span.end - 0.01,
                            abs(t - stick) * Double(pps) < 8 {
                             if !trimSnapped {
@@ -4366,10 +4396,18 @@ struct ChopTimeline: View {
                             trimSnapped = false
                         }
                         trimLive = (sel, side, t)
+                        // TikTok trim-follow: the video scrubs WITH the handle,
+                        // so you're watching your exact new edge frame
+                        p.trimPreview(toEditTime: t)
                     }
                     .onEnded { _ in
-                        defer { trimLive = nil; trimSnapped = false }
-                        guard let tl = trimLive, tl.band == sel else { return }
+                        defer { trimLive = nil; trimSnapped = false; trimAnchorTime = nil }
+                        guard let tl = trimLive, tl.band == sel else {
+                            p.endTrimPreview(atEditTime: p.time); return
+                        }
+                        // playhead lands on the new edge — resizeBand's rebuild
+                        // then re-anchors to this exact moment of footage
+                        p.endTrimPreview(atEditTime: tl.t)
                         let delta = tl.side == 0 ? tl.t - span.start : span.end - tl.t
                         // + = trim in, − = extend out; selection is kept
                         p.resizeBand(sel, side: tl.side, deltaSeconds: delta)
