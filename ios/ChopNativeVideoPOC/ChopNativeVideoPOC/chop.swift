@@ -818,7 +818,8 @@ final class ChopAPI: ObservableObject {
     }
 
     /// Write the job into chop_jobs so the web app sees it too.
-    func saveJob(name: String, payload: [String: Any], rawSec: Double, videoKey: String?) async {
+    func saveJob(name: String, payload: [String: Any], rawSec: Double, videoKey: String?,
+                 thumb: String? = nil) async {
         var data: [String: Any] = [
             "status": "review",
             "payload": payload,
@@ -827,6 +828,7 @@ final class ChopAPI: ObservableObject {
             "statusAt": Int(Date().timeIntervalSince1970 * 1000)
         ]
         if let videoKey = videoKey { data["videoKey"] = videoKey }
+        if let thumb = thumb { data["thumb"] = thumb }   // same data-URL format the web stores
 
         guard let url = URL(string: "\(SB_URL)/rest/v1/chop_jobs") else { return }
         var req = URLRequest(url: url)
@@ -1023,18 +1025,39 @@ struct EditCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Group {
-                if let img = thumb {
-                    Image(uiImage: img).resizable().scaledToFill()
-                } else {
-                    LinearGradient(colors: [Color(red: 0.24, green: 0.27, blue: 0.33),
-                                            Color(red: 0.13, green: 0.14, blue: 0.17)],
-                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+            // Fixed-ratio cell — the image can never stretch the card (the old
+            // .fill ratio let tall frames blow the whole grid apart).
+            Color.clear
+                .aspectRatio(9.0/13.0, contentMode: .fit)
+                .frame(maxWidth: .infinity)
+                .overlay {
+                    if let img = thumb {
+                        Image(uiImage: img).resizable().scaledToFill()
+                    } else {
+                        ZStack {
+                            LinearGradient(colors: [Color(red: 0.16, green: 0.19, blue: 0.26),
+                                                    Color(red: 0.09, green: 0.10, blue: 0.14)],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                            AuthIcon(kind: .filmstrip)
+                                .stroke(Color.white.opacity(0.45),
+                                        style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+                                .frame(width: 24, height: 24)
+                                .frame(width: 46, height: 46)
+                                .background(Color.white.opacity(0.08), in: Circle())
+                        }
+                    }
                 }
-            }
-            .frame(maxWidth: .infinity)
-            .aspectRatio(9.0/13.0, contentMode: .fill)
-            .clipped()
+                .overlay(alignment: .bottomLeading) {
+                    if job.rawSec > 0 {
+                        Text(fmt(job.editedSec > 0 ? job.editedSec : job.rawSec))
+                            .font(.system(size: 10.5, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 7).padding(.vertical, 3)
+                            .background(Color.black.opacity(0.55), in: Capsule())
+                            .padding(8)
+                    }
+                }
+                .clipped()
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(job.name)
@@ -3905,6 +3928,10 @@ final class ChopImporter: ObservableObject {
         let asset = AVURLAsset(url: pickedURL)
         let rawSec = CMTimeGetSeconds(asset.duration)
 
+        // Dashboard preview — grab a real frame up front so the edits grid
+        // never shows a black card for phone imports (web does the same).
+        let thumb = await makeThumb(asset)
+
         // 1. audio only — a fraction of the size, and all Deepgram needs
         stepIndex = 0; step = "Preparing audio…"
         guard let audio = await extractAudio(asset) else {
@@ -3932,7 +3959,7 @@ final class ChopImporter: ObservableObject {
         // the background — it's only needed for export, not for reviewing.
         stepIndex = 5; step = "Saving…"
         await api.spendCredit()
-        await api.saveJob(name: name, payload: payload, rawSec: rawSec, videoKey: nil)
+        await api.saveJob(name: name, payload: payload, rawSec: rawSec, videoKey: nil, thumb: thumb)
         await api.loadJobs()
         ChopToasts.shared.show("Chopped ✓")
         stepIndex = 6
@@ -3944,13 +3971,27 @@ final class ChopImporter: ObservableObject {
             guard let (vPut, vKey) = await api.presignPut(filename: "sync-" + name) else { return }
             let ok = await api.putFile(pickedURL, to: vPut)
             guard ok else { return }
-            await api.saveJob(name: name, payload: payload, rawSec: rawSec, videoKey: vKey)
+            await api.saveJob(name: name, payload: payload, rawSec: rawSec, videoKey: vKey, thumb: thumb)
             await api.loadJobs()
             await MainActor.run {
                 self?.syncMsg = "Full quality video synced — export is ready"
                 ChopToasts.shared.show("Full quality video synced")
             }
         }
+    }
+
+    /// One real frame as a small JPEG data URL — the exact format the web app
+    /// stores on jobs, so the dashboard grid (and the web) can show it.
+    private func makeThumb(_ asset: AVAsset) async -> String? {
+        let gen = AVAssetImageGenerator(asset: asset)
+        gen.appliesPreferredTrackTransform = true
+        gen.maximumSize = CGSize(width: 540, height: 540)
+        let dur = CMTimeGetSeconds(asset.duration)
+        // skip the very first frame — often black while the camera settles
+        let t = CMTime(seconds: dur > 2 ? 1.0 : max(0, dur * 0.25), preferredTimescale: 600)
+        guard let cg = try? await gen.image(at: t).image,
+              let jpeg = UIImage(cgImage: cg).jpegData(compressionQuality: 0.55) else { return nil }
+        return "data:image/jpeg;base64," + jpeg.base64EncodedString()
     }
 
     private func extractAudio(_ asset: AVAsset) async -> URL? {
