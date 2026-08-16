@@ -127,10 +127,22 @@ function leadRun(a: string[], b: string[]) {   // identical opening words, absol
   let k = 0; while (k < n && a[k] === b[k]) k++;
   return k;
 }
+function bagSim(a: string[], b: string[]) {    // same words, ANY order — catches reshuffled retakes
+  if (!a.length || !b.length) return 0;
+  const m = new Map<string, number>();
+  for (const w of a) m.set(w, (m.get(w) || 0) + 1);
+  let inter = 0;
+  for (const w of b) { const c = m.get(w) || 0; if (c > 0) { inter++; m.set(w, c - 1); } }
+  return inter / Math.max(a.length, b.length);
+}
 
 type Utt = { start: number; end: number; transcript: string };
 function detectRetakes(utts: Utt[]) {
   const toks = utts.map((u) => compTokens(u.transcript));
+  // RAW tokens keep lead-in words: "AND this bundle…" / "AND this actually…"
+  // must count as a 2-word opening match (Lewis's rule) — compTokens strips
+  // the "and" and hid exactly that case.
+  const raws = utts.map((u) => normTokens(u.transcript));
   const parent = utts.map((_, i) => i);
   const find = (x: number): number => (parent[x] === x ? x : (parent[x] = find(parent[x])));
   const scores: Record<string, number> = {};
@@ -142,12 +154,20 @@ function detectRetakes(utts: Utt[]) {
       const short = Math.min(toks[i].length, toks[j].length) < 3;
       const score = Math.max(levSim(toks[i], toks[j]), prefixOverlap(toks[i], toks[j]));
       const lead = leadRun(toks[i], toks[j]);
+      const leadRaw = leadRun(raws[i], raws[j]);   // opening words incl. "and/so/but…"
+      const bag = bagSim(toks[i], toks[j]);        // same words in a different order
       const strongTh = short ? SHORT_THRESHOLD : RETAKE_THRESHOLD;
-      if (score >= strongTh) { const a = find(i), b = find(j); if (a !== b) parent[b] = a; scores[`${i}-${j}`] = score; }
-      /* the 'potential retake' net: a weak overall score still gets flagged
-         for review when it clears 0.5, OR when both takes OPEN with the same
-         3+ words — restarts share their opening even when the rest diverges */
-      else if (!short && (score >= WEAK_THRESHOLD || lead >= 3)) {
+      /* Lewis's retake ladder:
+         · 4+ identical opening words → an ACTUAL retake, high confidence
+         · 2-3 identical opening words → flag as a potential retake
+         · same word set reshuffled (bag ≥ 0.6) → potential retake
+         Better to flag a non-retake for review than let a retake through. */
+      const certainLead = !short && leadRaw >= 4;
+      if (score >= strongTh || certainLead) {
+        const a = find(i), b = find(j); if (a !== b) parent[b] = a;
+        scores[`${i}-${j}`] = Math.max(score, certainLead ? 0.75 : 0);
+      }
+      else if (!short && (score >= WEAK_THRESHOLD || lead >= 3 || leadRaw >= 2 || bag >= 0.6)) {
         weakCand.push({ i, j, score: Math.max(score, 0.5) });
       }
     }
