@@ -538,6 +538,7 @@ final class ChopAPI: ObservableObject {
     @Published var editorOpen = false   // hides the glass nav while editing
     @Published var openJob: ChopJob?    // set after import → root presents the editor directly
     var localImports: [String: URL] = [:]   // job name → file already on the phone: editor opens with zero download
+    var importActive = false                // an upload/analysis is running — background work must stay out of its way
     @Published var profileName = ""
     @Published var profileTiktok = ""
     @Published var profileAvatar = ""
@@ -756,9 +757,13 @@ final class ChopAPI: ObservableObject {
                     data: d
                 )
             }
-            // any card still missing a preview frame? fill it in quietly
-            if !backfillingThumbs,
+            // any card still missing a preview frame? fill it in quietly —
+            // but NEVER while an import is running (it would fight the audio
+            // upload for bandwidth and slow the whole edit down), and never
+            // retry a job we already attempted this session
+            if !backfillingThumbs, !importActive,
                jobs.contains(where: { $0.thumbnail == nil
+                   && !thumbBackfillAttempted.contains($0.name)
                    && (($0.data["proxyKey"] as? String) ?? $0.videoKey) != nil }) {
                 Task { await self.backfillThumbs() }
             }
@@ -773,12 +778,16 @@ final class ChopAPI: ObservableObject {
     /// the web app benefits too. AVAssetImageGenerator streams just the bytes
     /// it needs over HTTP; it does not download the whole video.
     private var backfillingThumbs = false
+    private var thumbBackfillAttempted = Set<String>()   // once per job per session — no retry storms
     func backfillThumbs() async {
-        guard !backfillingThumbs else { return }
+        guard !backfillingThumbs, !importActive else { return }
         backfillingThumbs = true
         defer { backfillingThumbs = false }
         var wroteAny = false
         for job in jobs where job.thumbnail == nil {
+            if importActive { break }   // an import just started — get out of its way
+            guard !thumbBackfillAttempted.contains(job.name) else { continue }
+            thumbBackfillAttempted.insert(job.name)
             guard let key = (job.data["proxyKey"] as? String) ?? job.videoKey,
                   let signed = await presignGet(key) else { continue }
             let asset = AVURLAsset(url: signed)
@@ -4138,7 +4147,8 @@ final class ChopImporter: ObservableObject {
     /// then the full video in the background so export can use the original.
     func run(pickedURL: URL, name: String, api: ChopAPI) async {
         busy = true; failed = ""; done = false
-        defer { busy = false }
+        api.importActive = true   // pauses background work (thumb backfill) for the duration
+        defer { busy = false; api.importActive = false }
 
         let asset = AVURLAsset(url: pickedURL)
         let rawSec = CMTimeGetSeconds(asset.duration)
@@ -4321,6 +4331,9 @@ struct ImportSheet: View {
         }
         .padding(24)
         .background(Color.chopBg)
+        // mid-processing the sheet can't be swiped away by accident — that
+        // looked like the edit was "stuck" when it was actually still running
+        .interactiveDismissDisabled(imp.busy || preparing)
         .onAppear {
             // dashboard already picked the videos — start chopping immediately,
             // and show the processing card from the very first frame (the copy
@@ -4356,7 +4369,9 @@ struct ImportSheet: View {
                 if let lastName, let job = api.jobs.first(where: { $0.name == lastName }) {
                     dismiss()
                     try? await Task.sleep(nanoseconds: 450_000_000)   // let the sheet settle first
-                    api.openJob = job
+                    // never hijack the screen: if they're already editing
+                    // another video, this one just waits in the queue
+                    if !api.editorOpen, api.openJob == nil { api.openJob = job }
                 } else if imp.failed.isEmpty {
                     dismiss()
                 }
