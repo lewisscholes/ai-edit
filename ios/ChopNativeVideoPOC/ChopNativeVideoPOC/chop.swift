@@ -934,12 +934,13 @@ final class ChopAPI: ObservableObject {
 
     /// Poll until Deepgram + retake matching are done. Returns the payload.
     func awaitAnalysis(jobId: String) async -> [String: Any]? {
-        for _ in 0..<240 {
+        // 1s polls (was 2s): analysis lands up to a second sooner, same ~8min cap
+        for _ in 0..<480 {
             guard let s = await edge(["action": "status", "jobId": jobId]) else { return nil }
             let st = s["status"] as? String
             if st == "done" { return s }
             if st == "error" { return nil }
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
         }
         return nil
     }
@@ -4344,6 +4345,7 @@ final class ChopImporter: ObservableObject {
     @Published var failed = ""
     @Published var syncMsg = ""
     @Published var stepIndex = -1
+    @Published var previewFrame: UIImage?   // real frame from the video being chopped
 
     /// Same pipeline the web app uses: audio out, analyse, save the job,
     /// then the full video in the background so export can use the original.
@@ -4419,8 +4421,10 @@ final class ChopImporter: ObservableObject {
         let dur = CMTimeGetSeconds(asset.duration)
         // skip the very first frame — often black while the camera settles
         let t = CMTime(seconds: dur > 2 ? 1.0 : max(0, dur * 0.25), preferredTimescale: 600)
-        guard let cg = try? await gen.image(at: t).image,
-              let jpeg = UIImage(cgImage: cg).jpegData(compressionQuality: 0.55) else { return nil }
+        guard let cg = try? await gen.image(at: t).image else { return nil }
+        let ui = UIImage(cgImage: cg)
+        previewFrame = ui   // the processing card shows THEIR footage being chopped
+        guard let jpeg = ui.jpegData(compressionQuality: 0.55) else { return nil }
         return "data:image/jpeg;base64," + jpeg.base64EncodedString()
     }
 
@@ -4466,6 +4470,7 @@ private struct ChopSliceHalf: Shape {
 struct ChopProcessingStage: View {
     let stepIndex: Int          // ChopImporter.stepIndex, 0…6
     let done: Bool
+    var frame: UIImage? = nil   // real frame from the user's own video
 
     @State private var sway = false
     @State private var pulse = false
@@ -4500,9 +4505,12 @@ struct ChopProcessingStage: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            Spacer(minLength: 6)
+
             ChopWordmark(size: 26)
                 .frame(maxWidth: .infinity)   // centred — the only header
-                .padding(.bottom, 6)
+
+            Spacer(minLength: 20)             // matches the mockup's rhythm:
 
             // ---- the card that gets chopped ----
             ZStack {
@@ -4528,7 +4536,8 @@ struct ChopProcessingStage: View {
                     .offset(x: sliceGo ? 250 : -250, y: 14)
                     .opacity(split || sliceGo ? 1 : 0)
             }
-            .overlay(alignment: .topLeading) {
+            .frame(width: 186, height: 238)   // pin bounds BEFORE the badge, so
+            .overlay(alignment: .topLeading) { // it hugs the card corner exactly
                 HStack(spacing: 6) {
                     Circle().fill(pink).frame(width: 7, height: 7)
                         .opacity(pulse ? 0.35 : 1)
@@ -4541,11 +4550,11 @@ struct ChopProcessingStage: View {
                 .background(Color(red: 10/255, green: 12/255, blue: 18/255).opacity(0.6), in: Capsule())
                 .padding(12)
             }
-            .frame(width: 186, height: 238)
             .scaleEffect(cardScale)
             .rotationEffect(.degrees(sway ? 2 : -2))
             .offset(y: sway ? -6 : 0)
-            .frame(maxHeight: .infinity)   // breathes in the middle of the sheet
+
+            Spacer(minLength: 24)
 
             // ---- filmstrip: red cuts collapse as the steps land ----
             HStack(spacing: 3) {
@@ -4606,6 +4615,8 @@ struct ChopProcessingStage: View {
                 .font(.system(size: 10, weight: .heavy)).foregroundStyle(ChopColor.muted)
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.top, 5)
+
+            Spacer(minLength: 18)   // breathing room off the bottom edge
         }
         .onAppear {
             withAnimation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true)) { sway = true }
@@ -4638,22 +4649,29 @@ struct ChopProcessingStage: View {
 
     private func cardHalf(top: Bool) -> some View {
         ZStack {
-            LinearGradient(colors: [Color(red: 0x26/255, green: 0x30/255, blue: 0x4a/255),
-                                    Color(red: 0x14/255, green: 0x1a/255, blue: 0x2a/255)],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-            Circle()   // the creator
-                .fill(RadialGradient(colors: [Color(red: 0x4a/255, green: 0x58/255, blue: 0x78/255),
-                                              Color(red: 0x2a/255, green: 0x34/255, blue: 0x50/255)],
-                                     center: UnitPoint(x: 0.38, y: 0.34),
-                                     startRadius: 4, endRadius: 46))
-                .frame(width: 70, height: 70)
-                .offset(y: -22)
-            RoundedRectangle(cornerRadius: 40)   // shoulders
-                .fill(LinearGradient(colors: [Color(red: 0x3b/255, green: 0x49/255, blue: 0x66/255),
-                                              Color(red: 0x25/255, green: 0x2f/255, blue: 0x49/255)],
-                                     startPoint: .top, endPoint: .bottom))
-                .frame(width: 118, height: 90)
-                .offset(y: 88)
+            if let frame {
+                // THEIR footage — the frame we grab for the dashboard thumbnail,
+                // shown being chopped up in real time
+                Image(uiImage: frame)
+                    .resizable().scaledToFill()
+            } else {
+                LinearGradient(colors: [Color(red: 0x26/255, green: 0x30/255, blue: 0x4a/255),
+                                        Color(red: 0x14/255, green: 0x1a/255, blue: 0x2a/255)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                Circle()   // the creator placeholder until the frame lands
+                    .fill(RadialGradient(colors: [Color(red: 0x4a/255, green: 0x58/255, blue: 0x78/255),
+                                                  Color(red: 0x2a/255, green: 0x34/255, blue: 0x50/255)],
+                                         center: UnitPoint(x: 0.38, y: 0.34),
+                                         startRadius: 4, endRadius: 46))
+                    .frame(width: 70, height: 70)
+                    .offset(y: -22)
+                RoundedRectangle(cornerRadius: 40)   // shoulders
+                    .fill(LinearGradient(colors: [Color(red: 0x3b/255, green: 0x49/255, blue: 0x66/255),
+                                                  Color(red: 0x25/255, green: 0x2f/255, blue: 0x49/255)],
+                                         startPoint: .top, endPoint: .bottom))
+                    .frame(width: 118, height: 90)
+                    .offset(y: 88)
+            }
         }
         .frame(width: 186, height: 238)
         .clipShape(RoundedRectangle(cornerRadius: 20))
@@ -4685,9 +4703,9 @@ struct ImportSheet: View {
             if imp.busy || preparing {
                 // V1 'the card gets chopped' — approved mockup. Wordmark centred,
                 // no headline/subheading, layout pulled in tight.
-                ChopProcessingStage(stepIndex: imp.stepIndex, done: imp.done)
+                ChopProcessingStage(stepIndex: imp.stepIndex, done: imp.done,
+                                    frame: imp.previewFrame)
                     .frame(maxWidth: 520, maxHeight: .infinity)
-                    .padding(.top, 12)
             } else if api.credits <= 0 {
                 Image(systemName: "bolt.slash").font(.largeTitle).foregroundStyle(.orange)
                 Text("You're out of credits").font(.subheadline.weight(.medium))
