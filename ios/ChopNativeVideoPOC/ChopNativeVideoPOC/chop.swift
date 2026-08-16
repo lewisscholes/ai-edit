@@ -256,11 +256,19 @@ struct ChopEmptyState: View {
 final class ChopToasts: ObservableObject {
     static let shared = ChopToasts()
     @Published var message: String?
+    @Published var bigMessage: String?   // the centre-screen green celebration
     private var task: Task<Void, Never>?
+    private var bigTask: Task<Void, Never>?
     func show(_ m: String) {
         message = m
         task?.cancel()
         task = Task { try? await Task.sleep(nanoseconds: 2_600_000_000); message = nil }
+    }
+    /// Big, green, dead-centre — for the moments that matter (Ready to export).
+    func showBig(_ m: String) {
+        bigMessage = m
+        bigTask?.cancel()
+        bigTask = Task { try? await Task.sleep(nanoseconds: 2_200_000_000); bigMessage = nil }
     }
 }
 
@@ -278,8 +286,25 @@ struct ChopToastHost: ViewModifier {
                     .padding(.bottom, 100)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+            if let m = toasts.bigMessage {
+                VStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 36, weight: .bold))
+                    Text(m)
+                        .font(.system(size: 16.5, weight: .heavy))
+                        .multilineTextAlignment(.center)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 28).padding(.vertical, 24)
+                .background(ChopColor.green, in: RoundedRectangle(cornerRadius: 22))
+                .shadow(color: ChopColor.green.opacity(0.45), radius: 20, y: 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)   // dead centre
+                .transition(.scale(scale: 0.82).combined(with: .opacity))
+                .allowsHitTesting(false)
+            }
         }
         .animation(.spring(duration: 0.28), value: toasts.message)
+        .animation(.spring(duration: 0.32, bounce: 0.35), value: toasts.bigMessage)
     }
 }
 extension View { func chopToasts() -> some View { modifier(ChopToastHost()) } }
@@ -537,6 +562,7 @@ final class ChopAPI: ObservableObject {
     @Published var credits: Int = 0
     @Published var editorOpen = false   // hides the glass nav while editing
     @Published var openJob: ChopJob?    // set after import → root presents the editor directly
+    @Published var goToQueue = false    // approved a video → root flips to the Queue tab
     var localImports: [String: URL] = [:]   // job name → file already on the phone: editor opens with zero download
     var importActive = false                // an upload/analysis is running — background work must stay out of its way
     @Published var profileName = ""
@@ -1687,6 +1713,10 @@ struct ChopRootView: View {
                 }
                 .sheet(isPresented: $showOOC) { OutOfCreditsSheet() }
                 .onChange(of: api.credits) { _, c in if c <= 0 && api.signedIn { showOOC = true } }
+                .onChange(of: api.goToQueue) { _, go in
+                    // approved in the editor → land on the Queue tab, next video ready
+                    if go { tab = 1; api.goToQueue = false }
+                }
                 .refreshable { await api.loadJobs() }
             }
             if !api.editorOpen {   // web: no Dashboard/Queue/Cut Lab pill inside the editor
@@ -3411,7 +3441,8 @@ struct ChopPlayerScreen: View {
         Task {
             await api.setStatus(job, to: "approved")
             marking = false
-            ChopToasts.shared.show("Moved to Ready to export ✓")
+            ChopToasts.shared.showBig("Moved to Ready to export")
+            api.goToQueue = true   // straight back to the queue for the next video
             dismiss()
         }
     }
@@ -4885,6 +4916,7 @@ struct ChopSettingsView: View {
 
 struct ChopQueueBody: View {
     @ObservedObject var api: ChopAPI
+    @State private var expandedCols: Set<Int> = []   // See more / See less, per column
 
     private func bucket(_ j: ChopJob) -> Int {
         switch j.status {
@@ -4938,9 +4970,41 @@ struct ChopQueueBody: View {
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 18).padding(.horizontal, 6)
                             } else {
-                                ForEach(list) { job in
-                                    NavigationLink { ChopPlayerScreen(job: job, api: api) } label: {
-                                        QueueCard(job: job, current: false)
+                                // Long columns fold away: 3 cards by default,
+                                // See more opens up to 10, anything past 10 scrolls.
+                                let expanded = expandedCols.contains(i)
+                                let visible = expanded ? list : Array(list.prefix(3))
+                                let rows = VStack(alignment: .leading, spacing: 12) {
+                                    ForEach(visible) { job in
+                                        NavigationLink { ChopPlayerScreen(job: job, api: api) } label: {
+                                            QueueCard(job: job, current: false)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                                if expanded && list.count > 10 {
+                                    ScrollView(showsIndicators: true) { rows }
+                                        .frame(height: 10 * 78 + 9 * 12)   // ~10 cards tall, rest scrolls
+                                } else {
+                                    rows
+                                }
+                                if list.count > 3 {
+                                    Button {
+                                        withAnimation(.easeInOut(duration: 0.25)) {
+                                            if expanded { expandedCols.remove(i) }
+                                            else { expandedCols.insert(i) }
+                                        }
+                                    } label: {
+                                        HStack(spacing: 5) {
+                                            Text(expanded ? "See less" : "See more (\(list.count - 3) more)")
+                                            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                                                .font(.system(size: 10, weight: .heavy))
+                                        }
+                                        .font(.system(size: 12.5, weight: .heavy))
+                                        .foregroundStyle(ChopColor.blue)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 9)
+                                        .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 11))
                                     }
                                     .buttonStyle(.plain)
                                 }
