@@ -1449,6 +1449,8 @@ struct AuthGridOverlay: Shape {
 struct ChopRootView: View {
     @StateObject private var api = ChopAPI()
     @State private var showImport = false
+    @State private var showImportPicker = false            // photo library, straight from the dashboard
+    @State private var importPicks: [PhotosPickerItem] = []
     @State private var showSettings = false
     @State private var showBilling = false
     @State private var demoJob: ChopJob? = nil   // -screen editor design preview
@@ -1569,7 +1571,17 @@ struct ChopRootView: View {
                 }
                 .background(Color.chopBg)
                 .toolbar(.hidden, for: .navigationBar)
-                .sheet(isPresented: $showImport) { ImportSheet(api: api) }
+                // Dashboard upload → photo library immediately; the processing
+                // sheet only appears once videos are actually picked.
+                .photosPicker(isPresented: $showImportPicker, selection: $importPicks,
+                              maxSelectionCount: 5, matching: .videos)
+                .onChange(of: importPicks) { _, items in
+                    guard !items.isEmpty else { return }
+                    showImport = true
+                }
+                .sheet(isPresented: $showImport, onDismiss: { importPicks = [] }) {
+                    ImportSheet(api: api, initialPicks: importPicks)
+                }
                 .sheet(isPresented: $showSettings) { ChopSettingsView(api: api) { theme = $0 } }
                 .sheet(isPresented: $showBilling) { ChopBillingView(api: api) }
                 .fullScreenCover(item: $demoJob) { j in
@@ -2127,7 +2139,10 @@ struct ChopRootView: View {
                     statCard("\(streak)", "Day streak")
                 }
 
-                Button { showImport = true } label: {
+                Button {
+                    // straight to the photo library — no interim "Choose videos" tab
+                    if api.credits <= 0 { showImport = true } else { showImportPicker = true }
+                } label: {
                     VStack(spacing: 0) {
                         DropCloudIcon()   // the web's cloud SVG, not an SF Symbol
                             .stroke(ChopColor.blue, style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
@@ -3955,6 +3970,7 @@ struct ImportSheet: View {
     @ObservedObject var api: ChopAPI
     @StateObject private var imp = ChopImporter()
     @State private var pickedMany: [PhotosPickerItem] = []
+    var initialPicks: [PhotosPickerItem] = []   // videos already chosen on the dashboard
     @Environment(\.dismiss) private var dismiss
 
     /// debug: `-screen proc` shows the processing card mid-run for review
@@ -4045,6 +4061,10 @@ struct ImportSheet: View {
         }
         .padding(24)
         .background(Color.chopBg)
+        .onAppear {
+            // dashboard already picked the videos — start chopping immediately
+            if !initialPicks.isEmpty, !imp.busy { pickedMany = initialPicks }
+        }
         .onChange(of: pickedMany) { _, items in
             guard !items.isEmpty else { return }
             Task {
