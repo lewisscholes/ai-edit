@@ -5075,7 +5075,12 @@ struct ChopMovie: Transferable {
 /// Product IDs must match App Store Connect exactly when it's set up.
 /// Credit count is encoded in the ID so granting never needs a lookup table.
 enum ChopPacks {
+    // Pricing ladder (Lewis, 16 Aug 26): £1/credit baseline, then −5p per
+    // video at every step up — 1/5/10 = £1 · 50 = 95p · 100 = 90p ·
+    // 200 = 85p · 300 = 80p. ASC products must be created to match.
     static let ids = [
+        "com.chopedit.credits.1",
+        "com.chopedit.credits.5",
         "com.chopedit.credits.10",
         "com.chopedit.credits.50",
         "com.chopedit.credits.100",
@@ -5159,12 +5164,15 @@ struct ChopBillingView: View {
     @State private var n: Double = 50
     @State private var note = ""
 
-    /// line-for-line port of web perCredit(): £1 → 85p (50+) → 75p (100+),
-    /// −5p per extra 50, floor 60p
+    /// The 5p-a-step ladder (Lewis, 16 Aug 26): £1 baseline, 95p at 50,
+    /// 90p at 100, 85p at 200, 80p at 300+. NOTE: the web app still runs the
+    /// old curve — port this same function there when pricing goes live.
     private func perCredit(_ n: Int) -> Double {
         if n < 50 { return 1.00 }
-        if n < 100 { return 0.85 }
-        return max(0.60, 0.75 - 0.05 * Double((n - 100) / 50))
+        if n < 100 { return 0.95 }
+        if n < 200 { return 0.90 }
+        if n < 300 { return 0.85 }
+        return 0.80
     }
     private func gbp(_ v: Double) -> String { String(format: "£%.2f", (v * 100).rounded() / 100) }
     private func perLabel(_ v: Double) -> String { v < 1 ? "\(Int((v * 100).rounded()))p" : gbp(v) }
