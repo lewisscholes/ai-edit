@@ -1196,13 +1196,22 @@ final class ChopAPI: ObservableObject {
         return true
     }
 
-    /// Move a job to "Ready to export", same as the web app's green Done button.
-    func setStatus(_ job: ChopJob, to status: String) async {
-        var d = job.data
-        d["status"] = status
-        d["statusAt"] = Int(Date().timeIntervalSince1970 * 1000)
-        d.removeValue(forKey: "savedLater")   // any status move clears the parked badge
-        guard let url = URL(string: "\(SB_URL)/rest/v1/chop_jobs?user_id=eq.\(userId)&name=eq.\(job.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? job.name)") else { return }
+    /// Read-modify-write on a job's data blob — always fetches the FRESH row
+    /// first so concurrent writers (edit saves, status moves, thumb backfill)
+    /// can never clobber each other. Pass NSNull() as a value to delete a key.
+    func mergeJobData(_ name: String, fields: [String: Any]) async {
+        let enc = name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? name
+        guard let getURL = URL(string: "\(SB_URL)/rest/v1/chop_jobs?select=data&user_id=eq.\(userId)&name=eq.\(enc)") else { return }
+        var get = URLRequest(url: getURL)
+        get.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+        get.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        guard let (gd, _) = try? await URLSession.shared.data(for: get),
+              let rows = try? JSONSerialization.jsonObject(with: gd) as? [[String: Any]],
+              var d = rows.first?["data"] as? [String: Any] else { return }
+        for (k, v) in fields {
+            if v is NSNull { d.removeValue(forKey: k) } else { d[k] = v }
+        }
+        guard let url = URL(string: "\(SB_URL)/rest/v1/chop_jobs?user_id=eq.\(userId)&name=eq.\(enc)") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "PATCH"
         req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
@@ -1210,23 +1219,25 @@ final class ChopAPI: ObservableObject {
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["data": d, "ts": Int(Date().timeIntervalSince1970 * 1000)])
         _ = try? await URLSession.shared.data(for: req)
+    }
+
+    /// Move a job to "Ready to export", same as the web app's green Done button.
+    func setStatus(_ job: ChopJob, to status: String) async {
+        await mergeJobData(job.name, fields: [
+            "status": status,
+            "statusAt": Int(Date().timeIntervalSince1970 * 1000),
+            "savedLater": NSNull(),   // any status move clears the parked badge
+        ])
         await loadJobs()
     }
 
     /// 'Save for later' from the editor's tick sheet — stays in Ready to
     /// review, just wears the blue parked badge so it's distinguishable.
     func setSavedForLater(_ job: ChopJob) async {
-        var d = job.data
-        d["savedLater"] = true
-        d["statusAt"] = Int(Date().timeIntervalSince1970 * 1000)
-        guard let url = URL(string: "\(SB_URL)/rest/v1/chop_jobs?user_id=eq.\(userId)&name=eq.\(job.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? job.name)") else { return }
-        var req = URLRequest(url: url)
-        req.httpMethod = "PATCH"
-        req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
-        req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["data": d, "ts": Int(Date().timeIntervalSince1970 * 1000)])
-        _ = try? await URLSession.shared.data(for: req)
+        await mergeJobData(job.name, fields: [
+            "savedLater": true,
+            "statusAt": Int(Date().timeIntervalSince1970 * 1000),
+        ])
         await loadJobs()
     }
 
@@ -2607,6 +2618,41 @@ final class ChopPlayer: ObservableObject {
     private var timeObserver: Any?
     private var stripTask: Task<Void, Never>?
 
+    // ---- persistence: EVERYTHING the editor changes is saved to the job ----
+    private var jobName: String?          // nil in demo mode = never persist
+    private weak var apiRef: ChopAPI?
+    private var saveTask: Task<Void, Never>?
+
+    /// Same keys the web app reads/writes (manuals, choices, settings,
+    /// manualCuts, splits) plus iOS's manualKeeps and zooms, plus the real
+    /// editedSec so the dashboard's "1:42 → 1:04" is truthful.
+    func persistEdit() async {
+        guard let name = jobName, let api = apiRef, let e = edit else { return }
+        let fields: [String: Any] = [
+            "manuals": segments.map { $0.manual.map { $0 as Any } ?? NSNull() },
+            "choices": pairs.map { $0.choice.map { $0 as Any } ?? NSNull() },
+            "settings": ["minSil": minSil, "fillers": fillers, "soft": softFillers,
+                         "startPadMs": padStart, "endPadMs": padEnd],
+            "manualCuts": e.manualCuts.map { ["s": $0.start, "e": $0.end] },
+            "manualKeeps": e.manualKeeps.map { ["s": $0.start, "e": $0.end] },
+            "splits": splits,
+            "zooms": zooms.map { ["s": $0.start, "e": $0.end, "z": Double($0.scale)] },
+            "editedSec": editedDuration,
+        ]
+        await api.mergeJobData(name, fields: fields)
+    }
+    /// Debounced: fires ~1.5s after the last change, so slider drags and
+    /// rapid-fire edits collapse into one write.
+    func scheduleSave() {
+        guard jobName != nil else { return }
+        saveTask?.cancel()
+        saveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.persistEdit()
+        }
+    }
+
     /// Undo stack, same idea as the web app's snap()/applySnap.
     private struct Snapshot {
         var pairs: [ChopPair]
@@ -2651,6 +2697,17 @@ final class ChopPlayer: ObservableObject {
         edit = e
         pairs = e.pairs
         segments = e.segments
+        // persistence wiring + saved quick-edit state comes back with the job
+        jobName = job.name
+        apiRef = api
+        splits = (job.data["splits"] as? [Double]) ?? []
+        if let zs = job.data["zooms"] as? [[String: Any]] {
+            zooms = zs.compactMap {
+                guard let s = $0["s"] as? Double, let e2 = $0["e"] as? Double,
+                      let z = $0["z"] as? Double else { return nil }
+                return (s, e2, CGFloat(z))
+            }
+        }
         guard !e.segments.isEmpty else { status = "No analysis on this job"; return }
 
         // FAST PATH 1: the file we just imported is still on the phone —
@@ -2824,6 +2881,7 @@ final class ChopPlayer: ObservableObject {
         if ok {
             // big green centre-screen confirmation + the job moves to Downloaded,
             // so the tick can never bounce it back into Ready to export
+            await persistEdit()   // the exact edit that was exported is what's saved
             ChopToasts.shared.showBig("Exported to your camera roll")
             await api.setStatus(job, to: "exported")
         } else {
@@ -3142,6 +3200,7 @@ final class ChopPlayer: ObservableObject {
         zooms.removeAll { $0.start < b.end && $0.end > b.start }
         let s = min(3, max(1, scale))
         if s > 1.01 { zooms.append((b.start, b.end, s)) }
+        scheduleSave()   // zooms don't rebuild — save them explicitly
     }
     /// The zoom in force at a moment of the EDIT — drives playback preview.
     func zoomScale(atEditTime t: Double) -> CGFloat {
@@ -3231,6 +3290,7 @@ final class ChopPlayer: ObservableObject {
         else { return nil }
         pushHistory()
         splits.append(at)
+        scheduleSave()   // splits don't rebuild — save them explicitly
         return bands.firstIndex { abs($0.start - at) < 0.06 }
     }
 
@@ -3415,6 +3475,7 @@ final class ChopPlayer: ObservableObject {
         status = ""
         observeTime()
         if wasPlaying { player.play() }
+        scheduleSave()   // every rebuild = an edit happened → debounced cloud save
     }
 
     /// Complement of the kept clips over the raw timeline — everything cut out.
@@ -3666,7 +3727,10 @@ struct ChopPlayerScreen: View {
         }
         .onChange(of: p.clipCount) { _, _ in selected = nil } // cuts changed (split doesn't rebuild, so it survives)
         .onAppear { api.editorOpen = true }
-        .onDisappear { api.editorOpen = false; p.player.pause() }
+        .onDisappear {
+            api.editorOpen = false; p.player.pause()
+            Task { await p.persistEdit() }   // closing the editor flushes everything
+        }
         .sheet(isPresented: $showFinishSheet) { finishSheet }
         // first time in the editor: pointer tour on the real buttons
         .chopCoach(steps: ChopPlayerScreen.tourSteps, active: $showEditorTour)
@@ -3917,6 +3981,7 @@ struct ChopPlayerScreen: View {
         showFinishSheet = false
         marking = true
         Task {
+            await p.persistEdit()   // the edit lands before the status moves
             await api.setStatus(job, to: "approved")
             marking = false
             ChopToasts.shared.showBig("Moved to Ready to export")
@@ -3928,6 +3993,7 @@ struct ChopPlayerScreen: View {
     private func saveForLater() {
         showFinishSheet = false
         Task {
+            await p.persistEdit()   // "keeps every change" must be literally true
             await api.setSavedForLater(job)
             ChopToasts.shared.show("Saved for later — waiting in your queue ✓")
             api.goToQueue = true
@@ -6072,6 +6138,20 @@ final class ChopExporter {
         session.outputURL = out
         session.outputFileType = .mp4
         session.shouldOptimizeForNetworkUse = true
+        // saved pinch zooms travel with the job — bake them in here too
+        if let zs = job.data["zooms"] as? [[String: Any]] {
+            let zooms: [(start: Double, end: Double, scale: CGFloat)] = zs.compactMap {
+                guard let s = $0["s"] as? Double, let e2 = $0["e"] as? Double,
+                      let z = $0["z"] as? Double else { return nil }
+                return (s, e2, CGFloat(z))
+            }
+            if !zooms.isEmpty {
+                session.videoComposition = ChopPlayer.zoomComposition(
+                    track: vTrack, srcTransform: srcV.preferredTransform,
+                    srcNatural: srcV.naturalSize, kept: kept,
+                    zooms: zooms, totalDuration: comp.duration)
+            }
+        }
         await session.export()
         guard session.status == .completed else { return false }
 
