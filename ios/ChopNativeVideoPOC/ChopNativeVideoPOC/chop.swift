@@ -471,6 +471,7 @@ struct ChopEdit {
     var choices: [String?] = []
     var settings = ChopSettings()
     var manualCuts: [ChopClip] = []
+    var manualKeeps: [ChopClip] = []   // footage dragged BACK from any cut — wins over the auto-editor
     var rawDur: Double = 0
     var pairs: [ChopPair] = []
 
@@ -528,7 +529,24 @@ struct ChopEdit {
                 return ChopClip(start: s, end: e)
             }
         }
+        if let mk = d["manualKeeps"] as? [[String: Any]] {
+            manualKeeps = mk.compactMap {
+                guard let s = $0["s"] as? Double, let e = $0["e"] as? Double else { return nil }
+                return ChopClip(start: s, end: e)
+            }
+        }
         rawDur = max(job.rawSec, segments.last?.end ?? 0)
+    }
+
+    /// Newest intent wins: cutting a range removes it from any earlier keeps.
+    mutating func carveKeeps(for cut: ChopClip) {
+        var out: [ChopClip] = []
+        for k in manualKeeps {
+            if cut.end <= k.start + 0.001 || cut.start >= k.end - 0.001 { out.append(k); continue }
+            if cut.start > k.start + 0.005 { out.append(ChopClip(start: k.start, end: cut.start)) }
+            if cut.end < k.end - 0.005 { out.append(ChopClip(start: cut.end, end: k.end)) }
+        }
+        manualKeeps = out
     }
 
     func isCut(_ sg: ChopSegment) -> Bool {
@@ -563,17 +581,39 @@ struct ChopEdit {
             s = max(0, s); e = min(rawDur, e)
             if e - s > 0.005 { padded.append(ChopClip(start: s, end: e)) }
         }
-        guard !manualCuts.isEmpty else { return padded }
-        var all = padded + manualCuts.map { ChopClip(start: max(0, $0.start), end: min(rawDur, $0.end)) }
-        all.sort { $0.start < $1.start }
-        var out: [ChopClip] = []
-        for iv in all {
-            if var last = out.last, iv.start <= last.end + 0.001 {
-                last.end = max(last.end, iv.end)
-                out[out.count - 1] = last
-            } else { out.append(iv) }
+        var merged = padded
+        if !manualCuts.isEmpty {
+            var all = padded + manualCuts.map { ChopClip(start: max(0, $0.start), end: min(rawDur, $0.end)) }
+            all.sort { $0.start < $1.start }
+            var out: [ChopClip] = []
+            for iv in all {
+                if var last = out.last, iv.start <= last.end + 0.001 {
+                    last.end = max(last.end, iv.end)
+                    out[out.count - 1] = last
+                } else { out.append(iv) }
+            }
+            merged = out
         }
-        return out.filter { $0.end - $0.start > 0.005 }
+        // manual keeps: footage the creator dragged back out of a cut —
+        // it wins over EVERYTHING (silence, filler, retake, manual trim)
+        if !manualKeeps.isEmpty {
+            var result: [ChopClip] = []
+            for iv in merged {
+                var pieces = [iv]
+                for k in manualKeeps {
+                    var next: [ChopClip] = []
+                    for p in pieces {
+                        if k.end <= p.start + 0.001 || k.start >= p.end - 0.001 { next.append(p); continue }
+                        if k.start > p.start + 0.005 { next.append(ChopClip(start: p.start, end: k.start)) }
+                        if k.end < p.end - 0.005 { next.append(ChopClip(start: k.end, end: p.end)) }
+                    }
+                    pieces = next
+                }
+                result.append(contentsOf: pieces)
+            }
+            merged = result
+        }
+        return merged.filter { $0.end - $0.start > 0.005 }
     }
 
     func keptClips() -> [ChopClip] {
@@ -2572,6 +2612,7 @@ final class ChopPlayer: ObservableObject {
         var pairs: [ChopPair]
         var segments: [ChopSegment]
         var manualCuts: [ChopClip]
+        var manualKeeps: [ChopClip] = []
         var minSil: Double
         var fillers: Bool
         var soft: Bool
@@ -2894,6 +2935,7 @@ final class ChopPlayer: ObservableObject {
     private func snap() -> Snapshot {
         Snapshot(pairs: pairs, segments: segments,
                  manualCuts: edit?.manualCuts ?? [],
+                 manualKeeps: edit?.manualKeeps ?? [],
                  minSil: minSil, fillers: fillers, soft: softFillers,
                  splits: splits)
     }
@@ -2901,7 +2943,7 @@ final class ChopPlayer: ObservableObject {
         pairs = s.pairs; segments = s.segments
         minSil = s.minSil; fillers = s.fillers; softFillers = s.soft
         splits = s.splits
-        if var e = edit { e.manualCuts = s.manualCuts; edit = e }
+        if var e = edit { e.manualCuts = s.manualCuts; e.manualKeeps = s.manualKeeps; edit = e }
         rebuildKeepingTime()   // undo/redo must not throw the playhead to 0
     }
     /// Call before anything that changes the edit.
@@ -2982,7 +3024,9 @@ final class ChopPlayer: ObservableObject {
         let clips = e.keptClips()
         guard i < clips.count else { return }
         var ed = e
-        ed.manualCuts.append(ChopClip(start: clips[i].start, end: clips[i].end))
+        let cut = ChopClip(start: clips[i].start, end: clips[i].end)
+        ed.carveKeeps(for: cut)
+        ed.manualCuts.append(cut)
         edit = ed
         rebuild()
     }
@@ -2997,8 +3041,10 @@ final class ChopPlayer: ObservableObject {
         let at = rawTime
         guard at > clip.start + 0.05, at < clip.end - 0.05 else { return }
         var ed = e
-        ed.manualCuts.append(keepAfter ? ChopClip(start: clip.start, end: at)
-                                       : ChopClip(start: at, end: clip.end))
+        let cut = keepAfter ? ChopClip(start: clip.start, end: at)
+                            : ChopClip(start: at, end: clip.end)
+        ed.carveKeeps(for: cut)
+        ed.manualCuts.append(cut)
         edit = ed
         rebuild()
     }
@@ -3100,7 +3146,9 @@ final class ChopPlayer: ObservableObject {
         let bs = bands; guard i < bs.count, var e = edit else { return }
         pushHistory()
         let b = bs[i]
-        e.manualCuts.append(ChopClip(start: b.start, end: b.end))
+        let cut = ChopClip(start: b.start, end: b.end)
+        e.carveKeeps(for: cut)
+        e.manualCuts.append(cut)
         edit = e
         scrubbing = true
         rebuild()
@@ -3116,23 +3164,20 @@ final class ChopPlayer: ObservableObject {
         }
     }
 
-    /// How far a band edge can be pulled OUT (extend), in seconds — only into
-    /// footage that a manual trim removed. Auto cuts stay Cut-Lab territory.
+    // How far an edge can be dragged OUT: the whole gap to the neighbouring
+    // kept clip (or to the ends of the raw footage) is reclaimable — it makes
+    // no difference whether the auto-editor or the creator cut it.
     func bandExtendLeft(_ i: Int) -> Double {
-        guard let e = edit, i < bands.count else { return 0 }
+        guard i < bands.count else { return 0 }
         let b = bands[i]
-        if let c = e.manualCuts.first(where: { abs($0.end - b.start) < 0.05 }) {
-            return max(0, c.end - c.start - 0.02)
-        }
-        return 0
+        let prevEnd = i > 0 ? bands[i - 1].end : 0
+        return max(0, b.start - prevEnd - 0.01)
     }
     func bandExtendRight(_ i: Int) -> Double {
         guard let e = edit, i < bands.count else { return 0 }
         let b = bands[i]
-        if let c = e.manualCuts.first(where: { abs($0.start - b.end) < 0.05 }) {
-            return max(0, c.end - c.start - 0.02)
-        }
-        return 0
+        let nextStart = i + 1 < bands.count ? bands[i + 1].start : e.rawDur
+        return max(0, nextStart - b.end - 0.01)
     }
 
     /// TikTok caps: drag IN = trim (manual cut over the edge), drag OUT =
@@ -3143,30 +3188,24 @@ final class ChopPlayer: ObservableObject {
         pushHistory()
         if side == 0 {
             if deltaSeconds > 0 {          // trim the front
-                e.manualCuts.append(ChopClip(start: b.start,
-                                             end: min(b.start + deltaSeconds, b.end - 0.05)))
-            } else {                       // extend the front into the adjacent trim
-                var need = -deltaSeconds
-                if let idx = e.manualCuts.firstIndex(where: { abs($0.end - b.start) < 0.05 }) {
-                    let c = e.manualCuts[idx]
-                    need = min(need, max(0, c.end - c.start - 0.01))
-                    let newEnd = c.end - need
-                    if newEnd - c.start < 0.02 { e.manualCuts.remove(at: idx) }
-                    else { e.manualCuts[idx] = ChopClip(start: c.start, end: newEnd) }
+                let cut = ChopClip(start: b.start, end: min(b.start + deltaSeconds, b.end - 0.05))
+                e.carveKeeps(for: cut)     // newest intent wins
+                e.manualCuts.append(cut)
+            } else {                       // extend the front — reclaim ANY cut footage
+                let need = min(-deltaSeconds, bandExtendLeft(i))
+                if need > 0.005 {
+                    e.manualKeeps.append(ChopClip(start: b.start - need, end: b.start))
                 }
             }
         } else {
             if deltaSeconds > 0 {          // trim the back
-                e.manualCuts.append(ChopClip(start: max(b.end - deltaSeconds, b.start + 0.05),
-                                             end: b.end))
-            } else {                       // extend the back
-                var need = -deltaSeconds
-                if let idx = e.manualCuts.firstIndex(where: { abs($0.start - b.end) < 0.05 }) {
-                    let c = e.manualCuts[idx]
-                    need = min(need, max(0, c.end - c.start - 0.01))
-                    let newStart = c.start + need
-                    if c.end - newStart < 0.02 { e.manualCuts.remove(at: idx) }
-                    else { e.manualCuts[idx] = ChopClip(start: newStart, end: c.end) }
+                let cut = ChopClip(start: max(b.end - deltaSeconds, b.start + 0.05), end: b.end)
+                e.carveKeeps(for: cut)
+                e.manualCuts.append(cut)
+            } else {                       // extend the back — reclaim ANY cut footage
+                let need = min(-deltaSeconds, bandExtendRight(i))
+                if need > 0.005 {
+                    e.manualKeeps.append(ChopClip(start: b.end, end: b.end + need))
                 }
             }
         }
