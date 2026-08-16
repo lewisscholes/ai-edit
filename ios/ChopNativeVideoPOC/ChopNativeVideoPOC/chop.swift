@@ -4437,6 +4437,231 @@ final class ChopImporter: ObservableObject {
     }
 }
 
+// MARK: - Processing stage — V1 "the card gets chopped" (approved mockup).
+// Centred wordmark, a big swaying creator card that splits on the brand's
+// diagonal slice and comes back smaller after every cutting step, a filmstrip
+// losing its red sections, and one step row with a progress bar.
+
+/// The wordmark's diagonal slice as a clip shape: card top piece / bottom piece.
+private struct ChopSliceHalf: Shape {
+    let top: Bool
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        if top {
+            p.move(to: .zero)
+            p.addLine(to: CGPoint(x: r.maxX, y: 0))
+            p.addLine(to: CGPoint(x: r.maxX, y: r.height * 0.50))
+            p.addLine(to: CGPoint(x: 0, y: r.height * 0.64))
+        } else {
+            p.move(to: CGPoint(x: 0, y: r.height * 0.64))
+            p.addLine(to: CGPoint(x: r.maxX, y: r.height * 0.50))
+            p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+            p.addLine(to: CGPoint(x: 0, y: r.maxY))
+        }
+        p.closeSubpath()
+        return p
+    }
+}
+
+struct ChopProcessingStage: View {
+    let stepIndex: Int          // ChopImporter.stepIndex, 0…6
+    let done: Bool
+
+    @State private var sway = false
+    @State private var pulse = false
+    @State private var scan = false
+    @State private var split = false
+    @State private var sliceGo = false
+    @State private var cardScale: CGFloat = 1
+    @State private var lastChopped = -1
+
+    private static let info: [(badge: String, name: String, sub: String)] = [
+        ("UPLOADING", "Uploading", "Sending your footage up"),
+        ("LISTENING", "Listening to your audio", "Every word, every pause"),
+        ("DEAD AIR", "Detecting dead air", "Silences get the chop"),
+        ("FILLERS", "Finding filler words", "um, uh, hmm — gone"),
+        ("RETAKES", "Matching retakes", "Pairing takes — you pick the keeper"),
+        ("BUILDING", "Building your edit", "Stitching the keepers together"),
+    ]
+    private let stripLayout: [Bool] =
+        [false, false, true, false, true, false, false, true, false, false, true, false, true, false]
+
+    private var step: Int { min(max(stepIndex, 0), 5) }
+    private var cur: (badge: String, name: String, sub: String) {
+        done ? ("DONE", "Chopped ✓", "Opening the editor") : Self.info[step]
+    }
+    private var redKill: Int {
+        let reds = stripLayout.filter { $0 }.count
+        if done { return reds }
+        guard step >= 2 else { return 0 }
+        return Int((Double(step - 1) / 4.0 * Double(reds)).rounded())
+    }
+    private let pink = Color(red: 0xfe/255, green: 0x2c/255, blue: 0x55/255)
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ChopWordmark(size: 26)
+                .frame(maxWidth: .infinity)   // centred — the only header
+                .padding(.bottom, 6)
+
+            // ---- the card that gets chopped ----
+            ZStack {
+                cardHalf(top: true)
+                    .offset(x: split ? -9 : 0, y: split ? -7 : 0)
+                    .rotationEffect(.degrees(split ? -2.5 : 0))
+                cardHalf(top: false)
+                    .offset(x: split ? 11 : 0, y: split ? 8 : 0)
+                    .rotationEffect(.degrees(split ? 3.2 : 0))
+                // blue analysis scanline
+                Rectangle()
+                    .fill(LinearGradient(colors: [.clear, ChopColor.blue.opacity(0.25), .clear],
+                                         startPoint: .top, endPoint: .bottom))
+                    .frame(width: 186, height: 44)
+                    .offset(y: scan ? 130 : -130)
+                    .mask(RoundedRectangle(cornerRadius: 20).frame(width: 186, height: 238))
+                // pink slice sweep along the cut line
+                Rectangle()
+                    .fill(pink)
+                    .frame(width: 230, height: 2.5)
+                    .shadow(color: pink.opacity(0.9), radius: 8)
+                    .rotationEffect(.degrees(-4.5))
+                    .offset(x: sliceGo ? 250 : -250, y: 14)
+                    .opacity(split || sliceGo ? 1 : 0)
+            }
+            .overlay(alignment: .topLeading) {
+                HStack(spacing: 6) {
+                    Circle().fill(pink).frame(width: 7, height: 7)
+                        .opacity(pulse ? 0.35 : 1)
+                        .scaleEffect(pulse ? 0.72 : 1)
+                    Text(cur.badge)
+                        .font(.system(size: 9.5, weight: .black)).kerning(0.8)
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 11).padding(.vertical, 5)
+                .background(Color(red: 10/255, green: 12/255, blue: 18/255).opacity(0.6), in: Capsule())
+                .padding(12)
+            }
+            .frame(width: 186, height: 238)
+            .scaleEffect(cardScale)
+            .rotationEffect(.degrees(sway ? 2 : -2))
+            .offset(y: sway ? -6 : 0)
+            .frame(maxHeight: .infinity)   // breathes in the middle of the sheet
+
+            // ---- filmstrip: red cuts collapse as the steps land ----
+            HStack(spacing: 3) {
+                ForEach(Array(stripLayout.enumerated()), id: \.offset) { idx, isRed in
+                    let ordinal = stripLayout.prefix(idx + 1).filter { $0 }.count
+                    let gone = isRed && ordinal <= redKill
+                    RoundedRectangle(cornerRadius: 7)
+                        .fill(isRed
+                              ? AnyShapeStyle(ChopColor.rose.opacity(0.45))
+                              : AnyShapeStyle(LinearGradient(
+                                    colors: [Color(red: 0x2b/255, green: 0x35/255, blue: 0x50/255),
+                                             Color(red: 0x1d/255, green: 0x24/255, blue: 0x36/255)],
+                                    startPoint: .topLeading, endPoint: .bottomTrailing)))
+                        .overlay(isRed
+                                 ? RoundedRectangle(cornerRadius: 7).stroke(ChopColor.rose, lineWidth: 1.5)
+                                 : nil)
+                        .frame(maxWidth: gone ? 0.5 : .infinity)
+                        .opacity(gone ? 0 : 1)
+                }
+            }
+            .frame(height: 40)
+            .animation(.easeInOut(duration: 0.5), value: redKill)
+            .padding(.bottom, 16)
+
+            // ---- one step row + progress ----
+            HStack(spacing: 10) {
+                if done {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18)).foregroundStyle(ChopColor.green)
+                } else {
+                    ProgressView().tint(ChopColor.blue)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(cur.name)
+                        .font(.system(size: 13.5, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                    Text(cur.sub)
+                        .font(.system(size: 10.5)).foregroundStyle(ChopColor.muted)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.chopLine, lineWidth: 1))
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(ChopColor.soft2)
+                    Capsule().fill(ChopColor.blue)
+                        .frame(width: geo.size.width *
+                               (done ? 1 : CGFloat(step + 1) / 6))
+                }
+                .animation(.easeInOut(duration: 0.6), value: step)
+            }
+            .frame(height: 5)
+            .padding(.top, 11)
+
+            Text(done ? "100%" : "\(Int(Double(step + 1) / 6 * 100))%")
+                .font(.system(size: 10, weight: .heavy)).foregroundStyle(ChopColor.muted)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.top, 5)
+        }
+        .onAppear {
+            withAnimation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true)) { sway = true }
+            withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) { pulse = true }
+            withAnimation(.linear(duration: 2.4).repeatForever(autoreverses: false)) { scan = true }
+        }
+        .onChange(of: stepIndex) { _, s in
+            guard s >= 2, s != lastChopped else { return }
+            lastChopped = s
+            chop(to: max(0.78, 1 - CGFloat(max(0, s - 1)) * 0.055))
+        }
+        .onChange(of: done) { _, d in if d { chop(to: 0.74) } }
+    }
+
+    /// Pink slice sweeps → halves fly apart on the diagonal → snap back smaller.
+    private func chop(to scale: CGFloat) {
+        sliceGo = false
+        withAnimation(.easeIn(duration: 0.5)) { sliceGo = true }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 260_000_000)
+            withAnimation(.spring(duration: 0.4, bounce: 0.4)) { split = true }
+            try? await Task.sleep(nanoseconds: 620_000_000)
+            withAnimation(.spring(duration: 0.45, bounce: 0.35)) {
+                split = false
+                cardScale = scale
+            }
+            sliceGo = false
+        }
+    }
+
+    private func cardHalf(top: Bool) -> some View {
+        ZStack {
+            LinearGradient(colors: [Color(red: 0x26/255, green: 0x30/255, blue: 0x4a/255),
+                                    Color(red: 0x14/255, green: 0x1a/255, blue: 0x2a/255)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            Circle()   // the creator
+                .fill(RadialGradient(colors: [Color(red: 0x4a/255, green: 0x58/255, blue: 0x78/255),
+                                              Color(red: 0x2a/255, green: 0x34/255, blue: 0x50/255)],
+                                     center: UnitPoint(x: 0.38, y: 0.34),
+                                     startRadius: 4, endRadius: 46))
+                .frame(width: 70, height: 70)
+                .offset(y: -22)
+            RoundedRectangle(cornerRadius: 40)   // shoulders
+                .fill(LinearGradient(colors: [Color(red: 0x3b/255, green: 0x49/255, blue: 0x66/255),
+                                              Color(red: 0x25/255, green: 0x2f/255, blue: 0x49/255)],
+                                     startPoint: .top, endPoint: .bottom))
+                .frame(width: 118, height: 90)
+                .offset(y: 88)
+        }
+        .frame(width: 186, height: 238)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .clipShape(ChopSliceHalf(top: top))
+        .shadow(color: .black.opacity(0.4), radius: 14, y: 8)
+    }
+}
+
 struct ImportSheet: View {
     @ObservedObject var api: ChopAPI
     @StateObject private var imp = ChopImporter()
@@ -4458,59 +4683,11 @@ struct ImportSheet: View {
             let _ = debugPreview()
 
             if imp.busy || preparing {
-                // .proc — web parity: card, 20px title, soft step circles, 6px bar
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Editing your video…")
-                        .font(.system(size: 20, weight: .bold)).foregroundStyle(ChopColor.ink)
-                    Text("This usually takes a couple of minutes on real footage.")
-                        .font(.system(size: 13)).foregroundStyle(Color.chopMuted)
-                        .padding(.bottom, 10)
-
-                    VStack(spacing: 0) {
-                        ForEach(Array(ChopImporter.steps.enumerated()), id: \.offset) { i, label in
-                            HStack(spacing: 13) {
-                                ZStack {
-                                    Circle()
-                                        .fill(i < imp.stepIndex ? ChopColor.greenSoft
-                                              : i == imp.stepIndex ? ChopColor.blueSoft : ChopColor.soft2)
-                                        .frame(width: 25, height: 25)
-                                    if i < imp.stepIndex {
-                                        Image(systemName: "checkmark")
-                                            .font(.system(size: 11, weight: .heavy))
-                                            .foregroundStyle(ChopColor.green)
-                                    } else if i == imp.stepIndex {
-                                        ProgressView().scaleEffect(0.55).tint(ChopColor.blue)
-                                    } else {
-                                        Text("\(i + 1)").font(.system(size: 12.5, weight: .heavy))
-                                            .foregroundStyle(ChopColor.muted)
-                                    }
-                                }
-                                Text(label)
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundStyle(ChopColor.ink)
-                                Spacer()
-                            }
-                            .padding(.vertical, 9)
-                            .opacity(i > imp.stepIndex ? 0.45 : 1)   // .pstep.pend
-                        }
-                    }
-
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(ChopColor.soft2)
-                            Capsule().fill(ChopColor.blue)
-                                .frame(width: geo.size.width *
-                                       CGFloat(max(0, min(6, imp.stepIndex))) / 6)
-                        }
-                    }
-                    .frame(height: 6)
-                    .padding(.top, 18)
-                }
-                .padding(.vertical, 32).padding(.horizontal, 34)
-                .frame(maxWidth: 520, alignment: .leading)
-                .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 18))
-                .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.chopLine, lineWidth: 1))
-                .padding(.top, 24)
+                // V1 'the card gets chopped' — approved mockup. Wordmark centred,
+                // no headline/subheading, layout pulled in tight.
+                ChopProcessingStage(stepIndex: imp.stepIndex, done: imp.done)
+                    .frame(maxWidth: 520, maxHeight: .infinity)
+                    .padding(.top, 12)
             } else if api.credits <= 0 {
                 Image(systemName: "bolt.slash").font(.largeTitle).foregroundStyle(.orange)
                 Text("You're out of credits").font(.subheadline.weight(.medium))
