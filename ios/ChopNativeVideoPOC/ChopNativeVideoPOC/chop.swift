@@ -1067,6 +1067,16 @@ struct EditCard: View {
         let t = Int(sec.rounded()); return "\(t / 60):" + String(format: "%02d", t % 60)
     }
 
+    /// Same buckets as the Queue tab, worn as a little badge on the card.
+    private var stage: (label: String, tint: Color) {
+        switch job.status {
+        case "queued", "processing": return ("PROCESSING", ChopColor.muted)
+        case "review", "error":      return ("TO REVIEW", ChopColor.blue)
+        case "approved":             return ("READY TO EXPORT", ChopColor.green)
+        default:                     return ("DOWNLOADED", Color.black.opacity(0.72))
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Fixed-ratio cell — the image can never stretch the card (the old
@@ -1100,6 +1110,15 @@ struct EditCard: View {
                             .background(Color.black.opacity(0.55), in: Capsule())
                             .padding(8)
                     }
+                }
+                .overlay(alignment: .topLeading) {
+                    Text(stage.label)
+                        .font(.system(size: 8.5, weight: .heavy))
+                        .kerning(0.4)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7).padding(.vertical, 3.5)
+                        .background(stage.tint, in: Capsule())
+                        .padding(8)
                 }
                 .clipped()
 
@@ -2269,15 +2288,20 @@ struct ChopRootView: View {
                         .padding(.vertical, 22)
                 }
 
-                // .egrid — thumbnail cards, two-up like the web grid on phone
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
-                    ForEach(api.jobs) { job in
-                        NavigationLink { ChopPlayerScreen(job: job, api: api) } label: {
-                            EditCard(job: job)
+                // One swipeable shelf — sideways scroll, no more endless stacking
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 12) {
+                        ForEach(api.jobs) { job in
+                            NavigationLink { ChopPlayerScreen(job: job, api: api) } label: {
+                                EditCard(job: job)
+                                    .frame(width: 150)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .padding(.horizontal, 16)
                 }
+                .padding(.horizontal, -16)   // bleed the shelf to the screen edges
             }
             .padding(16)
             .padding(.bottom, 110)
