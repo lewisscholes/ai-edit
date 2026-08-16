@@ -1161,6 +1161,24 @@ final class ChopAPI: ObservableObject {
         var d = job.data
         d["status"] = status
         d["statusAt"] = Int(Date().timeIntervalSince1970 * 1000)
+        d.removeValue(forKey: "savedLater")   // any status move clears the parked badge
+        guard let url = URL(string: "\(SB_URL)/rest/v1/chop_jobs?user_id=eq.\(userId)&name=eq.\(job.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? job.name)") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "PATCH"
+        req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["data": d, "ts": Int(Date().timeIntervalSince1970 * 1000)])
+        _ = try? await URLSession.shared.data(for: req)
+        await loadJobs()
+    }
+
+    /// 'Save for later' from the editor's tick sheet — stays in Ready to
+    /// review, just wears the blue parked badge so it's distinguishable.
+    func setSavedForLater(_ job: ChopJob) async {
+        var d = job.data
+        d["savedLater"] = true
+        d["statusAt"] = Int(Date().timeIntervalSince1970 * 1000)
         guard let url = URL(string: "\(SB_URL)/rest/v1/chop_jobs?user_id=eq.\(userId)&name=eq.\(job.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? job.name)") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "PATCH"
@@ -3286,6 +3304,7 @@ struct ChopPlayerScreen: View {
     @State private var compact = false        // web body.stagecompact: 50dvh ↔ 24dvh
     @AppStorage("chopEditorTourSeen") private var editorTourSeen = false
     @State private var showEditorTour = false
+    @State private var showFinishSheet = false   // tick → export or save for later
     @Environment(\.dismiss) private var dismiss
 
     static let tourSteps: [ChopCoachStep] = [
@@ -3364,6 +3383,9 @@ struct ChopPlayerScreen: View {
                             .background(.ultraThinMaterial, in: Circle())
                         }
                         .disabled(marking)
+                        // long-press = approve instantly, no question (power users)
+                        .simultaneousGesture(LongPressGesture(minimumDuration: 0.45)
+                            .onEnded { _ in quickApprove() })
                         .tourAnchor("tour-done")
                     }
                     .padding(.top, 10).padding(.horizontal, 10)
@@ -3453,6 +3475,7 @@ struct ChopPlayerScreen: View {
         .onChange(of: p.clipCount) { _, _ in selected = nil } // cuts changed (split doesn't rebuild, so it survives)
         .onAppear { api.editorOpen = true }
         .onDisappear { api.editorOpen = false; p.player.pause() }
+        .sheet(isPresented: $showFinishSheet) { finishSheet }
         // first time in the editor: pointer tour on the real buttons
         .chopCoach(steps: ChopPlayerScreen.tourSteps, active: $showEditorTour)
         .onChange(of: p.ready) { _, ready in
@@ -3667,21 +3690,39 @@ struct ChopPlayerScreen: View {
 
     // ---- persistent Done / Queue pills ----
     /// Green tick on the video — web's approve flow. Back arrow = queue.
-    private func doneTapped() {
+    /// Guards shared by tap and long-press. Returns true if the tick may act.
+    private func tickGuards() -> Bool {
         // already exported? it lives in Downloaded now — never re-approve it
         let live = api.jobs.first(where: { $0.name == job.name })?.status ?? job.status
         if live == "exported" || live == "downloaded" {
             ChopToasts.shared.show("Already exported — this video is in Downloaded")
             api.goToQueue = true
             dismiss()
-            return
+            return false
         }
         let pend = p.undecided
         if pend > 0 {
             panel = "retakes"
             ChopToasts.shared.show("\(pend) retake\(pend > 1 ? "s" : "") still need\(pend > 1 ? "" : "s") a decision")
-            return
+            return false
         }
+        return true
+    }
+
+    /// Tap = ask the question (export vs save for later).
+    private func doneTapped() {
+        guard tickGuards() else { return }
+        showFinishSheet = true
+    }
+
+    /// Long-press = the power-user shortcut: approve instantly, no sheet.
+    private func quickApprove() {
+        guard tickGuards() else { return }
+        approveNow()
+    }
+
+    private func approveNow() {
+        showFinishSheet = false
         marking = true
         Task {
             await api.setStatus(job, to: "approved")
@@ -3690,6 +3731,83 @@ struct ChopPlayerScreen: View {
             api.goToQueue = true   // straight back to the queue for the next video
             dismiss()
         }
+    }
+
+    private func saveForLater() {
+        showFinishSheet = false
+        Task {
+            await api.setSavedForLater(job)
+            ChopToasts.shared.show("Saved for later — waiting in your queue ✓")
+            api.goToQueue = true
+            dismiss()
+        }
+    }
+
+    /// The mockup's bottom sheet: "Finished editing?" with the two roads.
+    private var finishSheet: some View {
+        VStack(spacing: 0) {
+            Text("Finished editing?")
+                .font(.system(size: 18, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                .padding(.top, 24)
+            Text("Your changes are saved either way — this just decides where the video goes next.")
+                .font(.system(size: 12)).foregroundStyle(ChopColor.muted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32).padding(.top, 6).padding(.bottom, 18)
+
+            Button(action: approveNow) {
+                HStack(spacing: 12) {
+                    Image(systemName: "square.and.arrow.down")
+                        .font(.system(size: 15, weight: .bold))
+                        .frame(width: 38, height: 38)
+                        .background(Color.white.opacity(0.18), in: RoundedRectangle(cornerRadius: 12))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Yes — move to Ready to export")
+                            .font(.system(size: 14.5, weight: .heavy))
+                        Text("It joins the export queue, next video up")
+                            .font(.system(size: 10.5)).opacity(0.8)
+                    }
+                    Spacer()
+                }
+                .foregroundStyle(.white)
+                .padding(14)
+                .background(ChopColor.green, in: RoundedRectangle(cornerRadius: 14))
+            }
+            .padding(.horizontal, 18)
+
+            Button(action: saveForLater) {
+                HStack(spacing: 12) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 15, weight: .bold))
+                        .frame(width: 38, height: 38)
+                        .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 12))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Save for later")
+                            .font(.system(size: 14.5, weight: .heavy))
+                        Text("Keeps every change — come back any time")
+                            .font(.system(size: 10.5)).foregroundStyle(ChopColor.muted)
+                    }
+                    Spacer()
+                }
+                .foregroundStyle(ChopColor.ink)
+                .padding(14)
+                .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.chopLine, lineWidth: 1))
+            }
+            .padding(.horizontal, 18).padding(.top, 9)
+
+            Button { showFinishSheet = false } label: {
+                Text("Keep editing")
+                    .font(.system(size: 12.5, weight: .heavy))
+                    .foregroundStyle(ChopColor.muted)
+            }
+            .padding(.vertical, 14)
+
+            Spacer(minLength: 0)
+        }
+        .presentationDetents([.height(296)])
+        .presentationDragIndicator(.visible)
+        .background(ChopColor.bg)
+        .environment(\.colorScheme, .dark)   // editor is always dark
     }
 
     // web renderCuts(): grouped list of everything currently cut, with Restore
@@ -5803,8 +5921,12 @@ struct QueueCard: View {
         case "processing": return ("PROCESSING", ChopColor.muted, ChopColor.card)
         case "queued":     return ("QUEUED", ChopColor.muted, ChopColor.card)
         case "error":      return ("FAILED", ChopColor.rose, ChopColor.roseSoft)
-        case "review":     return current ? ("EDITING NOW", ChopColor.blue, ChopColor.blueSoft)
-                                          : ("NEEDS REVIEW", ChopColor.amber, ChopColor.amberSoft)
+        case "review":
+            if current { return ("EDITING NOW", ChopColor.blue, ChopColor.blueSoft) }
+            if (job.data["savedLater"] as? Bool) == true {
+                return ("SAVED FOR LATER", ChopColor.blue, ChopColor.blueSoft)
+            }
+            return ("NEEDS REVIEW", ChopColor.amber, ChopColor.amberSoft)
         case "approved":   return ("APPROVED", ChopColor.green, ChopColor.greenSoft)
         case "exported":   return ("EXPORTED", ChopColor.green, ChopColor.greenSoft)
         default:           return nil
