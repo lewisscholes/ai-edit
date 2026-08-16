@@ -1767,15 +1767,33 @@ struct ChopRootView: View {
                     // approved in the editor → land on the Queue tab, next video ready
                     if go { tab = 1; api.goToQueue = false }
                 }
-                .sheet(isPresented: $showTour, onDismiss: { tourSeen = true }) { ChopTourView() }
-                .onAppear { if !tourSeen { showTour = true } }   // first launch only
                 .refreshable { await api.loadJobs() }
             }
             if !api.editorOpen {   // web: no Dashboard/Queue/Cut Lab pill inside the editor
                 ChopGlassNav(tab: $tab, queueCount: reviewCount)
             }
         }
+        // first-launch tour: spotlights on the real controls, short and sharp
+        .chopCoach(steps: ChopRootView.tourSteps, active: $showTour)
+        .onAppear { if !tourSeen { showTour = true } }
+        .onChange(of: showTour) { _, on in if !on { tourSeen = true } }
+        .onChange(of: tourSeen) { _, seen in if !seen { showTour = true } }   // Settings → Replay
     }
+
+    static let tourSteps: [ChopCoachStep] = [
+        .init(id: "tour-upload",
+              title: "Start here",
+              text: "Tap, pick a video from your library, and Chop cuts the dead air, filler words and retakes automatically — then drops you straight into the editor."),
+        .init(id: "tour-queue",
+              title: "Your production line",
+              text: "Every video moves through here: Processing → Review → Ready to export → Downloaded. Use Select to export several at once."),
+        .init(id: "tour-lab",
+              title: "The Cut Lab",
+              text: "Your default cutting style — how long a pause survives, filler words, clip pads, one-tap presets. Every new video starts from these settings."),
+        .init(id: "tour-credits",
+              title: "Credits",
+              text: "One credit edits one video, up to 10 minutes. Top up here. Next: open any video and the editor gives you the same quick pointers on its buttons."),
+    ]
 
     private var signIn: some View {
         ZStack {
@@ -2150,6 +2168,7 @@ struct ChopRootView: View {
             .foregroundStyle(ChopColor.blue)
             .padding(.horizontal, 13).padding(.vertical, 8)
             .background(ChopColor.blueSoft, in: Capsule())
+            .tourAnchor("tour-credits")
 
             Button { showSettings = true } label: {
                 ZStack {
@@ -2347,6 +2366,7 @@ struct ChopRootView: View {
                         .foregroundStyle(Color.chopLine))
                 }
                 .padding(.top, 8)
+                .tourAnchor("tour-upload")
 
                 Text("Consistency").font(ChopFont.h2(24))
                     .foregroundStyle(ChopColor.ink).padding(.top, 28)
@@ -3178,7 +3198,24 @@ struct ChopPlayerScreen: View {
     @State private var marking = false
     @State private var selected: Int? = nil   // selected timeline section
     @State private var compact = false        // web body.stagecompact: 50dvh ↔ 24dvh
+    @AppStorage("chopEditorTourSeen") private var editorTourSeen = false
+    @State private var showEditorTour = false
     @Environment(\.dismiss) private var dismiss
+
+    static let tourSteps: [ChopCoachStep] = [
+        .init(id: "tour-modes", title: "Two views",
+              text: "Edited plays your final cut. Raw shows the full original with everything Chop removed banded in red — and how much time you saved."),
+        .init(id: "tour-timeline", title: "The timeline",
+              text: "Drag to scrub, pinch to zoom. Tap a clip to select it, then Split, Delete or Restore."),
+        .init(id: "tour-retakes", title: "Retakes",
+              text: "Repeated takes appear side by side — pick the keeper. The orange badge counts the ones still undecided."),
+        .init(id: "tour-cuts", title: "Cuts",
+              text: "A cut too tight, or a pause left in? Sliders, clip pads and one-tap presets (Relaxed · Balanced · Snappy) live here."),
+        .init(id: "tour-export", title: "Export",
+              text: "Renders the final cut and saves it straight to your camera roll."),
+        .init(id: "tour-done", title: "Approve",
+              text: "The green tick moves a finished video to Ready to export in the queue. That's the lot — go chop."),
+    ]
 
     private func clock(_ t: Double) -> String {
         let s = Int(t.rounded()); return String(format: "%d:%02d", s / 60, s % 60)
@@ -3202,6 +3239,7 @@ struct ChopPlayerScreen: View {
                     .background(.ultraThinMaterial, in: Capsule())
                     .overlay(Capsule().stroke(Color.white.opacity(0.18), lineWidth: 1))
                     .padding(.top, 10)
+                    .tourAnchor("tour-modes")
 
                     // Raw mode: the whole point — how much time Chop is saving
                     if !p.showEdited, p.rawDuration > p.editedDuration + 0.5 {
@@ -3240,6 +3278,7 @@ struct ChopPlayerScreen: View {
                             .background(.ultraThinMaterial, in: Circle())
                         }
                         .disabled(marking)
+                        .tourAnchor("tour-done")
                     }
                     .padding(.top, 10).padding(.horizontal, 10)
                 }
@@ -3256,6 +3295,7 @@ struct ChopPlayerScreen: View {
                     playBar
                     ChopTimeline(p: p, selected: $selected)
                         .frame(height: 116)   // TikTok strip + doubled thumb pad
+                        .tourAnchor("tour-timeline")
                         .zIndex(2)   // the white selection frame overhangs — draw above neighbours
 
                     // selection swaps the toolbar for Split/Delete/Restore — web body.qesel
@@ -3315,6 +3355,12 @@ struct ChopPlayerScreen: View {
         .onChange(of: p.clipCount) { _, _ in selected = nil } // cuts changed (split doesn't rebuild, so it survives)
         .onAppear { api.editorOpen = true }
         .onDisappear { api.editorOpen = false; p.player.pause() }
+        // first time in the editor: pointer tour on the real buttons
+        .chopCoach(steps: ChopPlayerScreen.tourSteps, active: $showEditorTour)
+        .onChange(of: p.ready) { _, ready in
+            if ready, !editorTourSeen { showEditorTour = true }
+        }
+        .onChange(of: showEditorTour) { _, on in if !on { editorTourSeen = true } }
     }
 
     // Split / Delete / Restore stretched across the row — deselect via the
@@ -3514,6 +3560,7 @@ struct ChopPlayerScreen: View {
                 }
             }
         }
+        .tourAnchor("tour-" + key)
     }
 
     // ---- persistent Done / Queue pills ----
@@ -4809,7 +4856,6 @@ struct ChopSettingsView: View {
     @State private var deleting = false
     @State private var failed = ""
     @State private var pwSent = false
-    @State private var showTour = false
 
     var body: some View {
         NavigationStack {
@@ -4901,7 +4947,13 @@ struct ChopSettingsView: View {
                         }
                         .padding(.horizontal, 15).padding(.vertical, 10)
                         divider
-                        row("App tour", action: "Replay", chevron: true) { showTour = true }
+                        row("App tour", action: "Replay", chevron: true) {
+                            // both tours re-arm: dashboard pointers now,
+                            // editor pointers next time a video opens
+                            UserDefaults.standard.set(false, forKey: "chopTourSeen")
+                            UserDefaults.standard.set(false, forKey: "chopEditorTourSeen")
+                            dismiss()
+                        }
                         divider
                         Link(destination: URL(string: "https://chopedit.com/privacy.html")!) {
                             HStack {
@@ -4966,7 +5018,6 @@ struct ChopSettingsView: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
             .sheet(isPresented: $showProfile) { ChopProfileView(api: api) }
             .sheet(isPresented: $showBilling) { ChopBillingView(api: api) }
-            .sheet(isPresented: $showTour) { ChopTourView() }
             .alert("Delete your account?", isPresented: $confirming) {
                 Button("Cancel", role: .cancel) {}
                 Button("Delete", role: .destructive) {
@@ -5035,88 +5086,125 @@ struct ChopSettingsView: View {
 }
 
 
-// MARK: - App tour (one-time onboarding, replayable from Settings → App tour)
+// MARK: - App tour: coach marks pinned to the real buttons.
+// Dim the screen, spotlight one control, one sharp line, Next — boom boom boom.
+// Skippable, replayable from Settings → App tour.
 
-struct ChopTourView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var page = 0
+struct ChopCoachStep {
+    let id: String      // matches a .tourAnchor(id) somewhere in the tree
+    let title: String
+    let text: String
+}
 
-    private struct TourPage {
-        let icon: String; let tint: Color; let soft: Color
-        let title: String; let body: String
+struct ChopTourAnchorKey: PreferenceKey {
+    static var defaultValue: [String: Anchor<CGRect>] = [:]
+    static func reduce(value: inout [String: Anchor<CGRect>],
+                       nextValue: () -> [String: Anchor<CGRect>]) {
+        value.merge(nextValue()) { $1 }
     }
-    private let pages: [TourPage] = [
-        .init(icon: "scissors", tint: ChopColor.blue, soft: ChopColor.blueSoft,
-              title: "Welcome to Chop",
-              body: "One upload in, one clean cut out. Chop finds the dead air, filler words and repeated takes in your footage, cuts them automatically, and hands you a finished edit in seconds."),
-        .init(icon: "square.and.arrow.up", tint: ChopColor.blue, soft: ChopColor.blueSoft,
-              title: "Upload, then relax",
-              body: "Tap the upload card on the dashboard and pick a video from your library. Around 15 seconds of processing per minute of footage — then you land straight in the editor with the edit already made."),
-        .init(icon: "rectangle.on.rectangle", tint: ChopColor.amber, soft: ChopColor.amberSoft,
-              title: "Retakes, side by side",
-              body: "Said the same line twice? Chop pairs the takes so you choose the keeper. The orange badge on Retakes counts the ones still waiting — the green tick won't approve a video until every retake is decided."),
-        .init(icon: "play.rectangle", tint: ChopColor.rose, soft: ChopColor.roseSoft,
-              title: "Raw vs Edited",
-              body: "Flip to Raw to watch the full original with everything Chop removed banded in red — and see exactly how much time you saved. Edited is the final version. Tap any clip in the timeline to Split, Delete or Restore it."),
-        .init(icon: "wand.and.stars", tint: ChopColor.blue, soft: ChopColor.blueSoft,
-              title: "Cuts, presets & the Cut Lab",
-              body: "A cut feels too tight, or a pause survived? Open Cuts: 'Remove silences over' decides how long a pause can be (lower = tighter), and the Clip start / end pads add or shave a few frames at every cut — the fix when clips feel too short or too long. Presets — Relaxed, Balanced ★, Snappy — set everything in one tap, and the Cut Lab on the dashboard saves your defaults for every new video."),
-        .init(icon: "checkmark.circle", tint: ChopColor.green, soft: ChopColor.greenSoft,
-              title: "Approve, export, done",
-              body: "The green tick moves a finished video to Ready to export. Use Select in the queue to export several to your camera roll at once. Exported videos rest in Downloaded for 7 days, then tidy themselves away. Replay this tour any time from Settings."),
-    ]
+}
 
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                Button("Skip") { dismiss() }
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(ChopColor.muted)
-            }
-            .padding(.horizontal, 20).padding(.top, 16)
+extension View {
+    /// Tag a control so the tour can point at it.
+    func tourAnchor(_ id: String) -> some View {
+        anchorPreference(key: ChopTourAnchorKey.self, value: .bounds) { [id: $0] }
+    }
 
-            TabView(selection: $page) {
-                ForEach(Array(pages.enumerated()), id: \.offset) { i, pg in
-                    VStack(spacing: 18) {
-                        Spacer()
-                        Image(systemName: pg.icon)
-                            .font(.system(size: 40, weight: .semibold))
-                            .foregroundStyle(pg.tint)
-                            .frame(width: 100, height: 100)
-                            .background(pg.soft, in: Circle())
-                        Text(pg.title)
-                            .font(.system(size: 23, weight: .bold))
-                            .foregroundStyle(ChopColor.ink)
-                            .multilineTextAlignment(.center)
-                        Text(pg.body)
-                            .font(.system(size: 14.5))
-                            .foregroundStyle(ChopColor.muted)
-                            .multilineTextAlignment(.center)
-                            .lineSpacing(3)
-                            .padding(.horizontal, 30)
-                        Spacer()
-                        Spacer()
+    /// Attach a coach-mark tour to any container that HOLDS the tagged controls.
+    func chopCoach(steps: [ChopCoachStep], active: Binding<Bool>) -> some View {
+        modifier(ChopCoachModifier(steps: steps, active: active))
+    }
+}
+
+struct ChopCoachModifier: ViewModifier {
+    let steps: [ChopCoachStep]
+    @Binding var active: Bool
+    @State private var index = 0
+
+    func body(content: Content) -> some View {
+        content.overlayPreferenceValue(ChopTourAnchorKey.self) { prefs in
+            if active, index < steps.count {
+                GeometryReader { geo in
+                    let step = steps[index]
+                    let rect: CGRect = prefs[step.id].map { geo[$0] } ?? .zero
+
+                    ZStack {
+                        // dim everything except a rounded cutout on the target
+                        Path { p in
+                            p.addRect(CGRect(origin: .zero, size: geo.size).insetBy(dx: -200, dy: -200))
+                            if rect != .zero {
+                                p.addRoundedRect(in: rect.insetBy(dx: -8, dy: -8),
+                                                 cornerSize: CGSize(width: 14, height: 14))
+                            }
+                        }
+                        .fill(Color.black.opacity(0.62), style: FillStyle(eoFill: true))
+                        .ignoresSafeArea()
+
+                        if rect != .zero {
+                            RoundedRectangle(cornerRadius: 14)
+                                .stroke(ChopColor.blue, lineWidth: 2.5)
+                                .frame(width: rect.width + 16, height: rect.height + 16)
+                                .position(x: rect.midX, y: rect.midY)
+                                .shadow(color: ChopColor.blue.opacity(0.6), radius: 8)
+                        }
+
+                        callout(step: step, rect: rect, size: geo.size)
                     }
-                    .tag(i)
+                    .id(index)   // re-render per step for clean transitions
+                    .transition(.opacity)
                 }
             }
-            .tabViewStyle(.page(indexDisplayMode: .always))
-            .indexViewStyle(.page(backgroundDisplayMode: .always))
-
-            Button {
-                if page < pages.count - 1 { withAnimation { page += 1 } } else { dismiss() }
-            } label: {
-                Text(page < pages.count - 1 ? "Next" : "Let's chop")
-                    .font(.system(size: 15.5, weight: .heavy))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 15)
-                    .background(ChopColor.blue, in: RoundedRectangle(cornerRadius: 14))
-            }
-            .padding(.horizontal, 20).padding(.top, 6).padding(.bottom, 18)
         }
-        .background(Color.chopBg)
+        .animation(.easeInOut(duration: 0.22), value: index)
+        .animation(.easeInOut(duration: 0.22), value: active)
+    }
+
+    private func finish() { active = false; index = 0 }
+
+    private func callout(step: ChopCoachStep, rect: CGRect, size: CGSize) -> some View {
+        let cardW: CGFloat = min(300, size.width - 36)
+        let below = rect == .zero ? true : rect.midY < size.height * 0.5
+        let y: CGFloat = rect == .zero
+            ? size.height * 0.5
+            : (below ? min(size.height - 110, rect.maxY + 96)
+                     : max(110, rect.minY - 96))
+        let x = min(max(cardW / 2 + 18, rect == .zero ? size.width / 2 : rect.midX),
+                    size.width - cardW / 2 - 18)
+
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(step.title)
+                .font(.system(size: 15.5, weight: .heavy))
+                .foregroundStyle(ChopColor.ink)
+            Text(step.text)
+                .font(.system(size: 13))
+                .foregroundStyle(ChopColor.muted)
+                .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(2)
+            HStack {
+                Button { finish() } label: {
+                    Text("Skip")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(ChopColor.muted)
+                }
+                Spacer()
+                Button {
+                    if index < steps.count - 1 { index += 1 } else { finish() }
+                } label: {
+                    Text(index < steps.count - 1 ? "Next · \(index + 1) of \(steps.count)" : "Done ✓")
+                        .font(.system(size: 13, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 15).padding(.vertical, 8)
+                        .background(ChopColor.blue, in: Capsule())
+                }
+            }
+            .padding(.top, 6)
+        }
+        .padding(15)
+        .frame(width: cardW)
+        .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.chopLine, lineWidth: 1))
+        .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
+        .position(x: x, y: y)
     }
 }
 
@@ -5982,6 +6070,7 @@ struct ChopGlassNav: View {
             .padding(.horizontal, 15).padding(.vertical, 11)
             .background(on ? Color.white.opacity(0.10) : .clear, in: Capsule())
         }
+        .tourAnchor(i == 1 ? "tour-queue" : i == 2 ? "tour-lab" : "tour-dash")
     }
 }
 
