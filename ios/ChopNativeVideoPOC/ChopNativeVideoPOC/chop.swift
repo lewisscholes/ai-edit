@@ -12,6 +12,47 @@ import PhotosUI
 import StoreKit
 import AuthenticationServices
 import CryptoKit
+import Security
+
+// MARK: - Keychain (stay signed in)
+
+/// Minimal Keychain wrapper — holds the Supabase refresh token so the session
+/// survives app restarts. Standard practice: token lives in the Keychain,
+/// session silently restores on launch, sign-out wipes it.
+enum ChopKeychain {
+    private static let service = "com.chopedit.session"
+
+    static func set(_ value: String, _ key: String) {
+        let data = Data(value.utf8)
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                    kSecAttrService as String: service,
+                                    kSecAttrAccount as String: key]
+        SecItemDelete(query as CFDictionary)
+        var add = query
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        SecItemAdd(add as CFDictionary, nil)
+    }
+
+    static func get(_ key: String) -> String? {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                    kSecAttrService as String: service,
+                                    kSecAttrAccount as String: key,
+                                    kSecReturnData as String: true,
+                                    kSecMatchLimit as String: kSecMatchLimitOne]
+        var out: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &out) == errSecSuccess,
+              let data = out as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func delete(_ key: String) {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                    kSecAttrService as String: service,
+                                    kSecAttrAccount as String: key]
+        SecItemDelete(query as CFDictionary)
+    }
+}
 
 let SB_URL  = "https://vcrforlyuhapvkewsogq.supabase.co"
 let SB_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZjcmZvcmx5dWhhcHZrZXdzb2dxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzODk4NzAsImV4cCI6MjA5NTk2NTg3MH0.lcFC5aJFUGYrj4iw8oJ8R1bci4y_-aYKyQg8v9zrMqQ"
@@ -638,6 +679,7 @@ final class ChopAPI: ObservableObject {
                   let uid = user["id"] as? String else {
                 error = "That didn't work — try again."; return
             }
+            if let rt = obj["refresh_token"] as? String { ChopKeychain.set(rt, "chop-refresh") }
             accessToken = token
             userId = uid
             signedIn = true
@@ -648,12 +690,45 @@ final class ChopAPI: ObservableObject {
         }
     }
 
+    /// Silent session restore on launch — the "stay signed in" everyone expects.
+    /// Exchanges the Keychain refresh token for a fresh session; a dead or
+    /// revoked token just falls back to the sign-in screen.
+    @Published var restoring = false
+    func restoreSession() async {
+        guard !signedIn, let rt = ChopKeychain.get("chop-refresh") else { return }
+        restoring = true
+        defer { restoring = false }
+        guard var comps = URLComponents(string: "\(SB_URL)/auth/v1/token") else { return }
+        comps.queryItems = [URLQueryItem(name: "grant_type", value: "refresh_token")]
+        guard let url = comps.url else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["refresh_token": rt])
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let token = obj["access_token"] as? String,
+              let user = obj["user"] as? [String: Any],
+              let uid = user["id"] as? String else {
+            ChopKeychain.delete("chop-refresh")   // stale — sign in normally
+            return
+        }
+        if let newRT = obj["refresh_token"] as? String { ChopKeychain.set(newRT, "chop-refresh") }
+        accessToken = token
+        userId = uid
+        signedIn = true
+        await loadProfile()
+        await loadJobs()
+    }
+
     // MARK: social sign-in --------------------------------------------------
     // Both roads end in the same Supabase session as email sign-in.
     // Requires the providers to be switched on in Supabase → Auth → Providers
     // (Apple: services ID + key · Google: client ID/secret) — flag for Aaron.
 
-    private func adoptSession(token: String, uid: String) async {
+    private func adoptSession(token: String, uid: String, refresh: String? = nil) async {
+        if let refresh { ChopKeychain.set(refresh, "chop-refresh") }
         accessToken = token
         userId = uid
         signedIn = true
@@ -685,7 +760,8 @@ final class ChopAPI: ObservableObject {
                 error = "Apple sign-in isn't available yet — use email below."
                 return
             }
-            await adoptSession(token: token, uid: uid)
+            await adoptSession(token: token, uid: uid,
+                               refresh: obj["refresh_token"] as? String)
         } catch is CancellationError {
             // user closed the sheet — say nothing
         } catch let e as ASAuthorizationError where e.code == .canceled {
@@ -721,6 +797,7 @@ final class ChopAPI: ObservableObject {
                 error = "Google sign-in isn't available yet — use email below."
                 return
             }
+            let refresh = frag["refresh_token"]
             // who is this? ask Supabase with the fresh token
             var req = URLRequest(url: URL(string: "\(SB_URL)/auth/v1/user")!)
             req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
@@ -731,7 +808,7 @@ final class ChopAPI: ObservableObject {
                 error = "Google sign-in isn't available yet — use email below."
                 return
             }
-            await adoptSession(token: token, uid: uid)
+            await adoptSession(token: token, uid: uid, refresh: refresh)
         } catch let e as ASWebAuthenticationSessionError where e.code == .canceledLogin {
             // user closed the sheet — say nothing
         } catch {
@@ -1112,6 +1189,7 @@ final class ChopAPI: ObservableObject {
     }
 
     func signOut() {
+        ChopKeychain.delete("chop-refresh")   // an explicit sign-out means OUT
         accessToken = ""; userId = ""; signedIn = false; jobs = []; credits = 0
     }
 }
@@ -1681,6 +1759,12 @@ struct ChopRootView: View {
         Group {
             if api.signedIn {
                 app
+            } else if api.restoring {
+                // silent session restore — a beat of brand, never the sign-in flash
+                ZStack {
+                    Color.chopBg.ignoresSafeArea()
+                    ChopWordmark(size: 40)
+                }
             } else if !seenIntro {
                 // first open: the 3-slide story, then Get started → welcome
                 ChopOnboardingView(done: {
@@ -1691,6 +1775,7 @@ struct ChopRootView: View {
                 NavigationStack { signIn.background(Color.chopBg) }
             }
         }
+        .task { await api.restoreSession() }   // stay signed in across launches
         .preferredColorScheme(theme.scheme)
         .tint(ChopColor.blue)
         .chopToasts()
