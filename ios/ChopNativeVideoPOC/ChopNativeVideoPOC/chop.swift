@@ -537,6 +537,7 @@ final class ChopAPI: ObservableObject {
     @Published var credits: Int = 0
     @Published var editorOpen = false   // hides the glass nav while editing
     @Published var openJob: ChopJob?    // set after import → root presents the editor directly
+    var localImports: [String: URL] = [:]   // job name → file already on the phone: editor opens with zero download
     @Published var profileName = ""
     @Published var profileTiktok = ""
     @Published var profileAvatar = ""
@@ -755,9 +756,52 @@ final class ChopAPI: ObservableObject {
                     data: d
                 )
             }
+            // any card still missing a preview frame? fill it in quietly
+            if !backfillingThumbs,
+               jobs.contains(where: { $0.thumbnail == nil
+                   && (($0.data["proxyKey"] as? String) ?? $0.videoKey) != nil }) {
+                Task { await self.backfillThumbs() }
+            }
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    /// One-time backfill: any job saved without a preview frame (all the
+    /// pre-existing ones) gets a real frame pulled from its cloud copy and
+    /// written back to the row — so the grid stops showing placeholders and
+    /// the web app benefits too. AVAssetImageGenerator streams just the bytes
+    /// it needs over HTTP; it does not download the whole video.
+    private var backfillingThumbs = false
+    func backfillThumbs() async {
+        guard !backfillingThumbs else { return }
+        backfillingThumbs = true
+        defer { backfillingThumbs = false }
+        var wroteAny = false
+        for job in jobs where job.thumbnail == nil {
+            guard let key = (job.data["proxyKey"] as? String) ?? job.videoKey,
+                  let signed = await presignGet(key) else { continue }
+            let asset = AVURLAsset(url: signed)
+            let gen = AVAssetImageGenerator(asset: asset)
+            gen.appliesPreferredTrackTransform = true
+            gen.maximumSize = CGSize(width: 540, height: 540)
+            let dur = CMTimeGetSeconds((try? await asset.load(.duration)) ?? .zero)
+            let t = CMTime(seconds: dur > 2 ? 1.0 : max(0.1, dur * 0.25), preferredTimescale: 600)
+            guard let cg = try? await gen.image(at: t).image,
+                  let jpeg = UIImage(cgImage: cg).jpegData(compressionQuality: 0.55) else { continue }
+            var d = job.data
+            d["thumb"] = "data:image/jpeg;base64," + jpeg.base64EncodedString()
+            guard let url = URL(string: "\(SB_URL)/rest/v1/chop_jobs?user_id=eq.\(userId)&name=eq.\(job.name.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? job.name)") else { continue }
+            var req = URLRequest(url: url)
+            req.httpMethod = "PATCH"
+            req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+            req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try? JSONSerialization.data(withJSONObject: ["data": d])
+            _ = try? await URLSession.shared.data(for: req)
+            wroteAny = true
+        }
+        if wroteAny { await loadJobs() }
     }
 
     /// Ask the existing ai-edit edge function for a signed R2 URL.
@@ -2319,28 +2363,44 @@ final class ChopPlayer: ObservableObject {
         segments = e.segments
         guard !e.segments.isEmpty else { status = "No analysis on this job"; return }
 
+        // FAST PATH 1: the file we just imported is still on the phone —
+        // open instantly, no network at all.
+        if let local = api.localImports[job.name],
+           FileManager.default.fileExists(atPath: local.path) {
+            localURL = local
+            rebuild()
+            return
+        }
+
         // prefer the 540p proxy — small, fast, and sharp enough on a phone
         guard let key = (job.data["proxyKey"] as? String) ?? job.videoKey else {
             status = "Video isn't synced to the cloud yet"; return
+        }
+
+        // FAST PATH 2: downloaded before — reuse the cached copy instead of
+        // pulling the whole video down again on every open.
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let dest = cacheDir.appendingPathComponent(
+            "chop-" + key.replacingOccurrences(of: "/", with: "_") + ".mp4")
+        if FileManager.default.fileExists(atPath: dest.path) {
+            localURL = dest
+            rebuild()
+            return
         }
 
         status = "Fetching video…"
         guard let signed = await api.presignGet(key) else { status = "Couldn't get the video"; return }
 
         status = "Downloading…"
-        let local: URL
         do {
             let (tmp, _) = try await URLSession.shared.download(from: signed)
-            let dest = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString + ".mp4")
             try? FileManager.default.removeItem(at: dest)
             try FileManager.default.moveItem(at: tmp, to: dest)
-            local = dest
         } catch {
             status = "Download failed: \(error.localizedDescription)"; return
         }
 
-        localURL = local
+        localURL = dest
         rebuild()
     }
 
@@ -3959,6 +4019,9 @@ final class ChopImporter: ObservableObject {
         // the background — it's only needed for export, not for reviewing.
         stepIndex = 5; step = "Saving…"
         await api.spendCredit()
+        // the picked file is already on the phone — let the editor open it
+        // instantly instead of waiting for the cloud round-trip
+        api.localImports[name] = pickedURL
         await api.saveJob(name: name, payload: payload, rawSec: rawSec, videoKey: nil, thumb: thumb)
         await api.loadJobs()
         ChopToasts.shared.show("Chopped ✓")
@@ -4011,6 +4074,7 @@ struct ImportSheet: View {
     @ObservedObject var api: ChopAPI
     @StateObject private var imp = ChopImporter()
     @State private var pickedMany: [PhotosPickerItem] = []
+    @State private var preparing = false        // copying from the photo library — busy from frame one
     var initialPicks: [PhotosPickerItem] = []   // videos already chosen on the dashboard
     @Environment(\.dismiss) private var dismiss
 
@@ -4026,7 +4090,7 @@ struct ImportSheet: View {
         VStack(spacing: 18) {
             let _ = debugPreview()
 
-            if imp.busy {
+            if imp.busy || preparing {
                 // .proc — web parity: card, 20px title, soft step circles, 6px bar
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Editing your video…")
@@ -4103,11 +4167,20 @@ struct ImportSheet: View {
         .padding(24)
         .background(Color.chopBg)
         .onAppear {
-            // dashboard already picked the videos — start chopping immediately
-            if !initialPicks.isEmpty, !imp.busy { pickedMany = initialPicks }
+            // dashboard already picked the videos — start chopping immediately,
+            // and show the processing card from the very first frame (the copy
+            // out of the photo library takes seconds on big files; without this
+            // the idle "Choose videos" page flashes up in the gap)
+            if !initialPicks.isEmpty, !imp.busy {
+                preparing = true
+                imp.stepIndex = 0
+                pickedMany = initialPicks
+            }
         }
         .onChange(of: pickedMany) { _, items in
             guard !items.isEmpty else { return }
+            preparing = true
+            if imp.stepIndex < 0 { imp.stepIndex = 0 }
             Task {
                 // one at a time — parallel imports exhaust memory on a phone
                 var lastName: String?
@@ -4122,6 +4195,7 @@ struct ImportSheet: View {
                     await imp.run(pickedURL: movie.url, name: friendly, api: api)
                     if imp.done { lastName = friendly }
                 }
+                preparing = false
                 // No done screen — the moment the edit is saved, close the sheet
                 // and drop straight into the editor for the fresh chop.
                 if let lastName, let job = api.jobs.first(where: { $0.name == lastName }) {
