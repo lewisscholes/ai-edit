@@ -7845,9 +7845,11 @@ struct LandArrow: View {
             .background(landGrad, in: Circle())
             .rotationEffect(.degrees(90))
             .scaleEffect(big ? 1.09 : 1)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { big = true }
-            }
+            // value-scoped repeatForever (same pattern as the hero) — the old
+            // onAppear+withAnimation form dies silently on device when the
+            // appear transaction merges with the screen transition.
+            .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: big)
+            .onAppear { big = true }
     }
 }
 
@@ -7867,9 +7869,8 @@ struct LandMini: View {
             }
         }
         .frame(height: 24)
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) { dim = true }
-        }
+        .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: dim)
+        .onAppear { dim = true }
     }
 }
 
@@ -7989,12 +7990,13 @@ struct VizTimeline: View {
                     .opacity(gap && collapsed ? 0.5 : 1)
             }
             .frame(height: 40)
-            .animation(.easeInOut(duration: 1.2), value: collapsed)
+            // the plain .animation(value:) here OVERRODE the repeatForever from
+            // onAppear — the strip collapsed once and froze. The repeat now
+            // lives in the modifier itself.
+            .animation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true), value: collapsed)
             vizLabel("1:42", "0:58", rGreen: false)
         }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) { collapsed = true }
-        }
+        .onAppear { collapsed = true }
     }
 }
 
@@ -8006,9 +8008,8 @@ struct VizRetakes: View {
             take("\"It's the pink numbers. How many…\"", len: "3.4s", pick: false)
             take("\"It's the pink numbers.\"", len: "1.8s", pick: true)
         }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true)) { lit = true }
-        }
+        .animation(.easeInOut(duration: 1.8).repeatForever(autoreverses: true), value: lit)
+        .onAppear { lit = true }
     }
 
     private func take(_ s: String, len: String, pick: Bool) -> some View {
@@ -8057,12 +8058,12 @@ struct VizQuickEdit: View {
                 .frame(height: g.size.height, alignment: .center)
             }
             .frame(height: 58)
-            .animation(.easeInOut(duration: 2.2), value: tight)
+            // same override bug as VizTimeline — one-shot .animation(value:)
+            // beat the repeatForever, so the trim demo ran once and froze.
+            .animation(.easeInOut(duration: 2.25).repeatForever(autoreverses: true), value: tight)
             vizLabel("pinch · split · trim · snap")
         }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 2.25).repeatForever(autoreverses: true)) { tight = true }
-        }
+        .onAppear { tight = true }
     }
 
     private func handle(_ g: String) -> some View {
