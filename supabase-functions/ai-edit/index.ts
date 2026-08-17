@@ -163,11 +163,20 @@ function detectRetakes(utts: Utt[]) {
          · same word set reshuffled (bag ≥ 0.6) → potential retake
          Better to flag a non-retake for review than let a retake through. */
       const certainLead = !short && leadRaw >= 4;
+      /* v19: a 2-word false start ("And then —") retried as a full sentence was
+         invisible — the `short` gate kept utterances under 3 comp-tokens out of
+         the weak branch entirely, so Lewis's 2-word opening rule could never
+         fire on the quickest false starts (Aaron's 17 Aug "And then / and then
+         what we're gonna do…" test). fullLead lifts the gate ONLY when the
+         entire shorter utterance is the verbatim opening of the other — the
+         classic false-start shape — so ordinary short interjections still
+         can't pair. */
+      const fullLead = leadRaw >= 2 && leadRaw >= Math.min(raws[i].length, raws[j].length);
       if (score >= strongTh || certainLead) {
         const a = find(i), b = find(j); if (a !== b) parent[b] = a;
         scores[`${i}-${j}`] = Math.max(score, certainLead ? 0.75 : 0);
       }
-      else if (!short && (score >= WEAK_THRESHOLD || lead >= 3 || leadRaw >= 2 || bag >= 0.6)) {
+      else if ((!short && (score >= WEAK_THRESHOLD || lead >= 3 || leadRaw >= 2 || bag >= 0.6)) || fullLead) {
         weakCand.push({ i, j, score: Math.max(score, 0.5) });
       }
     }
@@ -195,26 +204,33 @@ function detectRetakes(utts: Utt[]) {
   return out;
 }
 
-function applyRetakes(segs: Seg[], utts: Utt[], groups: { members: number[]; sim: number; weak?: boolean }[]) {
-  const kept: { sim: number; weak: boolean }[] = [];
+/* v18: applyRetakes appends into a shared `kept` array so detection can run
+   at more than one utterance granularity. If any target segment was already
+   marked by an earlier pass, the whole group is skipped — earlier (coarser)
+   passes win and nothing is ever double-flagged. Marks are only committed when
+   the group has both an A and a B side (same rule as before, just checked
+   before writing instead of rolled back after). */
+function applyRetakes(segs: Seg[], utts: Utt[], groups: { members: number[]; sim: number; weak?: boolean }[], kept: { sim: number; weak: boolean }[] = []) {
   groups.forEach((g) => {
     const gi = kept.length;
     const lastIdx = g.members[g.members.length - 1];
-    let hasA = false, hasB = false;
-    const marked: Seg[] = [];
+    let hasA = false, hasB = false, conflict = false;
+    const marks: { s: Seg; retake: string }[] = [];
     for (const m of g.members) {
       const u = utts[m];
       for (const s of segs) {
         if (s.kind !== "speech") continue;
         const ov = Math.min(s.end, u.end) - Math.max(s.start, u.start);
         if (ov > 0.5 * (s.end - s.start)) {
-          s.retake = m === lastIdx ? "b" : "a"; s.pair = gi; marked.push(s);
+          if (s.pair !== null) conflict = true;
+          marks.push({ s, retake: m === lastIdx ? "b" : "a" });
           if (m === lastIdx) hasB = true; else hasA = true;
         }
       }
     }
-    if (hasA && hasB) kept.push({ sim: g.sim, weak: !!g.weak });
-    else marked.forEach((s) => { s.retake = null; s.pair = null; });
+    if (conflict || !hasA || !hasB) return;
+    marks.forEach((mk) => { mk.s.retake = mk.retake; mk.s.pair = gi; });
+    kept.push({ sim: g.sim, weak: !!g.weak });
   });
   return kept;
 }
@@ -222,9 +238,16 @@ function applyRetakes(segs: Seg[], utts: Utt[], groups: { members: number[]; sim
 /* Deepgram's 0.4s utterance split merges a quick false start ("this bundle
    is—") straight into the retake that follows it, so the pair never forms and
    an obvious retake gets missed. Rebuild utterances from word timings with a
-   tighter 0.28s gap, unioned with Deepgram's own boundaries. This feeds
-   RETAKE DETECTION ONLY — the cut logic never sees these. */
-function buildUtterances(words: Word[], dgUtts: Utt[]): Utt[] {
+   tighter gap, unioned with Deepgram's own boundaries. This feeds
+   RETAKE DETECTION ONLY — the cut logic never sees these.
+   v18: the gap is now a parameter. Deepgram word timings drift run-to-run, so
+   a pause that measured 0.30s one run can come back 0.25s the next and slip
+   under a single fixed threshold — detection ran once at 0.28s and the same
+   video flapped between flagged and missed. Detection now runs at TWO
+   granularities (0.28s, then a finer 0.18s) and merges the results, so
+   wherever the pause timing lands the retake still splits in one of the
+   passes. Coarse pass wins conflicts; nothing is double-flagged. */
+function buildUtterances(words: Word[], dgUtts: Utt[], gapS = 0.28): Utt[] {
   if (!words.length) return dgUtts;
   const bounds = new Set(dgUtts.map((u) => Math.round(u.start * 1000)));
   const out: Utt[] = [];
@@ -238,7 +261,7 @@ function buildUtterances(words: Word[], dgUtts: Utt[]): Utt[] {
   for (const w of words) {
     if (cur.length) {
       const gap = w.start - cur[cur.length - 1].end;
-      if (gap >= 0.28 || bounds.has(Math.round(w.start * 1000))) flush();
+      if (gap >= gapS || bounds.has(Math.round(w.start * 1000))) flush();
     }
     cur.push(w);
   }
@@ -260,11 +283,14 @@ async function processJob(jobId: string, key: string) {
     const duration: number = res.metadata?.duration ?? 0;
     const words: Word[] = res.results?.channels?.[0]?.alternatives?.[0]?.words ?? [];
     const dgUtts: Utt[] = (res.results?.utterances ?? []).map((u: any) => ({ start: u.start, end: u.end, transcript: u.transcript }));
-    const utts = buildUtterances(words, dgUtts);
     if (!words.length) throw new Error("No speech detected in this video");
     const segs = buildSegments(words, duration);
-    const groups = detectRetakes(utts);
-    const pairs = applyRetakes(segs, utts, groups);
+    // v18: two-granularity retake detection — coarse pass first, fine pass fills in
+    // whatever a sub-0.28s pause hid. Merged via shared `pairs` array; coarse wins.
+    const utts = buildUtterances(words, dgUtts, 0.28);
+    const pairs = applyRetakes(segs, utts, detectRetakes(utts));
+    const uttsFine = buildUtterances(words, dgUtts, 0.18);
+    applyRetakes(segs, uttsFine, detectRetakes(uttsFine), pairs);
     await db(`ai_edit_jobs?id=eq.${jobId}`, { method: "PATCH", body: JSON.stringify({ status: "done", duration, segments: segs, pairs }) });
   } catch (e) {
     await db(`ai_edit_jobs?id=eq.${jobId}`, { method: "PATCH", body: JSON.stringify({ status: "error", error: String(e).slice(0, 500) }) }).catch(() => {});
