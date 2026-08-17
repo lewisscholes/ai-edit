@@ -3583,6 +3583,7 @@ struct ChopPlayerScreen: View {
     @State private var marking = false
     @State private var selected: Int? = nil   // selected timeline section
     @State private var compact = false        // web body.stagecompact: 50dvh ↔ 24dvh
+    @State private var dragShift: CGFloat = 0 // live finger-follow while swiping the video small/big
     @AppStorage("chopEditorTourSeen") private var editorTourSeen = false
     @State private var showEditorTour = false
     @State private var showFinishSheet = false   // tick → export or save for later
@@ -3682,14 +3683,40 @@ struct ChopPlayerScreen: View {
                     }
                     .padding(.top, 10).padding(.horizontal, 10)
                 }
-                .frame(height: p.ready ? geo.size.height * (compact ? 0.24 : 0.50)
-                                       : geo.size.height * 0.50)
+                .frame(height: (p.ready ? geo.size.height * (compact ? 0.24 : 0.50)
+                                        : geo.size.height * 0.50) + dragShift)
                 .clipped()
                 .animation(.spring(response: 0.38, dampingFraction: 0.85), value: compact)
                 .onTapGesture {
                     if compact { compact = false }        // bring the video back first
                     else if p.ready { p.togglePlay() }    // CapCut: tap preview = play/pause
                 }
+                // Swipe the video itself small/big — tuned "middle ground" (Lewis,
+                // 17 Aug, HTML gesture tuner): 12pt dead zone (minimumDistance),
+                // the video FOLLOWS the finger at 0.85×, release commits at 80pt
+                // of pull OR a 550pt/s flick — anything less springs back.
+                // simultaneousGesture so tap (play/pause) and the LOCKED pinch
+                // zoom are untouched; bails the moment a pinch is live.
+                .simultaneousGesture(DragGesture(minimumDistance: 12)
+                    .onChanged { g in
+                        guard p.ready, pinchStart == nil, pinchLive == nil else { return }
+                        let span = geo.size.height * (0.50 - 0.24)
+                        let ty = g.translation.height * 0.85
+                        dragShift = compact ? min(span, max(0, ty)) : max(-span, min(0, ty))
+                    }
+                    .onEnded { g in
+                        guard p.ready, pinchStart == nil, pinchLive == nil else {
+                            withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) { dragShift = 0 }
+                            return
+                        }
+                        let pull = abs(g.translation.height) * 0.85
+                        let flick = abs(g.predictedEndTranslation.height - g.translation.height) * 4
+                        let rightWay = compact ? g.translation.height > 0 : g.translation.height < 0
+                        withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) {
+                            if rightWay, pull >= 80 || flick >= 550 { compact.toggle() }
+                            dragShift = 0
+                        }
+                    })
                 // TikTok: pinch the video to zoom the SELECTED clip only
                 .simultaneousGesture(MagnificationGesture()
                     .onChanged { v in
@@ -3743,14 +3770,23 @@ struct ChopPlayerScreen: View {
                                     }
                                 }
                                 .gesture(
-                                    DragGesture(minimumDistance: 5)
+                                    // Same tuned feel as swiping the video: 12pt dead
+                                    // zone, 0.85× finger-follow, commit at 80pt or a
+                                    // 550pt/s flick, spring back otherwise (drag up =
+                                    // grow panel = video shrinks live).
+                                    DragGesture(minimumDistance: 12)
                                         .onChanged { g in
-                                            // fire the moment the direction is clear
-                                            if g.translation.height < -12, !compact {
-                                                withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) { compact = true }
-                                            }
-                                            if g.translation.height > 12, compact {
-                                                withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) { compact = false }
+                                            let span = geo.size.height * (0.50 - 0.24)
+                                            let ty = g.translation.height * 0.85
+                                            dragShift = compact ? min(span, max(0, ty)) : max(-span, min(0, ty))
+                                        }
+                                        .onEnded { g in
+                                            let pull = abs(g.translation.height) * 0.85
+                                            let flick = abs(g.predictedEndTranslation.height - g.translation.height) * 4
+                                            let rightWay = compact ? g.translation.height > 0 : g.translation.height < 0
+                                            withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) {
+                                                if rightWay, pull >= 80 || flick >= 550 { compact.toggle() }
+                                                dragShift = 0
                                             }
                                         }
                                 )
