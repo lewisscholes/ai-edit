@@ -1470,8 +1470,22 @@ struct ChopOnboardingView: View {
             .padding(.bottom, 38)
         }
         .background(ChopColor.bg.ignoresSafeArea())
-        .onAppear { loop = true; if startPage > 0 { page = startPage } }
+        .onAppear { if startPage > 0 { page = startPage } }
         .onChange(of: startPage) { _, v in page = v }
+    }
+
+    /// The slides live inside a UIPageViewController-backed TabView whose pages
+    /// mount AFTER the container's onAppear — so a single `loop = true` fired
+    /// there lands before any animated view exists. The pages then mount with
+    /// loop already true, never observe a change, and every "looping" prop
+    /// renders frozen at its end state (what Lewis saw on device). Each slide
+    /// now kicks the trigger when IT appears: drop to false, flip to true on
+    /// the next runloop tick, and every mounted prop sees a fresh change and
+    /// starts its repeatForever. Swiping back to a slide just restarts the
+    /// loops, which is the intended feel anyway.
+    private func kickLoop() {
+        loop = false
+        DispatchQueue.main.async { loop = true }
     }
 
     private func slide(tag: String?, headline: String, em: String, prop: AnyView) -> some View {
@@ -1484,6 +1498,7 @@ struct ChopOnboardingView: View {
             }
             Spacer()
             prop
+                .onAppear { kickLoop() }
             Spacer()
             VStack(spacing: -7) {   // tight, wordmark-style leading
                 Text(headline)
