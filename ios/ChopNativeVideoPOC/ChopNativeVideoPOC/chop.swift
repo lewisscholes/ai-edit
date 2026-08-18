@@ -2828,6 +2828,7 @@ final class ChopPlayer: ObservableObject {
             "splits": splits,
             "zooms": zooms.map { ["s": $0.start, "e": $0.end, "z": Double($0.scale)] },
             "rotations": rotations.map { ["s": $0.start, "e": $0.end, "q": $0.q] },
+            "kfZooms": kfZooms.map { ["s": $0.start, "e": $0.end, "z": Double($0.scale)] },
             "editedSec": editedDuration,
         ]
         await api.mergeJobData(name, fields: fields)
@@ -2856,6 +2857,7 @@ final class ChopPlayer: ObservableObject {
         var splits: [Double] = []
         var zooms: [(start: Double, end: Double, scale: CGFloat)] = []
         var rotations: [(start: Double, end: Double, q: Int)] = []
+        var kfZooms: [(start: Double, end: Double, scale: CGFloat)] = []
     }
     private var past: [Snapshot] = []
     private var future: [Snapshot] = []
@@ -2906,6 +2908,13 @@ final class ChopPlayer: ObservableObject {
                 guard let s = $0["s"] as? Double, let e2 = $0["e"] as? Double,
                       let q = $0["q"] as? Int else { return nil }
                 return (s, e2, q % 4)
+            }
+        }
+        if let ks = job.data["kfZooms"] as? [[String: Any]] {   // keyframe ramps too
+            kfZooms = ks.compactMap {
+                guard let s = $0["s"] as? Double, let e2 = $0["e"] as? Double,
+                      let z = $0["z"] as? Double else { return nil }
+                return (s, e2, CGFloat(z))
             }
         }
         guard !e.segments.isEmpty else { status = "No analysis on this job"; return }
@@ -3108,11 +3117,13 @@ final class ChopPlayer: ObservableObject {
         session.shouldOptimizeForNetworkUse = true
         // bake per-clip pinch zooms into the file — what you saw is what you post
         // (and any per-clip rotations — same composition, same fixed canvas)
-        if !zooms.isEmpty || !rotations.isEmpty, let compV = comp.tracks(withMediaType: .video).first {
+        if !zooms.isEmpty || !rotations.isEmpty || !kfZooms.isEmpty,
+           let compV = comp.tracks(withMediaType: .video).first {
             session.videoComposition = ChopPlayer.zoomComposition(
                 track: compV, srcTransform: srcV.preferredTransform,
                 srcNatural: srcV.naturalSize, kept: kept,
-                zooms: zooms, totalDuration: comp.duration, rotations: rotations)
+                zooms: zooms, totalDuration: comp.duration,
+                rotations: rotations, kfZooms: kfZooms)
         }
 
         exportMsg = "Rendering…"
@@ -3167,7 +3178,8 @@ final class ChopPlayer: ObservableObject {
                                 kept: [ChopClip],
                                 zooms: [(start: Double, end: Double, scale: CGFloat)],
                                 totalDuration: CMTime,
-                                rotations: [(start: Double, end: Double, q: Int)] = []) -> AVMutableVideoComposition {
+                                rotations: [(start: Double, end: Double, q: Int)] = [],
+                                kfZooms: [(start: Double, end: Double, scale: CGFloat)] = []) -> AVMutableVideoComposition {
         let bounds = CGRect(origin: .zero, size: srcNatural).applying(srcTransform)
         let base = srcTransform.concatenating(
             CGAffineTransform(translationX: -bounds.minX, y: -bounds.minY))
@@ -3177,9 +3189,17 @@ final class ChopPlayer: ObservableObject {
         let renderSize = CGSize(width: abs(bounds.width), height: abs(bounds.height))
         let cx = renderSize.width / 2, cy = renderSize.height / 2
 
-        // split the OUTPUT timeline at clip joins and zoom/rotation edges,
-        // back-to-back so the instructions tile the whole duration with no gaps
-        struct Piece { let start: CMTime; let duration: CMTime; let scale: CGFloat; let q: Int }
+        // split the OUTPUT timeline at clip joins and zoom/rotation/keyframe
+        // edges, back-to-back so the instructions tile the whole duration
+        struct Piece { let start: CMTime; let duration: CMTime; let scale: CGFloat; let q: Int
+                       let k0: CGFloat; let k1: CGFloat }   // keyframe ramp scale at piece start/end
+        // ramped keyframe scale at a RAW moment (1 outside every ramp)
+        func kfAt(_ rt: Double) -> CGFloat {
+            guard let k = kfZooms.first(where: { rt >= $0.start - 0.0001 && rt <= $0.end + 0.0001 })
+            else { return 1 }
+            let f = (rt - k.start) / max(k.end - k.start, 0.001)
+            return 1 + (k.scale - 1) * CGFloat(min(max(f, 0), 1))
+        }
         var pieces: [Piece] = []
         var outCursor = CMTime.zero
         for clip in kept {
@@ -3192,6 +3212,10 @@ final class ChopPlayer: ObservableObject {
                 if r.start > clip.start, r.start < clip.end { marks.append(r.start) }
                 if r.end > clip.start, r.end < clip.end { marks.append(r.end) }
             }
+            for kf in kfZooms {
+                if kf.start > clip.start, kf.start < clip.end { marks.append(kf.start) }
+                if kf.end > clip.start, kf.end < clip.end { marks.append(kf.end) }
+            }
             marks.sort()
             for k in 0..<(marks.count - 1) {
                 let s = marks[k], e = marks[k + 1]
@@ -3200,14 +3224,16 @@ final class ChopPlayer: ObservableObject {
                 let scale = zooms.first(where: { mid >= $0.start && mid <= $0.end })?.scale ?? 1
                 let q = (rotations.first(where: { mid >= $0.start && mid <= $0.end })?.q ?? 0) % 4
                 let dur = CMTime(seconds: e - s, preferredTimescale: 600)
-                pieces.append(Piece(start: outCursor, duration: dur, scale: scale, q: q))
+                pieces.append(Piece(start: outCursor, duration: dur, scale: scale, q: q,
+                                    k0: kfAt(s + 0.002), k1: kfAt(e - 0.002)))
                 outCursor = CMTimeAdd(outCursor, dur)
             }
         }
         // rounding drift: stretch the final piece to the exact end
         if var last = pieces.popLast() {
             let dur = CMTimeSubtract(totalDuration, last.start)
-            last = Piece(start: last.start, duration: dur, scale: last.scale, q: last.q)
+            last = Piece(start: last.start, duration: dur, scale: last.scale, q: last.q,
+                         k0: last.k0, k1: last.k1)
             pieces.append(last)
         }
 
@@ -3218,24 +3244,32 @@ final class ChopPlayer: ObservableObject {
             let inst = AVMutableVideoCompositionInstruction()
             inst.timeRange = CMTimeRange(start: piece.start, duration: piece.duration)
             let li = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
-            var t = base
-            if piece.scale > 1.01 || piece.q != 0 {
-                // centre-anchored: rotation + fit first (letterbox in the fixed
-                // canvas, mirroring the preview cage), then the pinch zoom.
+            // centre-anchored transform for a combined scale (pinch × keyframe)
+            // and rotation; neutral inputs return plain `base` — the old path.
+            func tf(_ s: CGFloat, _ q: Int) -> CGAffineTransform {
+                guard s > 1.01 || q != 0 else { return base }
                 var m = CGAffineTransform(translationX: -cx, y: -cy)
-                if piece.q != 0 {
-                    let fit: CGFloat = piece.q % 2 == 1
+                if q != 0 {
+                    let fit: CGFloat = q % 2 == 1
                         ? min(renderSize.width / renderSize.height,
                               renderSize.height / renderSize.width) : 1
-                    m = m.concatenating(CGAffineTransform(rotationAngle: CGFloat(piece.q) * .pi / 2))
+                    m = m.concatenating(CGAffineTransform(rotationAngle: CGFloat(q) * .pi / 2))
                          .concatenating(CGAffineTransform(scaleX: fit, y: fit))
                 }
-                if piece.scale > 1.01 {
-                    m = m.concatenating(CGAffineTransform(scaleX: piece.scale, y: piece.scale))
+                if s > 1.01 {
+                    m = m.concatenating(CGAffineTransform(scaleX: s, y: s))
                 }
-                t = base.concatenating(m.concatenating(CGAffineTransform(translationX: cx, y: cy)))
+                return base.concatenating(m.concatenating(CGAffineTransform(translationX: cx, y: cy)))
             }
-            li.setTransform(t, at: piece.start)
+            if abs(piece.k1 - piece.k0) > 0.005 {
+                // KEYFRAME RAMP: AVFoundation interpolates the transform across
+                // the piece — centre-anchored scale interpolates exactly.
+                li.setTransformRamp(fromStart: tf(piece.scale * piece.k0, piece.q),
+                                    toEnd: tf(piece.scale * piece.k1, piece.q),
+                                    timeRange: CMTimeRange(start: piece.start, duration: piece.duration))
+            } else {
+                li.setTransform(tf(piece.scale * piece.k0, piece.q), at: piece.start)
+            }
             inst.layerInstructions = [li]
             return inst
         }
@@ -3355,7 +3389,7 @@ final class ChopPlayer: ObservableObject {
                  manualCuts: edit?.manualCuts ?? [],
                  manualKeeps: edit?.manualKeeps ?? [],
                  minSil: minSil, fillers: fillers, soft: softFillers,
-                 splits: splits, zooms: zooms, rotations: rotations)
+                 splits: splits, zooms: zooms, rotations: rotations, kfZooms: kfZooms)
     }
     private func apply(_ s: Snapshot) {
         pairs = s.pairs; segments = s.segments
@@ -3363,6 +3397,7 @@ final class ChopPlayer: ObservableObject {
         splits = s.splits
         zooms = s.zooms   // undo reverts the WHOLE zoom, not a frame of it
         rotations = s.rotations   // rotations undo the same way
+        kfZooms = s.kfZooms       // keyframe ramps too
         if var e = edit { e.manualCuts = s.manualCuts; e.manualKeeps = s.manualKeeps; edit = e }
         rebuildKeepingTime()   // undo/redo must not throw the playhead to 0
     }
@@ -3570,6 +3605,64 @@ final class ChopPlayer: ObservableObject {
     func rotationQ(atEditTime t: Double) -> Int {
         guard let r = raw(fromEdit: t) else { return 0 }
         return rotations.first(where: { r >= $0.start - 0.001 && r <= $0.end + 0.001 })?.q ?? 0
+    }
+
+    // MARK: KEYFRAME ZOOMS (Lewis 18 Aug) — TikTok-style ramp. Tap the diamond
+    // to drop keyframe 1, scrub ahead, tap again: the video zooms IN gradually
+    // from 1× at the first keyframe to the target at the second, then snaps
+    // back to normal. Pinch (with no clip selected) sets the target. Separate
+    // list from the locked per-clip pinch zooms; raw-time ranges like them.
+    @Published var kfZooms: [(start: Double, end: Double, scale: CGFloat)] = []
+    @Published var kfPending: Double? = nil   // first keyframe dropped (raw time)
+
+    func kfIndex(atEditTime t: Double) -> Int? {
+        guard let r = raw(fromEdit: t) else { return nil }
+        return kfZooms.firstIndex(where: { r >= $0.start - 0.001 && r <= $0.end + 0.001 })
+    }
+    /// The ramped keyframe scale at an EDIT moment — multiplies the preview.
+    func kfScale(atEditTime t: Double) -> CGFloat {
+        guard let r = raw(fromEdit: t),
+              let k = kfZooms.first(where: { r >= $0.start - 0.001 && r <= $0.end + 0.001 })
+        else { return 1 }
+        let f = (r - k.start) / max(k.end - k.start, 0.001)
+        return 1 + (k.scale - 1) * CGFloat(min(max(f, 0), 1))
+    }
+    func setKFTarget(_ s: CGFloat, at i: Int) {
+        guard i < kfZooms.count else { return }
+        kfZooms[i].scale = min(3, max(1.05, s))
+        scheduleSave()
+    }
+    /// The diamond button. 1st tap arms a keyframe at the playhead; 2nd tap
+    /// (further along) completes the ramp; a tap inside an existing ramp
+    /// removes it; a tap on the armed spot cancels it.
+    func keyframeTapped() {
+        guard showEdited, let r = raw(fromEdit: time) else { return }
+        if kfPending == nil,
+           let i = kfZooms.firstIndex(where: { r >= $0.start - 0.001 && r <= $0.end + 0.001 }) {
+            pushHistory()
+            kfZooms.remove(at: i)
+            scheduleSave()
+            ChopToasts.shared.show("Keyframe zoom removed")
+            return
+        }
+        if let a = kfPending {
+            if r > a + 0.2 {
+                pushHistory()
+                kfZooms.removeAll { $0.start < r && $0.end > a }   // no overlaps
+                kfZooms.append((a, r, 1.5))
+                kfPending = nil
+                scheduleSave()
+                ChopToasts.shared.show("Zooms in to here — pinch the video to set how far")
+            } else if r < a - 0.2 {
+                ChopToasts.shared.show("Scrub PAST the first keyframe, then tap again")
+            } else {
+                kfPending = nil
+                ChopToasts.shared.show("Keyframe removed")
+            }
+            return
+        }
+        kfPending = r
+        ChopToasts.shared.show("Keyframe set — scrub ahead, then tap ◇ again")
     }
 
     /// Kept footage subdivided by splits — the web's qeBands(), in raw time.
@@ -3913,6 +4006,7 @@ struct ChopPlayerScreen: View {
     @State private var showFinishSheet = false   // tick → export or save for later
     @State private var pinchStart: CGFloat? = nil   // pinch-zoom on the selected clip
     @State private var pinchLive: CGFloat? = nil
+    @State private var pinchKF: Int? = nil          // pinch is adjusting this keyframe ramp
     @Environment(\.dismiss) private var dismiss
 
     static let tourSteps: [ChopCoachStep] = [
@@ -3956,7 +4050,9 @@ struct ChopPlayerScreen: View {
                         .rotationEffect(.degrees(Double(rotQ) * 90))
                         .scaleEffect(rotFit)
                         .aspectRatio(p.videoAspect, contentMode: .fit)
-                        .scaleEffect(pinchLive ?? p.zoomScale(atEditTime: p.time))
+                        // keyframe ramp multiplies on top — 1 when no keyframes
+                        .scaleEffect((pinchLive ?? p.zoomScale(atEditTime: p.time))
+                                     * p.kfScale(atEditTime: p.time))
                         .animation(.easeInOut(duration: 0.15),
                                    value: pinchLive ?? p.zoomScale(atEditTime: p.time))
                         .animation(.easeInOut(duration: 0.25), value: rotQ)
@@ -4055,6 +4151,21 @@ struct ChopPlayerScreen: View {
                 // TikTok: pinch the video to zoom the SELECTED clip only
                 .simultaneousGesture(MagnificationGesture()
                     .onChanged { v in
+                        // KEYFRAME ZOOM (additive, early return): no clip
+                        // selected + playhead inside a ramp → pinch sets the
+                        // ramp's TARGET zoom. The locked selected-clip path
+                        // below is untouched.
+                        if selected == nil, p.showEdited,
+                           pinchKF != nil || pinchStart == nil,
+                           let ki = pinchKF ?? p.kfIndex(atEditTime: p.time) {
+                            if pinchStart == nil {
+                                pinchStart = p.kfZooms[ki].scale
+                                pinchKF = ki
+                                p.pushHistory()   // one pinch = one undoable action
+                            }
+                            p.setKFTarget((pinchStart ?? 1.5) * v, at: ki)
+                            return
+                        }
                         guard p.showEdited, let sel = selected, sel < p.bands.count else { return }
                         if pinchStart == nil {
                             pinchStart = p.zoom(forBand: sel)
@@ -4065,6 +4176,13 @@ struct ChopPlayerScreen: View {
                         p.setZoom(s, forBand: sel)
                     }
                     .onEnded { _ in
+                        if let ki = pinchKF {
+                            pinchKF = nil; pinchStart = nil
+                            if ki < p.kfZooms.count {
+                                ChopToasts.shared.show(String(format: "Zooms in to %.1f× — plays back smoothly", p.kfZooms[ki].scale))
+                            }
+                            return
+                        }
                         defer { pinchStart = nil; pinchLive = nil }
                         guard p.showEdited, let sel = selected, sel < p.bands.count,
                               pinchStart != nil else { return }
@@ -4273,6 +4391,15 @@ struct ChopPlayerScreen: View {
                         .font(.system(size: 11, weight: .bold)).foregroundStyle(Color.chopGreen)
                 }
                 Spacer()
+                // KEYFRAME ZOOM (Lewis 18 Aug): tap = drop keyframe 1, scrub,
+                // tap again = the zoom ramps between them. Filled diamond while
+                // armed. Works on time, not clips — always white.
+                Button { p.keyframeTapped() } label: {
+                    Image(systemName: p.kfPending == nil ? "diamond" : "diamond.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(Color.chopInk)
+                        .frame(width: 34, height: 34)
+                }
                 // ROTATE (Lewis 18 Aug v2): rotates the SELECTED clip 90° per
                 // tap. White when a clip is selected; faint grey (like a spent
                 // undo button) when nothing is selected.
@@ -6825,11 +6952,18 @@ final class ChopExporter {
                       let q = $0["q"] as? Int else { return nil }
                 return (s, e2, q % 4)
             }
-        if !savedZooms.isEmpty || !savedRots.isEmpty {
+        let savedKFs: [(start: Double, end: Double, scale: CGFloat)] =
+            ((job.data["kfZooms"] as? [[String: Any]]) ?? []).compactMap {
+                guard let s = $0["s"] as? Double, let e2 = $0["e"] as? Double,
+                      let z = $0["z"] as? Double else { return nil }
+                return (s, e2, CGFloat(z))
+            }
+        if !savedZooms.isEmpty || !savedRots.isEmpty || !savedKFs.isEmpty {
             session.videoComposition = ChopPlayer.zoomComposition(
                 track: vTrack, srcTransform: srcV.preferredTransform,
                 srcNatural: srcV.naturalSize, kept: kept,
-                zooms: savedZooms, totalDuration: comp.duration, rotations: savedRots)
+                zooms: savedZooms, totalDuration: comp.duration,
+                rotations: savedRots, kfZooms: savedKFs)
         }
         await session.export()
         guard session.status == .completed else { return false }
