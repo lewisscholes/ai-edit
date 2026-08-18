@@ -9783,7 +9783,7 @@ enum ChopTextLayout {
         lm.addTextContainer(tc); storage.addLayoutManager(lm)
         var out: [(String, CGFloat)] = []
         lm.enumerateLineFragments(forGlyphRange: lm.glyphRange(for: tc)) { _, used, _, gr, _ in
-            let cr = lm.characterRange(forGlyphRange: gr)
+            let cr = lm.characterRange(forGlyphRange: gr, actualGlyphRange: nil)
             let s = (storage.string as NSString).substring(with: cr)
                 .trimmingCharacters(in: .newlines)
             out.append((s, used.width))
