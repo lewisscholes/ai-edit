@@ -4879,10 +4879,17 @@ struct ChopTimeline: View {
                             bind.wrappedValue = i
                             p.player.pause()
                             // TikTok: only jump if the cursor ISN'T already on
-                            // this clip — otherwise pause exactly where it is
+                            // this clip — otherwise pause exactly where it is.
+                            // When it does jump, snap to the NEAR edge (Aaron,
+                            // 18 Aug, per TikTok reference video): tapping an
+                            // EARLIER clip lands at its END, a later clip at
+                            // its start.
                             let span = p.bandSpansEdit[i]
                             if !(p.time >= span.start && p.time <= span.end) {
-                                p.seekExact(to: min(span.start + 0.001, p.duration))
+                                let target = p.time > span.end
+                                    ? max(span.start, span.end - 0.001)
+                                    : min(span.start + 0.001, p.duration)
+                                p.seekExact(to: target)
                             }
                         }
                     }
