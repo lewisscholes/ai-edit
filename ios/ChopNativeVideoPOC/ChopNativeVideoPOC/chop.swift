@@ -3651,7 +3651,7 @@ final class ChopPlayer: ObservableObject {
     }
     func setKFTarget(_ s: CGFloat, at i: Int) {
         guard i < kfZooms.count else { return }
-        kfZooms[i].scale = min(3, max(1.05, s))
+        kfZooms[i].scale = min(3, max(1.0, s))   // 1.0 = inert ramp (nothing happens)
         scheduleSave()
     }
     func setKFAnchor(ax: CGFloat, ay: CGFloat, at i: Int) {
@@ -3687,7 +3687,9 @@ final class ChopPlayer: ObservableObject {
             if r > a + 0.2 {
                 pushHistory()
                 kfZooms.removeAll { $0.start < r && $0.end > a }   // no overlaps
-                kfZooms.append((a, r, 1.5, 0, 0))
+                // scale 1.0 = INERT (Lewis): dropping keyframes does nothing
+                // visible until the creator pinches to set how far it zooms
+                kfZooms.append((a, r, 1.0, 0, 0))
                 kfPending = nil
                 scheduleSave()
             } else if abs(r - a) <= 0.2 {
@@ -4043,7 +4045,18 @@ struct ChopPlayerScreen: View {
     @State private var pinchKF: Int? = nil          // pinch is adjusting this keyframe ramp
     @State private var kfPanStart: (CGFloat, CGFloat)? = nil   // anchor at freeform-drag start
     @State private var kfDragging = false           // show the centre guides
+    @State private var kfGuideIdx: Int? = nil       // ramp whose guides are showing
     @State private var cageSize: CGSize = .zero     // measured cage — pan maths
+
+    /// FREEFORM (Lewis 18 Aug v2): the keyframe ramp a one-finger drag should
+    /// pan right now — during a keyframe pinch, or any time the playhead sits
+    /// inside a ramp that actually zooms. nil = drags mean swipe-up as usual.
+    private var panKF: Int? {
+        guard p.showEdited, selected == nil, pinchLive == nil else { return nil }
+        if let ki = pinchKF { return ki }
+        if let ki = p.kfIndex(atEditTime: p.time), p.kfZooms[ki].scale > 1.01 { return ki }
+        return nil
+    }
     @Environment(\.dismiss) private var dismiss
 
     static let tourSteps: [ChopCoachStep] = [
@@ -4110,7 +4123,7 @@ struct ChopPlayerScreen: View {
 
                     // centre guides while freeform-dragging a keyframe zoom —
                     // bright when snapped to centre, faint otherwise
-                    if kfDragging, let ki = pinchKF, ki < p.kfZooms.count {
+                    if kfDragging, let ki = kfGuideIdx, ki < p.kfZooms.count {
                         ZStack {
                             Rectangle()
                                 .fill(Color.white.opacity(p.kfZooms[ki].ax == 0 ? 0.95 : 0.25))
@@ -4193,13 +4206,15 @@ struct ChopPlayerScreen: View {
                 // zoom are untouched; bails the moment a pinch is live.
                 .simultaneousGesture(DragGesture(minimumDistance: 12)
                     .onChanged { g in
-                        guard p.ready, pinchStart == nil, pinchLive == nil else { return }
+                        guard p.ready, pinchStart == nil, pinchLive == nil,
+                              panKF == nil else { return }   // freeform pan owns this drag
                         let span = geo.size.height * (0.50 - 0.24)
                         let ty = g.translation.height * 0.85
                         dragShift = compact ? min(span, max(0, ty)) : max(-span, min(0, ty))
                     }
                     .onEnded { g in
-                        guard p.ready, pinchStart == nil, pinchLive == nil else {
+                        guard p.ready, pinchStart == nil, pinchLive == nil,
+                              panKF == nil else {
                             withAnimation(.spring(response: 0.38, dampingFraction: 0.85)) { dragShift = 0 }
                             return
                         }
@@ -4253,29 +4268,32 @@ struct ChopPlayerScreen: View {
                             ? String(format: "Zoomed %.1f× — this clip only", z)
                             : "Zoom reset")
                     })
-                // FREEFORM PAN (Lewis 18 Aug): while pinching a keyframe zoom,
-                // dragging moves the video — the ramp's focal point follows the
-                // finger, snapping to centre with guide lines. Active ONLY
-                // while a keyframe pinch is live, so it can never collide with
-                // the swipe-up gesture (which bails when pinchStart != nil) or
-                // any other drag on this stage.
+                // FREEFORM PAN (Lewis 18 Aug v2): one-finger drag moves the
+                // video whenever the playhead sits inside a ZOOMED keyframe
+                // ramp (and during the pinch itself) — the focal point follows
+                // the finger, snapping to centre with guide lines. The swipe-up
+                // gesture stands down for exactly these drags (guard on panKF)
+                // and works normally everywhere else.
                 .simultaneousGesture(DragGesture(minimumDistance: 4)
                     .onChanged { g in
-                        guard let ki = pinchKF, ki < p.kfZooms.count,
+                        guard let ki = kfGuideIdx ?? panKF, ki < p.kfZooms.count,
                               cageSize.width > 1, cageSize.height > 1 else { return }
+                        if kfPanStart == nil {
+                            p.pushHistory()   // one drag = one undoable action
+                            kfPanStart = (p.kfZooms[ki].ax, p.kfZooms[ki].ay)
+                            kfGuideIdx = ki
+                        }
                         kfDragging = true
-                        let k = p.kfZooms[ki]
-                        if kfPanStart == nil { kfPanStart = (k.ax, k.ay) }
                         // finger moves the video by d → the anchor shifts the
                         // other way, scaled by how much the zoom magnifies
-                        let mag = max(k.scale - 1, 0.05)
+                        let mag = max(p.kfZooms[ki].scale - 1, 0.05)
                         var ax = (kfPanStart?.0 ?? 0) - g.translation.width / (mag * cageSize.width)
                         var ay = (kfPanStart?.1 ?? 0) - g.translation.height / (mag * cageSize.height)
                         if abs(ax) < 0.03 { ax = 0 }   // centre snap, both axes
                         if abs(ay) < 0.03 { ay = 0 }
                         p.setKFAnchor(ax: ax, ay: ay, at: ki)
                     }
-                    .onEnded { _ in kfDragging = false; kfPanStart = nil })
+                    .onEnded { _ in kfDragging = false; kfPanStart = nil; kfGuideIdx = nil })
 
                 if p.ready {
                     playBar
