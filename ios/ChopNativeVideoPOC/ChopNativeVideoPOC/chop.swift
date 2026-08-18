@@ -2800,12 +2800,25 @@ final class ChopPlayer: ObservableObject {
         }
         guard !e.segments.isEmpty else { status = "No analysis on this job"; return }
 
+        // PLAYBACK PROXY (additive, Lewis 18 Aug): a 1080p preview copy made in
+        // the background the first time a big video opens. PLAYBACK ONLY — the
+        // export chain below never sees it (export's original-only guard is
+        // untouched). Same model the web already uses (540p proxyKey edits):
+        // cut/zoom times are plain seconds, identical on proxy and original.
+        let proxy1080 = ChopPlayer.proxyURL(for: job.name)
+        if FileManager.default.fileExists(atPath: proxy1080.path) {
+            localURL = proxy1080
+            rebuild()
+            return
+        }
+
         // FAST PATH 1: the file we just imported is still on the phone —
         // open instantly, no network at all.
         if let local = api.localImports[job.name],
            FileManager.default.fileExists(atPath: local.path) {
             localURL = local
             rebuild()
+            kickProxy(from: local, name: job.name)   // ready for the next open
             return
         }
 
@@ -2822,6 +2835,7 @@ final class ChopPlayer: ObservableObject {
         if FileManager.default.fileExists(atPath: dest.path) {
             localURL = dest
             rebuild()
+            kickProxy(from: dest, name: job.name)   // no-op if it's already ≤1080p
             return
         }
 
@@ -2839,6 +2853,53 @@ final class ChopPlayer: ObservableObject {
 
         localURL = dest
         rebuild()
+        kickProxy(from: dest, name: job.name)
+    }
+
+    // MARK: 1080p playback proxy (additive) ---------------------------------
+    // 4K editing works, but scrubbing/trim-preview makes the phone decode 4K
+    // frames constantly. This makes a 1080p H.264 copy in the background the
+    // first time a big video opens; every LATER open plays the proxy instead.
+    // Rules: never for export (original-only guard above is untouched), never
+    // generated for footage already ≤1080p, silent failure = original keeps
+    // playing exactly as today, and it stays out of the way of imports.
+
+    private static var proxyInFlight = Set<String>()
+
+    nonisolated static func proxyURL(for name: String) -> URL {
+        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let safe = name.replacingOccurrences(of: "/", with: "_")
+        return cacheDir.appendingPathComponent("chop-proxy1080-" + safe + ".mp4")
+    }
+
+    private func kickProxy(from src: URL, name: String) {
+        let dest = ChopPlayer.proxyURL(for: name)
+        guard !FileManager.default.fileExists(atPath: dest.path),
+              !ChopPlayer.proxyInFlight.contains(name) else { return }
+        ChopPlayer.proxyInFlight.insert(name)
+        Task.detached(priority: .utility) {
+            defer { Task { @MainActor in ChopPlayer.proxyInFlight.remove(name) } }
+            let asset = AVURLAsset(url: src)
+            // only worth a proxy when the source is actually bigger than 1080p
+            guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+                  let size = try? await track.load(.naturalSize),
+                  min(abs(size.width), abs(size.height)) > 1120 else { return }
+            guard let ex = AVAssetExportSession(asset: asset, presetName: AVAssetExportPreset1920x1080) else { return }
+            let tmp = dest.deletingPathExtension().appendingPathExtension("part.mp4")
+            try? FileManager.default.removeItem(at: tmp)
+            ex.outputURL = tmp
+            ex.outputFileType = .mp4
+            ex.shouldOptimizeForNetworkUse = false
+            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+                ex.exportAsynchronously { cont.resume() }
+            }
+            if ex.status == .completed {
+                try? FileManager.default.removeItem(at: dest)
+                try? FileManager.default.moveItem(at: tmp, to: dest)
+            } else {
+                try? FileManager.default.removeItem(at: tmp)   // silent: original keeps playing
+            }
+        }
     }
 
 
