@@ -4263,7 +4263,6 @@ struct ChopPlayerScreen: View {
                                 ChopTextRender(text: ov.text, style: ov.style, colorHex: ov.colorHex,
                                                fontPx: fpx,
                                                wrapW: cageSize.width * 0.84 - (ov.style == "box" ? 0.72 * fpx : 0))
-                                    .equatable()   // skip re-render on the 20Hz player tick (perf fix)
                                     .scaleEffect(ov.scale)
                                     .overlay {
                                         if selText == ov.id {
@@ -9743,23 +9742,13 @@ enum ChopTikTokFont {
         return cachedName
     }
     /// TikTok Sans at a size + variable weight; system semibold fallback.
-    /// CACHED — descriptor creation is expensive and this gets asked for on
-    /// every SwiftUI pass (perf fix, Lewis 18 Aug: editor was lagging).
-    private static var fontCache: [String: UIFont] = [:]
     static func ui(_ size: CGFloat, weight: CGFloat) -> UIFont {
-        let key = "\(Int(size * 2))-\(Int(weight))"
-        if let f = fontCache[key] { return f }
-        let made: UIFont
-        if let n = name, let f = UIFont(name: n, size: size) {
-            let vkey = UIFontDescriptor.AttributeName(rawValue: kCTFontVariationAttribute as String)
-            let d = f.fontDescriptor.addingAttributes([vkey: [2003265652: weight]])   // 'wght'
-            made = UIFont(descriptor: d, size: size)
-        } else {
-            made = .systemFont(ofSize: size, weight: weight > 590 ? .bold : .semibold)
+        guard let n = name, let f = UIFont(name: n, size: size) else {
+            return .systemFont(ofSize: size, weight: weight > 590 ? .bold : .semibold)
         }
-        if fontCache.count > 64 { fontCache.removeAll() }
-        fontCache[key] = made
-        return made
+        let vkey = UIFontDescriptor.AttributeName(rawValue: kCTFontVariationAttribute as String)
+        let d = f.fontDescriptor.addingAttributes([vkey: [2003265652: weight]])   // 'wght'
+        return UIFont(descriptor: d, size: size)
     }
 }
 
@@ -9793,12 +9782,7 @@ func chopHexLight(_ h: String) -> Bool {
 enum ChopTextLayout {
     /// TextKit line fragments — the SAME wrap the edit box uses, so placed
     /// text always breaks on the same words (the Post Haus layout-lock).
-    private static var cache: [String: [(text: String, width: CGFloat)]] = [:]
     static func lines(_ text: String, font: UIFont, width: CGFloat) -> [(text: String, width: CGFloat)] {
-        // CACHED (perf fix): TextStorage/LayoutManager allocation per SwiftUI
-        // pass was saturating the main thread at the 20Hz player tick.
-        let key = "\(text)|\(font.fontName)|\(Int(font.pointSize * 2))|\(Int(width))"
-        if let hit = cache[key] { return hit }
         let storage = NSTextStorage(string: text.isEmpty ? " " : text, attributes: [.font: font])
         let lm = NSLayoutManager()
         let tc = NSTextContainer(size: CGSize(width: max(width, 10), height: .greatestFiniteMagnitude))
@@ -9811,10 +9795,7 @@ enum ChopTextLayout {
                 .trimmingCharacters(in: .newlines)
             out.append((s, used.width))
         }
-        let result = out.isEmpty ? [(text, CGFloat(0))] : out
-        if cache.count > 300 { cache.removeAll() }
-        cache[key] = result
-        return result
+        return out.isEmpty ? [(text, 0)] : out
     }
 
     /// Post Haus _mtePoly + _mteRoundPath ported: ONE smooth banner around all
@@ -9883,7 +9864,7 @@ struct ChopHalo: ViewModifier {
 /// One overlay, rendered exactly like the approved mockup: TikTok Sans,
 /// banner / outline / plain. Doubles as the LIVE PREVIEW in the edit screen,
 /// which is what makes Done pixel-identical to the editor.
-struct ChopTextRender: View, Equatable {
+struct ChopTextRender: View {
     let text: String
     let style: String
     let colorHex: String
@@ -9926,7 +9907,6 @@ struct ChopTextRender: View, Equatable {
         }
         .frame(width: max(maxW + 2 * padX, 10),
                height: CGFloat(ls.count) * lineH + 2 * padY)
-        .drawingGroup()   // rasterise halo + banner once on the GPU (perf fix)
     }
 }
 
