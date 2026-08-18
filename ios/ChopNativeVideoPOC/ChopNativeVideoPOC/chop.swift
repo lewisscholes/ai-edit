@@ -2674,8 +2674,8 @@ struct ChopRootView: View {
                 // runs, so upload/analysis/retakes/editor/export never know the
                 // difference.
                 HStack(spacing: 8) {
-                    importModeButton("Single take", mode: 0)
-                    importModeButton("Multi-take", mode: 1)
+                    importModeButton("Single video", mode: 0)
+                    importModeButton("Multi video", mode: 1)
                 }
                 .padding(.top, 8)
 
@@ -5869,23 +5869,44 @@ struct ImportSheet: View {
                 // first, then run the unchanged pipeline once. Single-take
                 // continues below exactly as before.
                 if stitch, items.count > 1 { await runStitched(items); return }
-                // one at a time — parallel imports exhaust memory on a phone
-                var lastName: String?
-                for (n, item) in items.enumerated() {
-                    guard let movie = try? await item.loadTransferable(type: ChopMovie.self) else {
-                        imp.failed = "Couldn't read that video"; continue
-                    }
+                // SINGLE-VIDEO batch (Lewis 18 Aug): only the FIRST video runs
+                // with the loading screen — the creator drops straight into
+                // editing it while videos 2..N chop themselves in the
+                // background, one at a time (parallel imports exhaust phone
+                // memory), landing in the queue as they finish.
+                func batchName(_ n: Int) -> String {
                     let df = DateFormatter(); df.dateFormat = "d MMM, HH.mm"
                     var friendly = "Chop " + df.string(from: Date())
                     if items.count > 1 { friendly += " (\(n + 1))" }
-                    friendly += ".mp4"
-                    await imp.run(pickedURL: movie.url, name: friendly, api: api)
-                    if imp.done { lastName = friendly }
+                    return friendly + ".mp4"
+                }
+                var firstName: String?
+                if let item = items.first {
+                    if let movie = try? await item.loadTransferable(type: ChopMovie.self) {
+                        let friendly = batchName(0)
+                        await imp.run(pickedURL: movie.url, name: friendly, api: api)
+                        if imp.done { firstName = friendly }
+                    } else {
+                        imp.failed = "Couldn't read that video"
+                    }
+                }
+                let rest = Array(items.dropFirst())
+                if !rest.isEmpty {
+                    let apiRef = api
+                    Task {   // survives the sheet's dismissal; fresh importer so
+                             // its progress never repaints the (closed) sheet
+                        let bg = ChopImporter()
+                        for (n, item) in rest.enumerated() {
+                            guard let movie = try? await item.loadTransferable(type: ChopMovie.self) else { continue }
+                            await bg.run(pickedURL: movie.url, name: batchName(n + 1), api: apiRef)
+                        }
+                        ChopToasts.shared.show("All videos chopped — waiting in your queue")
+                    }
                 }
                 preparing = false
                 // No done screen — the moment the edit is saved, close the sheet
                 // and drop straight into the editor for the fresh chop.
-                if let lastName, let job = api.jobs.first(where: { $0.name == lastName }) {
+                if let firstName, let job = api.jobs.first(where: { $0.name == firstName }) {
                     dismiss()
                     try? await Task.sleep(nanoseconds: 450_000_000)   // let the sheet settle first
                     // never hijack the screen: if they're already editing
