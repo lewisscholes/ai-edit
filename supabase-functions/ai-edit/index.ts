@@ -204,6 +204,58 @@ function detectRetakes(utts: Utt[]) {
   return out;
 }
 
+/* v20 — ANCHOR TAKES (Lewis 18 Aug, the '14s all-retakes' video): rapid-fire
+   retakes restart in under 0.18s and drag interjections ("wait", "do that
+   again") onto the front of merged utterances — no pause-based pass can split
+   them and no opening-word rule can match them. This net ignores utterances
+   entirely: a tight two-word sequence that repeats 3+ times across the WHOLE
+   word stream (≥1s apart, both words heard back-to-back) is a retake anchor.
+   Each occurrence starts a take (extended back over glued lead-ins like "so"),
+   each take runs to the next anchor, the last is the keeper — so marker words
+   between takes sit inside the dying take's span and get cut with it. Flagged
+   weak (0.5 · CHECK): the creator always decides. Verified against Lewis's
+   real transcript (4/4 takes found) and against normal speech (0 anchors).
+   Runs AFTER the classic ladder; applyRetakes' conflict-skip keeps earlier
+   detections authoritative. */
+function detectAnchorTakes(words: Word[]): Utt[][] {
+  const cwd = (w: Word) => w.word.toLowerCase().replace(/[^a-z0-9']/g, "");
+  const occ = new Map<string, number[]>();
+  for (let i = 0; i + 1 < words.length; i++) {
+    const a = cwd(words[i]), b = cwd(words[i + 1]);
+    if (!a || !b || HARD_FILLERS.has(a) || HARD_FILLERS.has(b)) continue;
+    if (words[i + 1].start - words[i].end >= 0.6) continue;
+    const k = a + " " + b;
+    if (!occ.has(k)) occ.set(k, []);
+    occ.get(k)!.push(i);
+  }
+  const cands = [...occ.entries()].filter(([, v]) => v.length >= 3)
+    .sort((x, y) => y[1].length - x[1].length);
+  const used = new Array(words.length).fill(false);
+  const groups: Utt[][] = [];
+  for (const [, idxs0] of cands) {
+    const idxs: number[] = []; let lastT = -99;
+    for (const i of idxs0) { if (words[i].start - lastT >= 1.0) { idxs.push(i); lastT = words[i].start; } }
+    if (idxs.length < 3) continue;
+    if (idxs.some((i) => used[i])) continue;
+    const starts = idxs.map((i) => {
+      let j = i;
+      while (j > 0 && LEAD_IN.has(cwd(words[j - 1])) && words[j].start - words[j - 1].end < 0.6) j--;
+      return j;
+    });
+    const utts: Utt[] = [];
+    for (let n = 0; n < starts.length; n++) {
+      const s = starts[n];
+      const e = n + 1 < starts.length ? starts[n + 1] - 1 : words.length - 1;
+      if (e < s) continue;
+      utts.push({ start: words[s].start, end: words[e].end,
+                  transcript: words.slice(s, e + 1).map((w) => w.punctuated_word || w.word).join(" ") });
+      for (let m = s; m <= e; m++) used[m] = true;
+    }
+    if (utts.length >= 3) groups.push(utts);
+  }
+  return groups;
+}
+
 /* v18: applyRetakes appends into a shared `kept` array so detection can run
    at more than one utterance granularity. If any target segment was already
    marked by an earlier pass, the whole group is skipped — earlier (coarser)
@@ -291,6 +343,10 @@ async function processJob(jobId: string, key: string) {
     const pairs = applyRetakes(segs, utts, detectRetakes(utts));
     const uttsFine = buildUtterances(words, dgUtts, 0.18);
     applyRetakes(segs, uttsFine, detectRetakes(uttsFine), pairs);
+    // v20: anchor-take net for rapid-fire retakes — see detectAnchorTakes.
+    for (const g of detectAnchorTakes(words)) {
+      applyRetakes(segs, g, [{ members: g.map((_, i) => i), sim: 0.5, weak: true }], pairs);
+    }
     await db(`ai_edit_jobs?id=eq.${jobId}`, { method: "PATCH", body: JSON.stringify({ status: "done", duration, segments: segs, pairs }) });
   } catch (e) {
     await db(`ai_edit_jobs?id=eq.${jobId}`, { method: "PATCH", body: JSON.stringify({ status: "error", error: String(e).slice(0, 500) }) }).catch(() => {});
