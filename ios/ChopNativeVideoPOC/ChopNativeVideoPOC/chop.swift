@@ -6566,17 +6566,16 @@ struct ChopMovie: Transferable {
 /// Product IDs must match App Store Connect exactly when it's set up.
 /// Credit count is encoded in the ID so granting never needs a lookup table.
 enum ChopPacks {
-    // Pricing ladder (Lewis, 16 Aug 26): £1/credit baseline, then −5p per
-    // video at every step up — 1/5/10 = £1 · 50 = 95p · 100 = 90p ·
-    // 200 = 85p · 300 = 80p. ASC products must be created to match.
+    // Pricing (Lewis, 18 Aug 26 — matches App Store Connect exactly):
+    // 5 = £4.99 (99.8p/video) · 50 = £44.99 (90p) · 100 = £84.99 (85p) ·
+    // 150 = £119.99 (80p) · 200 = £149.99 (75p) · 250 = £174.99 (70p).
     static let ids = [
-        "com.chopedit.credits.1",
         "com.chopedit.credits.5",
-        "com.chopedit.credits.10",
         "com.chopedit.credits.50",
         "com.chopedit.credits.100",
+        "com.chopedit.credits.150",
         "com.chopedit.credits.200",
-        "com.chopedit.credits.300",
+        "com.chopedit.credits.250",
     ]
     static func credits(in productID: String) -> Int {
         Int(productID.split(separator: ".").last.map(String.init) ?? "") ?? 0
@@ -6654,28 +6653,36 @@ struct ChopBillingView: View {
     @Environment(\.dismiss) private var dismiss
     // V2+V3 hybrid (Lewis-approved): £1 first-chop hero for the easy first
     // purchase, savings ladder for AOV, upgrade bump on 50, value reframe.
-    @State private var sel: Int = 1
+    @State private var sel: Int = 5
     @State private var note = ""
-    private let packs = [5, 50, 100, 200, 300]
+    private let packs = [50, 100, 150, 200, 250]   // 5 lives in the hero card
 
-    /// The 5p-a-step ladder (Lewis, 16 Aug 26): £1 baseline, 95p at 50,
-    /// 90p at 100, 85p at 200, 80p at 300+. NOTE: the web app still runs the
-    /// old curve — port this same function there when pricing goes live.
-    private func perCredit(_ n: Int) -> Double {
-        if n < 50 { return 1.00 }
-        if n < 100 { return 0.95 }
-        if n < 200 { return 0.90 }
-        if n < 300 { return 0.85 }
-        return 0.80
+    /// App Store tier prices (Lewis, 18 Aug 26) — MUST match Chop.storekit and
+    /// App Store Connect. Totals come from here, per-video is derived, so the
+    /// UI always shows exactly what Apple charges. NOTE: web app still runs
+    /// the old curve — port when pricing goes live there.
+    private func price(_ n: Int) -> Double {
+        switch n {
+        case 5: return 4.99
+        case 50: return 44.99
+        case 100: return 84.99
+        case 150: return 119.99
+        case 200: return 149.99
+        case 250: return 174.99
+        default: return Double(n)
+        }
     }
+    private func perCredit(_ n: Int) -> Double { price(n) / Double(max(n, 1)) }
     private func gbp(_ v: Double) -> String { String(format: "£%.2f", (v * 100).rounded() / 100) }
-    private func perLabel(_ v: Double) -> String { v < 1 ? "\(Int((v * 100).rounded()))p" : gbp(v) }
+    private func perLabel(_ v: Double) -> String {
+        if v >= 1 { return gbp(v) }
+        let p = v * 100
+        return abs(p - p.rounded()) < 0.05 ? "\(Int(p.rounded()))p" : String(format: "%.1fp", p)
+    }
 
     var body: some View {
         let count = sel
-        let per = perCredit(count)
-        let total = Double(count) * per
-        let _ = Double(count) * 1.0 - total
+        let total = price(count)
 
         NavigationStack {
             ScrollView {
@@ -6732,7 +6739,7 @@ struct ChopBillingView: View {
                             Button {
                                 note = "Purchases aren’t available in this build yet — they arrive with the App Store release."
                             } label: {
-                                Text(count == 1 ? "Edit my first video — £1"
+                                Text(count == 5 ? "Start with 5 credits — £4.99"
                                                 : "Get \(count) credits — \(gbp(total))")
                                     .font(.system(size: 15, weight: .heavy))
                                     .frame(maxWidth: .infinity).padding(.vertical, 14)
@@ -6754,7 +6761,7 @@ struct ChopBillingView: View {
                                     note = "That pack isn't available right now — try another."
                                 }
                             } label: {
-                                Text(count == 1 ? "Edit my first video — £1"
+                                Text(count == 5 ? "Start with 5 credits — £4.99"
                                                 : "Get \(count) credits — \(gbp(total))")
                                     .font(.system(size: 15, weight: .heavy))
                                     .frame(maxWidth: .infinity).padding(.vertical, 14)
@@ -6805,20 +6812,20 @@ struct ChopBillingView: View {
         }
     }
 
-    /// The £1 first chop — foot-in-the-door, risk reversed.
+    /// The starter pack — foot-in-the-door, risk reversed (5 @ £4.99).
     private var heroCard: some View {
-        Button { withAnimation(.easeInOut(duration: 0.18)) { sel = 1 } } label: {
+        Button { withAnimation(.easeInOut(duration: 0.18)) { sel = 5 } } label: {
             VStack(alignment: .leading, spacing: 4) {
                 Text("FIRST TIME? START HERE")
                     .font(.system(size: 9.5, weight: .black)).kerning(0.8)
                     .foregroundStyle(.white.opacity(0.85))
                 HStack(alignment: .firstTextBaseline) {
-                    Text("Your first chop")
+                    Text("Your first 5 chops")
                         .font(.system(size: 19, weight: .heavy)).foregroundStyle(.white)
                     Spacer()
-                    Text("£1").font(.system(size: 25, weight: .black)).foregroundStyle(.white)
+                    Text("£4.99").font(.system(size: 25, weight: .black)).foregroundStyle(.white)
                 }
-                Text("One video, fully edited. If you don't love it, you've risked a coffee.")
+                Text("Five videos, fully edited — under £1 each. If you don't love it, you've risked a lunch.")
                     .font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.88))
             }
             .padding(16)
@@ -6827,7 +6834,7 @@ struct ChopBillingView: View {
                                        startPoint: .topLeading, endPoint: .bottomTrailing),
                         in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16)
-                .stroke(sel == 1 ? Color.white : Color.clear, lineWidth: 2.5))
+                .stroke(sel == 5 ? Color.white : Color.clear, lineWidth: 2.5))
             .shadow(color: Color.chopBlue.opacity(0.3), radius: 10, y: 4)
         }
         .buttonStyle(.plain)
@@ -6837,7 +6844,7 @@ struct ChopBillingView: View {
     private func packRow(_ p: Int) -> some View {
         let on = sel == p
         let per = perCredit(p)
-        let save = Double(p) - Double(p) * per
+        let save = Double(p) * 0.998 - price(p)   // vs the starter 99.8p rate
         return Button { withAnimation(.easeInOut(duration: 0.18)) { sel = p } } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
@@ -6868,12 +6875,12 @@ struct ChopBillingView: View {
     /// The order bump — appears only under a selected 50-pack.
     private var bumpCard: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Wait — for £42.50 more you'd get double.")
+            Text("Wait — for £40 more you'd get double.")
                 .font(.system(size: 12, weight: .heavy)).foregroundStyle(ChopColor.amber)
-            Text("100 credits drops you to 90p a video and saves £10 total.")
+            Text("100 credits drops you to 85p a video.")
                 .font(.system(size: 11.5)).foregroundStyle(ChopColor.muted)
             Button { withAnimation(.easeInOut(duration: 0.18)) { sel = 100 } } label: {
-                Text("Upgrade to 100 → £90.00")
+                Text("Upgrade to 100 → £84.99")
                     .font(.system(size: 12, weight: .heavy))
                     .foregroundStyle(Color(red: 0x3d/255, green: 0x2e/255, blue: 0x05/255))
                     .padding(.horizontal, 13).padding(.vertical, 8)
@@ -9198,10 +9205,10 @@ struct LandPricing: View {
                 LandPrice(name: "STARTER", amount: "£1", unit: "/video", per: "under 50 credits",
                           bullets: ["Everything included", "1080p exports", "Works on your phone"],
                           mid: false, signup: signup)
-                LandPrice(name: "CREATOR", amount: "85p", unit: "/video", per: "50+ credits",
+                LandPrice(name: "CREATOR", amount: "90p", unit: "/video", per: "50+ credits",
                           bullets: ["Everything included", "Bulk upload queue", "Cross-device sync"],
                           mid: true, signup: signup)
-                LandPrice(name: "PRO", amount: "75p", unit: "/video", per: "100+ credits · drops to 60p",
+                LandPrice(name: "PRO", amount: "85p", unit: "/video", per: "100+ credits · drops to 70p",
                           bullets: ["Everything included", "Best rate per video", "For daily posters"],
                           mid: false, signup: signup)
             }
