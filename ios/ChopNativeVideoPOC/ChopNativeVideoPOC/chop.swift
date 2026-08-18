@@ -5045,11 +5045,16 @@ struct ChopTimeline: View {
     }
 
     // pinch = zoom, anchored on the stick (time is the anchor by construction)
+    // Max zoom scales with video length now (was a hard 8× cap that left 0.2s
+    // clips untappable — Lewis 18 Aug): fully zoomed, one second spans ~300pt,
+    // so a single frame is ~10pt and a 0.2s clip ~60pt. Zoom-out unchanged.
     private func pinchGesture() -> some Gesture {
         MagnificationGesture()
             .onChanged { v in
                 if zoomStart == nil { zoomStart = zoom }
-                zoom = min(8, max(1, (zoomStart ?? 1.5) * v))
+                let vw = max(UIScreen.main.bounds.width, 1)
+                let maxZoom = max(8, 300 * CGFloat(max(baseDur, 0.001)) / vw)
+                zoom = min(maxZoom, max(1, (zoomStart ?? 1.5) * v))
             }
             .onEnded { _ in zoomStart = nil }
     }
