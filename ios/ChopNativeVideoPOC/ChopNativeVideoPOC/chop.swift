@@ -2831,6 +2831,9 @@ final class ChopPlayer: ObservableObject {
             "rotations": rotations.map { ["s": $0.start, "e": $0.end, "q": $0.q] },
             "kfZooms": kfZooms.map { ["s": $0.start, "e": $0.end, "z": Double($0.scale),
                                       "x": Double($0.ax), "y": Double($0.ay)] },
+            "texts": textOvs.map { ["t": $0.text, "x": $0.x, "y": $0.y,
+                                    "s": Double($0.size), "sc": Double($0.scale),
+                                    "c": $0.colorHex, "st": $0.style] },
             "editedSec": editedDuration,
         ]
         await api.mergeJobData(name, fields: fields)
@@ -2860,6 +2863,7 @@ final class ChopPlayer: ObservableObject {
         var zooms: [(start: Double, end: Double, scale: CGFloat, ox: CGFloat, oy: CGFloat)] = []
         var rotations: [(start: Double, end: Double, q: Int)] = []
         var kfZooms: [(start: Double, end: Double, scale: CGFloat, ax: CGFloat, ay: CGFloat)] = []
+        var textOvs: [ChopTextOv] = []
     }
     private var past: [Snapshot] = []
     private var future: [Snapshot] = []
@@ -2919,6 +2923,19 @@ final class ChopPlayer: ObservableObject {
                       let z = $0["z"] as? Double else { return nil }
                 return (s, e2, CGFloat(z),
                         CGFloat(($0["x"] as? Double) ?? 0), CGFloat(($0["y"] as? Double) ?? 0))
+            }
+        }
+        if let ts = job.data["texts"] as? [[String: Any]] {   // text overlays come back
+            textOvs = ts.compactMap {
+                guard let t = $0["t"] as? String else { return nil }
+                var o = ChopTextOv(text: t)
+                o.x = ($0["x"] as? Double) ?? 50
+                o.y = ($0["y"] as? Double) ?? 30
+                o.size = CGFloat(($0["s"] as? Double) ?? 24)
+                o.scale = CGFloat(($0["sc"] as? Double) ?? 1)
+                o.colorHex = ($0["c"] as? String) ?? "#ffffff"
+                o.style = ($0["st"] as? String) ?? "box"
+                return o
             }
         }
         guard !e.segments.isEmpty else { status = "No analysis on this job"; return }
@@ -3415,7 +3432,8 @@ final class ChopPlayer: ObservableObject {
                  manualCuts: edit?.manualCuts ?? [],
                  manualKeeps: edit?.manualKeeps ?? [],
                  minSil: minSil, fillers: fillers, soft: softFillers,
-                 splits: splits, zooms: zooms, rotations: rotations, kfZooms: kfZooms)
+                 splits: splits, zooms: zooms, rotations: rotations, kfZooms: kfZooms,
+                 textOvs: textOvs)
     }
     private func apply(_ s: Snapshot) {
         pairs = s.pairs; segments = s.segments
@@ -3424,6 +3442,7 @@ final class ChopPlayer: ObservableObject {
         zooms = s.zooms   // undo reverts the WHOLE zoom, not a frame of it
         rotations = s.rotations   // rotations undo the same way
         kfZooms = s.kfZooms       // keyframe ramps too
+        textOvs = s.textOvs       // text overlays undo the same way
         if var e = edit { e.manualCuts = s.manualCuts; e.manualKeeps = s.manualKeeps; edit = e }
         rebuildKeepingTime()   // undo/redo must not throw the playhead to 0
     }
@@ -3736,6 +3755,22 @@ final class ChopPlayer: ObservableObject {
             return
         }
         kfPending = r
+    }
+
+    // MARK: TEXT overlays (Lewis 18 Aug) — TikTok-style, engine ported from
+    // the Post Haus mockup (CHOP 4.0/text-tool-mockup.html). Additive layer:
+    // never touches cuts/zooms/export logic. Export burn-in is a follow-up.
+    @Published var textOvs: [ChopTextOv] = []
+    func upsertText(_ ov: ChopTextOv) {
+        pushHistory()
+        if let i = textOvs.firstIndex(where: { $0.id == ov.id }) { textOvs[i] = ov }
+        else { textOvs.append(ov) }
+        scheduleSave()
+    }
+    func removeText(_ id: UUID) {
+        pushHistory()
+        textOvs.removeAll { $0.id == id }
+        scheduleSave()
     }
 
     /// Kept footage subdivided by splits — the web's qeBands(), in raw time.
@@ -4084,6 +4119,13 @@ struct ChopPlayerScreen: View {
     @State private var kfDragging = false           // show the centre guides
     @State private var kfGuideIdx: Int? = nil       // ramp whose guides are showing
     @State private var clipPanSel: Int? = nil       // clip being freeform-dragged
+    // TEXT overlays (Lewis 18 Aug)
+    @State private var selText: UUID? = nil          // selected text (sidebar shows)
+    @State private var editingText: ChopTextOv? = nil // TikTok edit screen when set
+    @State private var txDragID: UUID? = nil
+    @State private var txDragStart: (Double, Double)? = nil
+    @State private var txGuideV = false, txGuideH = false
+    @State private var txSnapV = false, txSnapH = false
     @State private var cageSize: CGSize = .zero     // measured cage — pan maths
 
     /// FREEFORM (Lewis 18 Aug v2): the keyframe ramp a one-finger drag should
@@ -4202,6 +4244,49 @@ struct ChopPlayerScreen: View {
                         .allowsHitTesting(false)
                     }
 
+                    // ---- TEXT overlays (Lewis 18 Aug): TikTok-style. Drag =
+                    // move with centre guides + snap; tap = keyboard opens ----
+                    if p.showEdited, cageSize.width > 1 {
+                        ZStack {
+                            if txGuideV {
+                                Rectangle().fill(Color.white.opacity(txSnapV ? 0.95 : 0.28))
+                                    .frame(width: 1.5).frame(maxHeight: .infinity)
+                            }
+                            if txGuideH {
+                                Rectangle().fill(Color.white.opacity(txSnapH ? 0.95 : 0.28))
+                                    .frame(height: 1.5).frame(maxWidth: .infinity)
+                            }
+                            ForEach(p.textOvs) { ov in
+                                let fpx = ov.size * cageSize.height / 640
+                                ChopTextRender(text: ov.text, style: ov.style, colorHex: ov.colorHex,
+                                               fontPx: fpx,
+                                               wrapW: cageSize.width * 0.84 - (ov.style == "box" ? 0.72 * fpx : 0))
+                                    .scaleEffect(ov.scale)
+                                    .overlay {
+                                        if selText == ov.id {
+                                            RoundedRectangle(cornerRadius: 4)
+                                                .stroke(style: StrokeStyle(lineWidth: 1.2, dash: [4, 3]))
+                                                .foregroundStyle(.white.opacity(0.85))
+                                                .padding(-6)
+                                        }
+                                    }
+                                    .position(x: ov.x / 100 * cageSize.width,
+                                              y: ov.y / 100 * cageSize.height)
+                                    .onTapGesture { editingText = ov }
+                                    .gesture(txDragGesture(ov))
+                            }
+                        }
+                        .frame(width: cageSize.width, height: cageSize.height)
+                        .clipped()
+                    }
+
+                    // text sidebar — right side, ONLY while a text is selected
+                    if let sid = selText, p.textOvs.contains(where: { $0.id == sid }) {
+                        textSidebar(sid)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                            .padding(.top, 46).padding(.trailing, 8)
+                    }
+
                     HStack(spacing: 2) {
                         modePill("Raw", on: !p.showEdited)
                         modePill("Edited", on: p.showEdited)
@@ -4261,7 +4346,8 @@ struct ChopPlayerScreen: View {
                 .clipped()
                 .animation(.spring(response: 0.38, dampingFraction: 0.85), value: compact)
                 .onTapGesture {
-                    if compact { compact = false }        // bring the video back first
+                    if selText != nil { selText = nil }   // dismiss the text sidebar first
+                    else if compact { compact = false }   // bring the video back first
                     else if p.ready { p.togglePlay() }    // CapCut: tap preview = play/pause
                 }
                 // Swipe the video itself small/big — tuned "middle ground" (Lewis,
@@ -4446,6 +4532,21 @@ struct ChopPlayerScreen: View {
                     Text(p.status).font(.footnote).foregroundStyle(Color.chopMuted)
                         .multilineTextAlignment(.center).padding(.top, 8).padding(.horizontal, 24)
                     Spacer()
+                }
+            }
+        }
+        .overlay {
+            // TikTok-style text edit screen (Lewis 18 Aug) — keyboard pops
+            // immediately; the preview IS the engine renderer, so Done is
+            // pixel-identical to the editor.
+            if let ed = editingText {
+                ChopTextEditScreen(cageSize: cageSize, initial: ed) { result in
+                    if let r = result {
+                        p.upsertText(r); selText = r.id
+                    } else if !ed.text.isEmpty {
+                        p.removeText(ed.id); selText = nil   // cleared = deleted
+                    }
+                    editingText = nil
                 }
             }
         }
@@ -4655,6 +4756,94 @@ struct ChopPlayerScreen: View {
     // ---- the icon-square toolbar, same shape as the web editor ----
     // Locked in place: four buttons fit on every phone, so no ScrollView —
     // a stray swipe can no longer drag the row sideways and bounce it back.
+    /// TEXT drag: move with centre guides + snap; one undo step per drag.
+    private func txDragGesture(_ ov: ChopTextOv) -> some Gesture {
+        DragGesture(minimumDistance: 6)
+            .onChanged { g in
+                guard cageSize.width > 1 else { return }
+                if txDragID != ov.id {
+                    p.pushHistory()
+                    txDragID = ov.id
+                    txDragStart = (ov.x, ov.y)
+                    selText = ov.id
+                }
+                guard let s = txDragStart,
+                      let i = p.textOvs.firstIndex(where: { $0.id == ov.id }) else { return }
+                var x = s.0 + Double(g.translation.width / cageSize.width * 100)
+                var y = s.1 + Double(g.translation.height / cageSize.height * 100)
+                txGuideV = true; txGuideH = true
+                if abs(x - 50) < 2.2 { x = 50; txSnapV = true } else { txSnapV = false }
+                if abs(y - 50) < 2.2 { y = 50; txSnapH = true } else { txSnapH = false }
+                p.textOvs[i].x = min(130, max(-30, x))
+                p.textOvs[i].y = min(105, max(-5, y))
+            }
+            .onEnded { _ in
+                txDragID = nil; txDragStart = nil
+                txGuideV = false; txGuideH = false
+                p.scheduleSave()
+            }
+    }
+
+    /// Right-hand text sidebar: size slider (scales the locked block), style
+    /// cycle, delete — only while a text is selected.
+    private func textSidebar(_ sid: UUID) -> some View {
+        VStack(spacing: 14) {
+            ChopVSlider(value: Binding(
+                get: {
+                    let sc = p.textOvs.first(where: { $0.id == sid })?.scale ?? 1
+                    return (sc - 0.5) / 1.7
+                },
+                set: { v in
+                    if let i = p.textOvs.firstIndex(where: { $0.id == sid }) {
+                        p.textOvs[i].scale = 0.5 + min(1, max(0, v)) * 1.7
+                        p.scheduleSave()
+                    }
+                }))
+                .frame(width: 40, height: 150)
+            Button {
+                if let i = p.textOvs.firstIndex(where: { $0.id == sid }) {
+                    p.pushHistory()
+                    let s = ["box", "outline", "plain"]
+                    let cur = p.textOvs[i].style
+                    p.textOvs[i].style = s[((s.firstIndex(of: cur) ?? 0) + 1) % 3]
+                    p.scheduleSave()
+                }
+            } label: {
+                Text("A").font(.system(size: 14, weight: .heavy))
+                    .frame(width: 34, height: 34)
+                    .background(Color(red: 20/255, green: 20/255, blue: 26/255).opacity(0.72), in: Circle())
+                    .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
+                    .foregroundStyle(.white)
+            }
+            Button {
+                p.removeText(sid); selText = nil
+            } label: {
+                Image(systemName: "trash")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 34, height: 34)
+                    .background(Color(red: 20/255, green: 20/255, blue: 26/255).opacity(0.72), in: Circle())
+                    .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
+                    .foregroundStyle(.white)
+            }
+        }
+    }
+
+    /// Text tool button — opens the TikTok-style editor straight away.
+    private var toolText: some View {
+        Button {
+            editingText = ChopTextOv(text: "", x: 50, y: 35)
+        } label: {
+            VStack(spacing: 3) {
+                Text("Aa").font(.system(size: 15, weight: .heavy))
+                Text("Text").font(.system(size: 9.5, weight: .semibold))
+            }
+            .foregroundStyle(Color.chopInk)
+            .frame(width: 64, height: 62)
+            .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 14))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.chopLine, lineWidth: 1))
+        }
+    }
+
     private var toolbar: some View {
         HStack(spacing: 8) {
             // Text/Image/Captions removed for App Store review — Apple
@@ -4662,6 +4851,7 @@ struct ChopPlayerScreen: View {
             // (restore the ScrollView + .scrollBounceBehavior(.basedOnSize) then).
             tool("retakes", "rectangle.on.rectangle", "Retakes", badge: p.undecided)
             tool("cuts", "scissors", "Cuts")
+            toolText   // TikTok-style text overlays (Lewis 18 Aug)
             tool("script", "text.alignleft", "Script")
             tool("export", "square.and.arrow.down", "Export")
             Spacer(minLength: 0)
@@ -9518,5 +9708,353 @@ struct ChopRing: View {
                 Spacer(minLength: 0)
             }
         }
+    }
+}
+
+
+// MARK: - TEXT ON SCREEN engine (Lewis 18 Aug) — ported 1:1 from the Post Haus
+// mteOvParts/mteSmoothBox system via CHOP 4.0/text-tool-mockup.html.
+// TikTok Sans, three styles (banner / outline halo / plain), smooth continuous
+// banner shape, layout-locked wrapping. All additive — nothing locked touched.
+
+enum ChopTikTokFont {
+    private static var registered = false
+    private static var cachedName: String?
+    static var name: String? {
+        if !registered {
+            registered = true
+            if let url = Bundle.main.url(forResource: "TikTokSans", withExtension: "ttf"),
+               let dp = CGDataProvider(url: url as CFURL),
+               let cg = CGFont(dp) {
+                CTFontManagerRegisterGraphicsFont(cg, nil)
+                cachedName = cg.postScriptName as String?
+            }
+        }
+        return cachedName
+    }
+    /// TikTok Sans at a size + variable weight; system semibold fallback.
+    static func ui(_ size: CGFloat, weight: CGFloat) -> UIFont {
+        guard let n = name, let f = UIFont(name: n, size: size) else {
+            return .systemFont(ofSize: size, weight: weight > 590 ? .bold : .semibold)
+        }
+        let vkey = UIFontDescriptor.AttributeName(rawValue: kCTFontVariationAttribute as String)
+        let d = f.fontDescriptor.addingAttributes([vkey: [2003265652: weight]])   // 'wght'
+        return UIFont(descriptor: d, size: size)
+    }
+}
+
+struct ChopTextOv: Identifiable, Equatable {
+    var id = UUID()
+    var text: String
+    var x: Double = 50       // % of the video cage
+    var y: Double = 30
+    var size: CGFloat = 24   // font px at the 640-tall reference (Post Haus units)
+    var scale: CGFloat = 1
+    var colorHex: String = "#ffffff"
+    var style: String = "box"   // box | outline | plain (Lewis's cycle order)
+}
+
+func chopHexColor(_ h: String) -> Color {
+    var s = h.replacingOccurrences(of: "#", with: "")
+    if s.count == 3 { s = s.map { "\($0)\($0)" }.joined() }
+    let v = UInt64(s, radix: 16) ?? 0xFFFFFF
+    return Color(red: Double((v >> 16) & 0xFF) / 255,
+                 green: Double((v >> 8) & 0xFF) / 255,
+                 blue: Double(v & 0xFF) / 255)
+}
+func chopHexLight(_ h: String) -> Bool {
+    var s = h.replacingOccurrences(of: "#", with: "")
+    if s.count == 3 { s = s.map { "\($0)\($0)" }.joined() }
+    let v = UInt64(s, radix: 16) ?? 0xFFFFFF
+    let r = Double((v >> 16) & 0xFF), g = Double((v >> 8) & 0xFF), b = Double(v & 0xFF)
+    return (r * 299 + g * 587 + b * 114) / 1000 > 150
+}
+
+enum ChopTextLayout {
+    /// TextKit line fragments — the SAME wrap the edit box uses, so placed
+    /// text always breaks on the same words (the Post Haus layout-lock).
+    static func lines(_ text: String, font: UIFont, width: CGFloat) -> [(text: String, width: CGFloat)] {
+        let storage = NSTextStorage(string: text.isEmpty ? " " : text, attributes: [.font: font])
+        let lm = NSLayoutManager()
+        let tc = NSTextContainer(size: CGSize(width: max(width, 10), height: .greatestFiniteMagnitude))
+        tc.lineFragmentPadding = 0
+        lm.addTextContainer(tc); storage.addLayoutManager(lm)
+        var out: [(String, CGFloat)] = []
+        lm.enumerateLineFragments(forGlyphRange: lm.glyphRange(for: tc)) { _, used, _, gr, _ in
+            let cr = lm.characterRange(forGlyphRange: gr)
+            let s = (storage.string as NSString).substring(with: cr)
+                .trimmingCharacters(in: .newlines)
+            out.append((s, used.width))
+        }
+        return out.isEmpty ? [(text, 0)] : out
+    }
+
+    /// Post Haus _mtePoly + _mteRoundPath ported: ONE smooth banner around all
+    /// lines, rounded convex AND concave joins — the true TikTok bubble.
+    static func bannerPath(widths: [CGFloat], lineH: CGFloat, totalW: CGFloat,
+                           padX: CGFloat, padY: CGFloat, rad: CGFloat) -> Path {
+        guard !widths.isEmpty else { return Path() }
+        let cx = totalW / 2
+        let n = widths.count
+        let hw = widths.map { $0 / 2 + padX }
+        var yb: [CGFloat] = [-padY]
+        for i in 0..<(n - 1) { yb.append(CGFloat(i + 1) * lineH) }
+        yb.append(CGFloat(n) * lineH + padY)
+        var pts: [CGPoint] = []
+        for i in 0..<n {
+            pts.append(CGPoint(x: cx + hw[i], y: yb[i]))
+            pts.append(CGPoint(x: cx + hw[i], y: yb[i + 1]))
+        }
+        for i in stride(from: n - 1, through: 0, by: -1) {
+            pts.append(CGPoint(x: cx - hw[i], y: yb[i + 1]))
+            pts.append(CGPoint(x: cx - hw[i], y: yb[i]))
+        }
+        var p: [CGPoint] = []
+        for a in pts {
+            if let b = p.last, hypot(a.x - b.x, a.y - b.y) <= 0.5 { continue }
+            p.append(a)
+        }
+        while p.count > 2, let f0 = p.first, let l0 = p.last,
+              hypot(f0.x - l0.x, f0.y - l0.y) <= 0.5 { p.removeLast() }
+        guard p.count >= 3 else { return Path() }
+        var path = Path()
+        let nn = p.count
+        for i in 0..<nn {
+            let p0 = p[(i - 1 + nn) % nn], p1 = p[i], p2 = p[(i + 1) % nn]
+            let l1 = max(hypot(p1.x - p0.x, p1.y - p0.y), 1)
+            let l2 = max(hypot(p2.x - p1.x, p2.y - p1.y), 1)
+            let t1 = min(rad, l1 / 2), t2 = min(rad, l2 / 2)
+            let a = CGPoint(x: p1.x - (p1.x - p0.x) / l1 * t1, y: p1.y - (p1.y - p0.y) / l1 * t1)
+            let b = CGPoint(x: p1.x + (p2.x - p1.x) / l2 * t2, y: p1.y + (p2.y - p1.y) / l2 * t2)
+            if i == 0 { path.move(to: a) } else { path.addLine(to: a) }
+            path.addQuadCurve(to: b, control: p1)
+        }
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// The TikTok letter halo — a ring of dark copies behind the letters.
+struct ChopHalo: ViewModifier {
+    let on: Bool
+    let r: CGFloat
+    func body(content: Content) -> some View {
+        if on {
+            ZStack {
+                ForEach(0..<12, id: \.self) { i in
+                    let a = Double(i) / 12 * 2 * .pi
+                    content.colorMultiply(.black)
+                        .offset(x: CGFloat(cos(a)) * r, y: CGFloat(sin(a)) * r)
+                }
+                content
+            }
+        } else { content }
+    }
+}
+
+/// One overlay, rendered exactly like the approved mockup: TikTok Sans,
+/// banner / outline / plain. Doubles as the LIVE PREVIEW in the edit screen,
+/// which is what makes Done pixel-identical to the editor.
+struct ChopTextRender: View {
+    let text: String
+    let style: String
+    let colorHex: String
+    let fontPx: CGFloat      // actual px (already cage-scaled)
+    let wrapW: CGFloat       // available text width (padding excluded)
+    var body: some View {
+        let weight: CGFloat = style == "outline" ? 560 : 620
+        let font = ChopTikTokFont.ui(fontPx, weight: weight)
+        let lineH = ceil(font.lineHeight)
+        let ls = ChopTextLayout.lines(text, font: font, width: wrapW)
+        let maxW = ls.map(\.width).max() ?? 0
+        let padX: CGFloat = style == "box" ? 0.36 * fontPx : 0
+        let padY: CGFloat = style == "box" ? 0.17 * fontPx : 0
+        let txColor: Color = style == "box"
+            ? (chopHexLight(colorHex)
+               ? Color(red: 0x16 / 255.0, green: 0x18 / 255.0, blue: 0x23 / 255.0) : .white)
+            : chopHexColor(colorHex)
+        ZStack {
+            if style == "box" {
+                ChopTextLayout.bannerPath(widths: ls.map(\.width), lineH: lineH,
+                                          totalW: maxW + 2 * padX, padX: padX,
+                                          padY: padY, rad: 0.32 * fontPx)
+                    .fill(chopHexColor(colorHex))
+                    .frame(width: maxW + 2 * padX, height: CGFloat(ls.count) * lineH)
+            }
+            VStack(spacing: 0) {
+                ForEach(Array(ls.enumerated()), id: \.offset) { _, l in
+                    Text(l.text.isEmpty ? " " : l.text)
+                        .font(Font(font))
+                        .foregroundStyle(txColor)
+                        .frame(height: lineH)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+            }
+            .modifier(ChopHalo(on: style == "outline", r: 0.062 * fontPx))
+            .shadow(color: .black.opacity(style == "box" ? 0 : (style == "outline" ? 0.38 : 0.32)),
+                    radius: style == "plain" ? 0.10 * fontPx : 0.07 * fontPx,
+                    y: 0.03 * fontPx)
+        }
+        .frame(width: max(maxW + 2 * padX, 10),
+               height: CGFloat(ls.count) * lineH + 2 * padY)
+    }
+}
+
+/// Invisible UITextView: supplies the native keyboard, caret and NATIVE APPLE
+/// EMOJIS while the styled ChopTextRender underneath does the drawing. Both
+/// use the same font + wrap width (TextKit), so layout always matches.
+struct ChopCaretEditor: UIViewRepresentable {
+    @Binding var text: String
+    let fontPx: CGFloat
+    func makeUIView(context: Context) -> UITextView {
+        let tv = UITextView()
+        tv.backgroundColor = .clear
+        tv.textColor = .clear
+        tv.tintColor = .white
+        tv.textAlignment = .center
+        tv.isScrollEnabled = false
+        tv.textContainerInset = .zero
+        tv.textContainer.lineFragmentPadding = 0
+        tv.autocorrectionType = .no
+        tv.keyboardAppearance = .dark
+        tv.delegate = context.coordinator
+        DispatchQueue.main.async { tv.becomeFirstResponder() }
+        return tv
+    }
+    func updateUIView(_ tv: UITextView, context: Context) {
+        if tv.text != text { tv.text = text }
+        tv.font = ChopTikTokFont.ui(fontPx, weight: 620)
+    }
+    func makeCoordinator() -> C { C(self) }
+    final class C: NSObject, UITextViewDelegate {
+        var p: ChopCaretEditor
+        init(_ p: ChopCaretEditor) { self.p = p }
+        func textViewDidChange(_ tv: UITextView) { p.text = tv.text }
+    }
+}
+
+/// The tapering vertical slider (TikTok style) — used by the edit screen
+/// (font size) and the selection sidebar (block scale).
+struct ChopVSlider: View {
+    @Binding var value: CGFloat   // 0..1
+    var body: some View {
+        GeometryReader { g in
+            ZStack {
+                ChopTaperRail()
+                    .fill(LinearGradient(colors: [.white.opacity(0.9), .white.opacity(0.25)],
+                                         startPoint: .top, endPoint: .bottom))
+                Circle().fill(.white)
+                    .frame(width: 22, height: 22)
+                    .shadow(color: .black.opacity(0.5), radius: 4, y: 2)
+                    .position(x: g.size.width / 2,
+                              y: (1 - min(max(value, 0), 1)) * g.size.height)
+            }
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0).onChanged { gg in
+                value = min(1, max(0, 1 - gg.location.y / max(g.size.height, 1)))
+            })
+        }
+    }
+}
+struct ChopTaperRail: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.midX - 3, y: 0))
+        p.addLine(to: CGPoint(x: r.midX + 3, y: 0))
+        p.addLine(to: CGPoint(x: r.midX + 1, y: r.height))
+        p.addLine(to: CGPoint(x: r.midX - 1, y: r.height))
+        p.closeSubpath()
+        return p
+    }
+}
+
+/// The TikTok-style full-screen text editor: style cycle (A) top-centre, Done
+/// top-right, RIGHT-side size slider, colour dots above the native keyboard.
+/// Tap the dim area = Done (TikTok behaviour).
+struct ChopTextEditScreen: View {
+    let cageSize: CGSize
+    let initial: ChopTextOv
+    let onDone: (ChopTextOv?) -> Void     // nil = cancelled / cleared
+    @State private var text: String
+    @State private var size: CGFloat
+    @State private var colorHex: String
+    @State private var style: String
+    static let styles = ["box", "outline", "plain"]
+    static let colors = ["#ffffff", "#111111", "#fe2c55", "#1a6dff",
+                         "#25f4ee", "#ffd400", "#3ddc84", "#ff7ac2"]
+    init(cageSize: CGSize, initial: ChopTextOv, onDone: @escaping (ChopTextOv?) -> Void) {
+        self.cageSize = cageSize
+        self.initial = initial
+        self.onDone = onDone
+        _text = State(initialValue: initial.text)
+        _size = State(initialValue: initial.size)
+        _colorHex = State(initialValue: initial.colorHex)
+        _style = State(initialValue: initial.style)
+    }
+    var body: some View {
+        let cageH = max(cageSize.height, 200)
+        let fontPx = size * cageH / 640
+        let padX: CGFloat = style == "box" ? 0.36 * fontPx : 0
+        let capW = max(cageSize.width, 200) * 0.84
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea()
+                .onTapGesture { commit() }
+            VStack(spacing: 0) {
+                ZStack {
+                    Button {
+                        style = Self.styles[((Self.styles.firstIndex(of: style) ?? 0) + 1) % 3]
+                    } label: {
+                        Text("A").font(.system(size: 15, weight: .heavy))
+                            .frame(width: 36, height: 30)
+                            .background(style == "box" ? Color.white : Color.white.opacity(0.15),
+                                        in: RoundedRectangle(cornerRadius: 8))
+                            .foregroundStyle(style == "box" ? .black : .white)
+                    }
+                    HStack {
+                        Spacer()
+                        Button { commit() } label: {
+                            Text("Done").font(.system(size: 16, weight: .heavy))
+                                .foregroundStyle(.white)
+                        }
+                        .padding(.trailing, 16)
+                    }
+                }
+                .padding(.top, 12)
+                Spacer()
+                ZStack {
+                    ChopTextRender(text: text.isEmpty ? " " : text, style: style,
+                                   colorHex: colorHex, fontPx: fontPx,
+                                   wrapW: capW - 2 * padX)
+                    ChopCaretEditor(text: $text, fontPx: fontPx)
+                        .frame(width: capW - 2 * padX)
+                        .frame(minHeight: fontPx * 1.4)
+                }
+                .frame(maxWidth: capW)
+                Spacer()
+                HStack(spacing: 10) {
+                    ForEach(Self.colors, id: \.self) { c in
+                        Circle().fill(chopHexColor(c))
+                            .frame(width: 24, height: 24)
+                            .overlay(Circle().stroke(.white, lineWidth: c == colorHex ? 2.5 : 1.5))
+                            .scaleEffect(c == colorHex ? 1.2 : 1)
+                            .onTapGesture { colorHex = c }
+                    }
+                }
+                .padding(.bottom, 14)
+            }
+            ChopVSlider(value: Binding(get: { (size - 14) / 26 },
+                                       set: { size = 14 + $0 * 26 }))
+                .frame(width: 40, height: 170)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.top, 100).padding(.trailing, 6)
+        }
+    }
+    private func commit() {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t.isEmpty { onDone(nil); return }
+        var ov = initial
+        ov.text = t; ov.size = size; ov.colorHex = colorHex; ov.style = style
+        onDone(ov)
     }
 }
