@@ -2800,15 +2800,6 @@ final class ChopPlayer: ObservableObject {
     @Published var rawDuration: Double = 0
     @Published var editedDuration: Double = 0
     @Published var videoAspect: CGFloat = 9.0 / 16.0   // display aspect after rotation — the zoom cage
-    // ROTATE (Lewis 18 Aug, additive): quarter-turns clockwise applied on top
-    // of the source orientation — preview and export. 0 = today's exact paths.
-    @Published var rotationQ = 0
-
-    /// One tap = 90° clockwise; four taps = back to normal. Saved with the job.
-    func rotate() {
-        rotationQ = (rotationQ + 1) % 4
-        scheduleSave()   // like zooms/splits: no rebuild, save explicitly
-    }
     @Published var rawCuts: [(start: Double, end: Double)] = []   // red bands, raw time
 
     private var localURL: URL?
@@ -2836,7 +2827,7 @@ final class ChopPlayer: ObservableObject {
             "manualKeeps": e.manualKeeps.map { ["s": $0.start, "e": $0.end] },
             "splits": splits,
             "zooms": zooms.map { ["s": $0.start, "e": $0.end, "z": Double($0.scale)] },
-            "rotationQ": rotationQ,
+            "rotations": rotations.map { ["s": $0.start, "e": $0.end, "q": $0.q] },
             "editedSec": editedDuration,
         ]
         await api.mergeJobData(name, fields: fields)
@@ -2864,6 +2855,7 @@ final class ChopPlayer: ObservableObject {
         var soft: Bool
         var splits: [Double] = []
         var zooms: [(start: Double, end: Double, scale: CGFloat)] = []
+        var rotations: [(start: Double, end: Double, q: Int)] = []
     }
     private var past: [Snapshot] = []
     private var future: [Snapshot] = []
@@ -2909,7 +2901,13 @@ final class ChopPlayer: ObservableObject {
                 return (s, e2, CGFloat(z))
             }
         }
-        rotationQ = ((job.data["rotationQ"] as? Int) ?? 0) % 4   // saved rotation comes back
+        if let rs = job.data["rotations"] as? [[String: Any]] {   // saved rotations come back
+            rotations = rs.compactMap {
+                guard let s = $0["s"] as? Double, let e2 = $0["e"] as? Double,
+                      let q = $0["q"] as? Int else { return nil }
+                return (s, e2, q % 4)
+            }
+        }
         guard !e.segments.isEmpty else { status = "No analysis on this job"; return }
 
         // PLAYBACK PROXY (additive, Lewis 18 Aug): a 1080p preview copy made in
@@ -3109,12 +3107,12 @@ final class ChopPlayer: ObservableObject {
         session.outputFileType = .mp4
         session.shouldOptimizeForNetworkUse = true
         // bake per-clip pinch zooms into the file — what you saw is what you post
-        // (and the rotation, if one is set — same composition, one extra turn)
-        if !zooms.isEmpty || rotationQ % 4 != 0, let compV = comp.tracks(withMediaType: .video).first {
+        // (and any per-clip rotations — same composition, same fixed canvas)
+        if !zooms.isEmpty || !rotations.isEmpty, let compV = comp.tracks(withMediaType: .video).first {
             session.videoComposition = ChopPlayer.zoomComposition(
                 track: compV, srcTransform: srcV.preferredTransform,
                 srcNatural: srcV.naturalSize, kept: kept,
-                zooms: zooms, totalDuration: comp.duration, rotationQ: rotationQ)
+                zooms: zooms, totalDuration: comp.duration, rotations: rotations)
         }
 
         exportMsg = "Rendering…"
@@ -3169,28 +3167,19 @@ final class ChopPlayer: ObservableObject {
                                 kept: [ChopClip],
                                 zooms: [(start: Double, end: Double, scale: CGFloat)],
                                 totalDuration: CMTime,
-                                rotationQ: Int = 0) -> AVMutableVideoComposition {
+                                rotations: [(start: Double, end: Double, q: Int)] = []) -> AVMutableVideoComposition {
         let bounds = CGRect(origin: .zero, size: srcNatural).applying(srcTransform)
-        var base = srcTransform.concatenating(
+        let base = srcTransform.concatenating(
             CGAffineTransform(translationX: -bounds.minX, y: -bounds.minY))
-        var renderSize = CGSize(width: abs(bounds.width), height: abs(bounds.height))
-        // ROTATE (Lewis 18 Aug, additive): extra quarter-turns clockwise ON TOP
-        // of the source orientation — the same normalise-to-origin recipe as
-        // the base transform, applied once more. q == 0 leaves base/renderSize
-        // untouched, so unrotated exports are byte-identical to before.
-        let q = ((rotationQ % 4) + 4) % 4
-        if q != 0 {
-            let rot = CGAffineTransform(rotationAngle: CGFloat(q) * .pi / 2)
-            let rb = CGRect(origin: .zero, size: renderSize).applying(rot)
-            base = base.concatenating(rot)
-                .concatenating(CGAffineTransform(translationX: -rb.minX, y: -rb.minY))
-            renderSize = CGSize(width: abs(rb.width), height: abs(rb.height))
-        }
+        // ROTATE v2 (Lewis 18 Aug): the canvas NEVER changes — locked portrait
+        // sizing. A rotated clip turns about the canvas centre and fit-scales
+        // inside it (letterboxed), per clip, exactly like the preview cage.
+        let renderSize = CGSize(width: abs(bounds.width), height: abs(bounds.height))
         let cx = renderSize.width / 2, cy = renderSize.height / 2
 
-        // split the OUTPUT timeline at clip joins and zoom edges, back-to-back
-        // so the instructions tile the whole duration with no gaps
-        struct Piece { let start: CMTime; let duration: CMTime; let scale: CGFloat }
+        // split the OUTPUT timeline at clip joins and zoom/rotation edges,
+        // back-to-back so the instructions tile the whole duration with no gaps
+        struct Piece { let start: CMTime; let duration: CMTime; let scale: CGFloat; let q: Int }
         var pieces: [Piece] = []
         var outCursor = CMTime.zero
         for clip in kept {
@@ -3199,21 +3188,26 @@ final class ChopPlayer: ObservableObject {
                 if z.start > clip.start, z.start < clip.end { marks.append(z.start) }
                 if z.end > clip.start, z.end < clip.end { marks.append(z.end) }
             }
+            for r in rotations {
+                if r.start > clip.start, r.start < clip.end { marks.append(r.start) }
+                if r.end > clip.start, r.end < clip.end { marks.append(r.end) }
+            }
             marks.sort()
             for k in 0..<(marks.count - 1) {
                 let s = marks[k], e = marks[k + 1]
                 guard e - s > 0.004 else { continue }
                 let mid = (s + e) / 2
                 let scale = zooms.first(where: { mid >= $0.start && mid <= $0.end })?.scale ?? 1
+                let q = (rotations.first(where: { mid >= $0.start && mid <= $0.end })?.q ?? 0) % 4
                 let dur = CMTime(seconds: e - s, preferredTimescale: 600)
-                pieces.append(Piece(start: outCursor, duration: dur, scale: scale))
+                pieces.append(Piece(start: outCursor, duration: dur, scale: scale, q: q))
                 outCursor = CMTimeAdd(outCursor, dur)
             }
         }
         // rounding drift: stretch the final piece to the exact end
         if var last = pieces.popLast() {
             let dur = CMTimeSubtract(totalDuration, last.start)
-            last = Piece(start: last.start, duration: dur, scale: last.scale)
+            last = Piece(start: last.start, duration: dur, scale: last.scale, q: last.q)
             pieces.append(last)
         }
 
@@ -3225,11 +3219,21 @@ final class ChopPlayer: ObservableObject {
             inst.timeRange = CMTimeRange(start: piece.start, duration: piece.duration)
             let li = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
             var t = base
-            if piece.scale > 1.01 {
-                t = base
-                    .concatenating(CGAffineTransform(translationX: -cx, y: -cy))
-                    .concatenating(CGAffineTransform(scaleX: piece.scale, y: piece.scale))
-                    .concatenating(CGAffineTransform(translationX: cx, y: cy))
+            if piece.scale > 1.01 || piece.q != 0 {
+                // centre-anchored: rotation + fit first (letterbox in the fixed
+                // canvas, mirroring the preview cage), then the pinch zoom.
+                var m = CGAffineTransform(translationX: -cx, y: -cy)
+                if piece.q != 0 {
+                    let fit: CGFloat = piece.q % 2 == 1
+                        ? min(renderSize.width / renderSize.height,
+                              renderSize.height / renderSize.width) : 1
+                    m = m.concatenating(CGAffineTransform(rotationAngle: CGFloat(piece.q) * .pi / 2))
+                         .concatenating(CGAffineTransform(scaleX: fit, y: fit))
+                }
+                if piece.scale > 1.01 {
+                    m = m.concatenating(CGAffineTransform(scaleX: piece.scale, y: piece.scale))
+                }
+                t = base.concatenating(m.concatenating(CGAffineTransform(translationX: cx, y: cy)))
             }
             li.setTransform(t, at: piece.start)
             inst.layerInstructions = [li]
@@ -3351,13 +3355,14 @@ final class ChopPlayer: ObservableObject {
                  manualCuts: edit?.manualCuts ?? [],
                  manualKeeps: edit?.manualKeeps ?? [],
                  minSil: minSil, fillers: fillers, soft: softFillers,
-                 splits: splits, zooms: zooms)
+                 splits: splits, zooms: zooms, rotations: rotations)
     }
     private func apply(_ s: Snapshot) {
         pairs = s.pairs; segments = s.segments
         minSil = s.minSil; fillers = s.fillers; softFillers = s.soft
         splits = s.splits
         zooms = s.zooms   // undo reverts the WHOLE zoom, not a frame of it
+        rotations = s.rotations   // rotations undo the same way
         if var e = edit { e.manualCuts = s.manualCuts; e.manualKeeps = s.manualKeeps; edit = e }
         rebuildKeepingTime()   // undo/redo must not throw the playhead to 0
     }
@@ -3538,6 +3543,33 @@ final class ChopPlayer: ObservableObject {
     func zoomScale(atEditTime t: Double) -> CGFloat {
         guard let r = raw(fromEdit: t) else { return 1 }
         return zooms.first(where: { r >= $0.start - 0.001 && r <= $0.end + 0.001 })?.scale ?? 1
+    }
+
+    // MARK: per-clip ROTATION (Lewis 18 Aug v2) — the exact same shape as
+    // per-clip zoom above: raw-time ranges so rotations survive trims/splits,
+    // one tap = one undoable action, saved with the job. The video stays in
+    // its LOCKED portrait cage — a sideways clip letterboxes inside it.
+    @Published var rotations: [(start: Double, end: Double, q: Int)] = []
+
+    func rotationQ(forBand i: Int) -> Int {
+        guard i < bands.count else { return 0 }
+        let b = bands[i]
+        return rotations.first(where: { $0.start < b.end && $0.end > b.start })?.q ?? 0
+    }
+    /// One tap = this clip turns 90° clockwise; four taps = back to normal.
+    func rotate(band i: Int) {
+        guard i < bands.count else { return }
+        pushHistory()   // one tap = one undoable action (mirrors pinch zoom)
+        let b = bands[i]
+        let q = (rotationQ(forBand: i) + 1) % 4
+        rotations.removeAll { $0.start < b.end && $0.end > b.start }
+        if q != 0 { rotations.append((b.start, b.end, q)) }
+        scheduleSave()   // rotations don't rebuild — save them explicitly
+    }
+    /// The rotation in force at a moment of the EDIT — drives the preview.
+    func rotationQ(atEditTime t: Double) -> Int {
+        guard let r = raw(fromEdit: t) else { return 0 }
+        return rotations.first(where: { r >= $0.start - 0.001 && r <= $0.end + 0.001 })?.q ?? 0
     }
 
     /// Kept footage subdivided by splits — the web's qeBands(), in raw time.
@@ -3912,23 +3944,22 @@ struct ChopPlayerScreen: View {
                     // true aspect; zoom scales INSIDE that frame and crops at
                     // its edges — never spilling into the letterbox — so the
                     // preview is exactly what the export renders.
-                    // ROTATE (18 Aug, additive): the cage takes the ROTATED
-                    // aspect and the player lays out in the pre-rotation frame
-                    // inside it, quarter-turned. rotationQ == 0 renders
-                    // identically to the old modifier chain.
-                    let rotOdd = p.rotationQ % 2 == 1
-                    GeometryReader { cage in
-                        PlayerLayerView(player: p.player)
-                            .frame(width: rotOdd ? cage.size.height : cage.size.width,
-                                   height: rotOdd ? cage.size.width : cage.size.height)
-                            .rotationEffect(.degrees(Double(p.rotationQ) * 90))
-                            .frame(width: cage.size.width, height: cage.size.height)
-                    }
-                        .aspectRatio(rotOdd ? 1 / p.videoAspect : p.videoAspect, contentMode: .fit)
+                    // ROTATE v2 (18 Aug): per-clip, INSIDE the locked cage — the
+                    // portrait frame never changes; a sideways clip letterboxes
+                    // within it (rotate + fit-scale before the cage sizing).
+                    // rotQ == 0 → both extra modifiers are no-ops and the chain
+                    // renders exactly as the locked original.
+                    let rotQ = p.rotationQ(atEditTime: p.time)
+                    let rotFit: CGFloat = rotQ % 2 == 1
+                        ? min(p.videoAspect, 1 / p.videoAspect) : 1
+                    PlayerLayerView(player: p.player)
+                        .rotationEffect(.degrees(Double(rotQ) * 90))
+                        .scaleEffect(rotFit)
+                        .aspectRatio(p.videoAspect, contentMode: .fit)
                         .scaleEffect(pinchLive ?? p.zoomScale(atEditTime: p.time))
                         .animation(.easeInOut(duration: 0.15),
                                    value: pinchLive ?? p.zoomScale(atEditTime: p.time))
-                        .animation(.easeInOut(duration: 0.25), value: p.rotationQ)
+                        .animation(.easeInOut(duration: 0.25), value: rotQ)
                         .clipped()   // the cage wall
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(Color.black)
@@ -4242,13 +4273,16 @@ struct ChopPlayerScreen: View {
                         .font(.system(size: 11, weight: .bold)).foregroundStyle(Color.chopGreen)
                 }
                 Spacer()
-                // ROTATE (Lewis 18 Aug): 90° clockwise per tap, left of undo/redo
-                Button { p.rotate() } label: {
+                // ROTATE (Lewis 18 Aug v2): rotates the SELECTED clip 90° per
+                // tap. White when a clip is selected; faint grey (like a spent
+                // undo button) when nothing is selected.
+                Button { if let sel = selected { p.rotate(band: sel) } } label: {
                     Image(systemName: "rotate.right")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(p.rotationQ == 0 ? Color.chopInk : Color.chopBlue)
+                        .foregroundStyle(selected != nil ? Color.chopInk : Color.chopMuted.opacity(0.45))
                         .frame(width: 34, height: 34)
                 }
+                .disabled(selected == nil)
                 Button { p.undo() } label: {
                     Image(systemName: "arrow.uturn.backward")
                         .font(.system(size: 15, weight: .semibold))
@@ -6785,12 +6819,17 @@ final class ChopExporter {
                       let z = $0["z"] as? Double else { return nil }
                 return (s, e2, CGFloat(z))
             }
-        let savedRot = ((job.data["rotationQ"] as? Int) ?? 0) % 4
-        if !savedZooms.isEmpty || savedRot != 0 {
+        let savedRots: [(start: Double, end: Double, q: Int)] =
+            ((job.data["rotations"] as? [[String: Any]]) ?? []).compactMap {
+                guard let s = $0["s"] as? Double, let e2 = $0["e"] as? Double,
+                      let q = $0["q"] as? Int else { return nil }
+                return (s, e2, q % 4)
+            }
+        if !savedZooms.isEmpty || !savedRots.isEmpty {
             session.videoComposition = ChopPlayer.zoomComposition(
                 track: vTrack, srcTransform: srcV.preferredTransform,
                 srcNatural: srcV.naturalSize, kept: kept,
-                zooms: savedZooms, totalDuration: comp.duration, rotationQ: savedRot)
+                zooms: savedZooms, totalDuration: comp.duration, rotations: savedRots)
         }
         await session.export()
         guard session.status == .completed else { return false }
