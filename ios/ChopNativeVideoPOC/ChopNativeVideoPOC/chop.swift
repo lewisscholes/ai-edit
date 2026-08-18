@@ -652,6 +652,17 @@ final class ChopAPI: ObservableObject {
 
     private(set) var accessToken = ""
     private(set) var userId = ""
+    /// Supabase access tokens die after ~1 hour. Every Bearer call — including
+    /// the presign that starts an upload — 401s on a stale one, which is
+    /// exactly the intermittent "Upload failed" after the app sat open/idle.
+    /// We track expiry and proactively re-exchange the refresh token well
+    /// before the hour is up (see ensureFreshToken).
+    private var tokenExpiresAt = Date.distantPast
+    private var tokenRefreshing = false
+    func noteTokenLife(_ obj: [String: Any]) {
+        let secs = (obj["expires_in"] as? Double) ?? 3600
+        tokenExpiresAt = Date().addingTimeInterval(secs)
+    }
 
     /// Web-parity auth error strings — SPEC_02_AUTH.md, do not paraphrase.
     static func mapAuthError(_ raw: String, mode: String) -> String {
@@ -722,6 +733,7 @@ final class ChopAPI: ObservableObject {
             if let rt = obj["refresh_token"] as? String { ChopKeychain.set(rt, "chop-refresh") }
             accessToken = token
             userId = uid
+            noteTokenLife(obj)
             signedIn = true
             await loadProfile()
             await loadJobs()
@@ -757,9 +769,40 @@ final class ChopAPI: ObservableObject {
         if let newRT = obj["refresh_token"] as? String { ChopKeychain.set(newRT, "chop-refresh") }
         accessToken = token
         userId = uid
+        noteTokenLife(obj)
         signedIn = true
         await loadProfile()
         await loadJobs()
+    }
+
+    /// Mid-session token refresh — the fix for the intermittent "Upload failed".
+    /// Supabase access tokens last ~1 hour; if the app stays open (or comes back
+    /// from the background) past that, presign/putFile and every other Bearer
+    /// call 401s. Called on a timer and on foregrounding: when the token is
+    /// within 15 minutes of dying, silently exchange the refresh token for a
+    /// fresh one. Failure is deliberately quiet — the current token stays, we
+    /// retry on the next tick, and we NEVER sign the user out from here (a
+    /// network blip must not nuke a session). Single-flight so ticks can't race.
+    func ensureFreshToken() async {
+        guard signedIn, !tokenRefreshing,
+              Date() > tokenExpiresAt.addingTimeInterval(-15 * 60),
+              let rt = ChopKeychain.get("chop-refresh") else { return }
+        tokenRefreshing = true
+        defer { tokenRefreshing = false }
+        guard var comps = URLComponents(string: "\(SB_URL)/auth/v1/token") else { return }
+        comps.queryItems = [URLQueryItem(name: "grant_type", value: "refresh_token")]
+        guard let url = comps.url else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["refresh_token": rt])
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let token = obj["access_token"] as? String else { return }
+        if let newRT = obj["refresh_token"] as? String { ChopKeychain.set(newRT, "chop-refresh") }
+        accessToken = token
+        noteTokenLife(obj)
     }
 
     // MARK: social sign-in --------------------------------------------------
@@ -770,6 +813,7 @@ final class ChopAPI: ObservableObject {
     private func adoptSession(token: String, uid: String, refresh: String? = nil) async {
         if let refresh { ChopKeychain.set(refresh, "chop-refresh") }
         accessToken = token
+        tokenExpiresAt = Date().addingTimeInterval(3600)   // Supabase default hour
         userId = uid
         signedIn = true
         await loadProfile()
@@ -1794,6 +1838,7 @@ struct AuthGridOverlay: Shape {
 
 struct ChopRootView: View {
     @StateObject private var api = ChopAPI()
+    @Environment(\.scenePhase) private var scenePhase   // token refresh on foreground
     @State private var showImport = false
     @State private var showImportPicker = false            // photo library, straight from the dashboard
     @State private var importPicks: [PhotosPickerItem] = []
@@ -1874,6 +1919,20 @@ struct ChopRootView: View {
             }
         }
         .task { await api.restoreSession() }   // stay signed in across launches
+        // Keep the hour-limited Supabase token alive for as long as the app is:
+        // a re-check every 10 minutes plus one on every return to foreground.
+        // This is what stops presign 401ing into "Upload failed" after the app
+        // sat open past the token's 1-hour life. No effect on the import path —
+        // it just always finds a valid token waiting.
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 600 * 1_000_000_000)
+                await api.ensureFreshToken()
+            }
+        }
+        .onChange(of: scenePhase) { _, p in
+            if p == .active { Task { await api.ensureFreshToken() } }
+        }
         .preferredColorScheme(theme.scheme)
         .tint(ChopColor.blue)
         .chopToasts()
@@ -5031,6 +5090,13 @@ final class ChopImporter: ObservableObject {
         let gen = AVAssetImageGenerator(asset: asset)
         gen.appliesPreferredTrackTransform = true
         gen.maximumSize = CGSize(width: 540, height: 540)
+        // The default zero seek tolerance forces an exact-frame decode — on 4K
+        // clips that's seconds of work, which is the "thumbnail lags behind the
+        // processing card" Lewis hit. A ±0.5s window lets AVFoundation decode
+        // from the nearest keyframe instead: visually identical thumb, lands
+        // near-instantly. (0.5s also keeps us clear of the black frame 0.)
+        gen.requestedTimeToleranceBefore = CMTime(seconds: 0.5, preferredTimescale: 600)
+        gen.requestedTimeToleranceAfter  = CMTime(seconds: 0.5, preferredTimescale: 600)
         let dur = CMTimeGetSeconds(asset.duration)
         // skip the very first frame — often black while the camera settles
         let t = CMTime(seconds: dur > 2 ? 1.0 : max(0, dur * 0.25), preferredTimescale: 600)
