@@ -1987,8 +1987,18 @@ struct ChopRootView: View {
                 .toolbar(.hidden, for: .navigationBar)
                 // Dashboard upload → photo library immediately; the processing
                 // sheet only appears once videos are actually picked.
+                // preferredItemEncoding .current (Lewis 18 Aug, upload speed):
+                // the default encoding makes iOS TRANSCODE 4K HEVC to H.264
+                // compatibility format before handing the file over — minutes
+                // of silent work on a 3-min clip, all spent before our pipeline
+                // even starts, posing as "Uploading". .current hands over the
+                // original file untouched: no transcode, and the background
+                // 4K sync uploads the smaller HEVC file too. AVFoundation
+                // reads HEVC natively, so audio extract/thumb/export are
+                // unaffected.
                 .photosPicker(isPresented: $showImportPicker, selection: $importPicks,
-                              maxSelectionCount: 5, matching: .videos)
+                              maxSelectionCount: 5, matching: .videos,
+                              preferredItemEncoding: .current)
                 .onChange(of: importPicks) { _, items in
                     guard !items.isEmpty else { return }
                     showImport = true
@@ -5528,7 +5538,8 @@ struct ImportSheet: View {
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button("Close") { dismiss() }
             } else {
-                PhotosPicker(selection: $pickedMany, maxSelectionCount: 5, matching: .videos) {
+                PhotosPicker(selection: $pickedMany, maxSelectionCount: 5, matching: .videos,
+                             preferredItemEncoding: .current) {   // no iOS transcode — see dashboard picker note
                     Label("Choose videos", systemImage: "video.badge.plus")
                         .frame(maxWidth: .infinity)
                 }
