@@ -1117,6 +1117,37 @@ final class ChopAPI: ObservableObject {
         return (url, k)
     }
 
+    // RELIABILITY WRAPPERS (Lewis 18 Aug: "make sure 'Upload failed' doesn't
+    // happen again"). The import path had ZERO retries — one transient network
+    // blip on the phone, or one 502 while the edge function cold-starts (both
+    // observed in today's logs), instantly failed the whole import. These wrap
+    // the locked calls with 3 attempts and short backoff (0.8s, then 2s), and
+    // refresh the auth token before asking for a presign. The wrapped
+    // functions are untouched; a first-attempt success behaves exactly as the
+    // old single attempt did — same speed, no extra network when healthy.
+    func presignPutRetrying(filename: String) async -> (URL, String)? {
+        for attempt in 0..<3 {
+            if attempt > 0 { try? await Task.sleep(nanoseconds: attempt == 1 ? 800_000_000 : 2_000_000_000) }
+            await ensureFreshToken()
+            if let r = await presignPut(filename: filename) { return r }
+        }
+        return nil
+    }
+    func putFileRetrying(_ local: URL, to signed: URL) async -> Bool {
+        for attempt in 0..<3 {
+            if attempt > 0 { try? await Task.sleep(nanoseconds: attempt == 1 ? 800_000_000 : 2_000_000_000) }
+            if await putFile(local, to: signed) { return true }
+        }
+        return false
+    }
+    func startProcessingRetrying(key: String) async -> String? {
+        for attempt in 0..<3 {
+            if attempt > 0 { try? await Task.sleep(nanoseconds: attempt == 1 ? 800_000_000 : 2_000_000_000) }
+            if let id = await startProcessing(key: key) { return id }
+        }
+        return nil
+    }
+
     func startProcessing(key: String) async -> String? {
         guard let o = await edge(["action": "process", "key": key]) else { return nil }
         return o["jobId"] as? String
@@ -5255,13 +5286,15 @@ final class ChopImporter: ObservableObject {
 
         stepIndex = 1; step = "Uploading audio…"
         let audioName = (name as NSString).deletingPathExtension + ".m4a"
-        guard let (putURL, key) = await api.presignPut(filename: audioName),
-              await api.putFile(audio, to: putURL) else {
+        // retrying wrappers (Lewis 18 Aug): identical calls, 3 attempts each —
+        // a phone-radio blip or a server cold-start no longer kills the import
+        guard let (putURL, key) = await api.presignPutRetrying(filename: audioName),
+              await api.putFileRetrying(audio, to: putURL) else {
             failed = "Upload failed"; return
         }
 
         stepIndex = 2; step = "Transcribing…"
-        guard let jobId = await api.startProcessing(key: key) else {
+        guard let jobId = await api.startProcessingRetrying(key: key) else {
             failed = "Couldn't start processing"; return
         }
 
@@ -5286,8 +5319,11 @@ final class ChopImporter: ObservableObject {
         busy = false
 
         Task.detached { [weak self] in
-            guard let (vPut, vKey) = await api.presignPut(filename: "sync-" + name) else { return }
-            let ok = await api.putFile(pickedURL, to: vPut)
+            // retrying wrappers here too — a blip during the background 4K sync
+            // used to silently lose videoKey (export then depends on the local
+            // copy surviving); 3 attempts each closes that quiet gap as well
+            guard let (vPut, vKey) = await api.presignPutRetrying(filename: "sync-" + name) else { return }
+            let ok = await api.putFileRetrying(pickedURL, to: vPut)
             guard ok else { return }
             // MERGE, don't overwrite: the old saveJob upsert rebuilt the whole
             // data blob and raced the editor's auto-save — losing videoKey
