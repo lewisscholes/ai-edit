@@ -549,10 +549,39 @@ struct ChopEdit {
         manualKeeps = out
     }
 
+    /// MULTI-TAKE (additive, Lewis 18 Aug): the marked segments of one pair,
+    /// merged into per-take time ranges. Segments belong to the same take when
+    /// the gap between them is under 0.18s — the finest utterance split the
+    /// server uses, so a bigger gap can only be a boundary between two takes.
+    /// Detection and payload are untouched; this only READS the marks.
+    func takeRanges(for pairIdx: Int) -> [(lo: Double, hi: Double)] {
+        let marked = segments.filter { $0.pair == pairIdx && $0.retake != nil }
+                             .sorted { $0.start < $1.start }
+        var out: [(lo: Double, hi: Double)] = []
+        for sg in marked {
+            if let last = out.last, sg.start - last.hi < 0.18 {
+                out[out.count - 1].hi = sg.end
+            } else {
+                out.append((sg.start, sg.end))
+            }
+        }
+        return out
+    }
+
     func isCut(_ sg: ChopSegment) -> Bool {
         if let m = sg.manual { return m }
         if let take = sg.retake, let p = sg.pair {
             let choice = (p < pairs.count) ? pairs[p].choice : nil
+            // MULTI-TAKE pick: "k<i>" keeps ONLY take i of this pair and cuts
+            // every other take. Legacy "a"/"b"/"both" behaviour below is
+            // byte-identical — fresh 2-take pairs never produce "k" choices.
+            if let c = choice, c.hasPrefix("k"), let ki = Int(c.dropFirst()) {
+                let ranges = takeRanges(for: p)
+                if ki < ranges.count {
+                    let r = ranges[ki]
+                    return !(sg.start >= r.lo - 0.01 && sg.start <= r.hi + 0.01)
+                }
+            }
             guard let c = choice, c != "both" else { return false }
             return c == "a" ? (take == "b") : (take == "a")
         }
@@ -3286,7 +3315,38 @@ final class ChopPlayer: ObservableObject {
             }
             edit = e
         }
+        // MULTI-TAKE pick ("k<i>"): every take of the pair EXCEPT the kept one
+        // is a loser — carve keeps off all of them, same rule as above.
+        if let t = take, t.hasPrefix("k"), let ki = Int(t.dropFirst()), var e = edit {
+            let ranges = e.takeRanges(for: idx)
+            for sg in segments where sg.pair == idx && sg.retake != nil {
+                let kept = ki < ranges.count
+                    && sg.start >= ranges[ki].lo - 0.01 && sg.start <= ranges[ki].hi + 0.01
+                if !kept { e.carveKeeps(for: ChopClip(start: sg.start, end: sg.end)) }
+            }
+            edit = e
+        }
         rebuildKeepingTime()
+    }
+
+    /// MULTI-TAKE: grouped marked segment indices for one pair — same 0.18s
+    /// grouping rule as ChopEdit.takeRanges, but as player.segments indices so
+    /// the retake panel can label, preview and choose individual takes.
+    func takeGroups(pair idx: Int) -> [[Int]] {
+        let marked = segments.indices
+            .filter { segments[$0].pair == idx && segments[$0].retake != nil }
+            .sorted { segments[$0].start < segments[$1].start }
+        var out: [[Int]] = []
+        var lastEnd = -1.0
+        for i in marked {
+            if !out.isEmpty, segments[i].start - lastEnd < 0.18 {
+                out[out.count - 1].append(i)
+            } else {
+                out.append([i])
+            }
+            lastEnd = segments[i].end
+        }
+        return out
     }
 
     var undecided: Int { pairs.filter { $0.complete && $0.choice == nil }.count }
@@ -4942,12 +5002,22 @@ struct RetakeCard: View {
 
     private var pending: Bool { pair.choice == nil }
 
+    /// MULTI-TAKE (Lewis 18 Aug): >2 takes matched into this pair — render one
+    /// row per take instead of the fixed A/B pair. nil for the classic 2-take
+    /// case, which renders exactly as before.
+    private var multiGroups: [[Int]]? {
+        let g = player.takeGroups(pair: pair.id)
+        return g.count > 2 ? g : nil
+    }
+
     private var statusText: String {
         switch pair.choice {
         case nil: return "Needs decision"
-        case "both": return pair.weak ? "Dismissed" : "Keeping both"
+        case "both": return pair.weak ? "Dismissed" : (multiGroups != nil ? "Keeping all" : "Keeping both")
         case "a": return "Keeping Take 1"
-        default: return "Keeping Take 2"
+        case let c? where c.hasPrefix("k"):
+            return "Keeping Take \(((Int(c.dropFirst()) ?? 0)) + 1)"
+        default: return multiGroups != nil ? "Keeping final take" : "Keeping Take 2"
         }
     }
 
@@ -4985,8 +5055,16 @@ struct RetakeCard: View {
                     .background(pending ? ChopColor.roseSoft : ChopColor.greenSoft, in: Capsule())
             }
 
-            take("a", label: "Take 1 · first attempt", text: pair.aText, len: pair.aLen)
-            take("b", label: "Take 2 · final attempt", text: pair.bText, len: pair.bLen)
+            if let groups = multiGroups {
+                // MULTI-TAKE: same take-panel design, one row per take, the
+                // final take wears the AI pick badge — creator keeps exactly one.
+                ForEach(groups.indices, id: \.self) { i in
+                    takeRow(i, groups: groups)
+                }
+            } else {
+                take("a", label: "Take 1 · first attempt", text: pair.aText, len: pair.aLen)
+                take("b", label: "Take 2 · final attempt", text: pair.bText, len: pair.bLen)
+            }
 
             // .rkfoot
             HStack(spacing: 14) {
@@ -4994,7 +5072,7 @@ struct RetakeCard: View {
                     Button("✕ Not a retake") { choose("both") }
                         .font(.system(size: 12.5, weight: .bold)).foregroundStyle(ChopColor.muted)
                 }
-                Button("Keep both") { choose("both") }
+                Button(multiGroups != nil ? "Keep all" : "Keep both") { choose("both") }
                     .font(.system(size: 12.5, weight: .bold)).foregroundStyle(ChopColor.muted)
                 if pair.choice != nil {
                     Button("Reset") { choose(nil) }
@@ -5009,6 +5087,74 @@ struct RetakeCard: View {
         .overlay(RoundedRectangle(cornerRadius: 12)
             .stroke(pending ? ChopColor.rose.opacity(0.55) : ChopColor.green.opacity(0.45),
                     lineWidth: 1))
+    }
+
+    /// MULTI-TAKE row — visually identical to take(), but keyed "k<i>" and fed
+    /// from the segment group instead of the pair's fixed A/B fields. Legacy
+    /// "a"/"b" choices map onto first/last rows so old decisions still light up.
+    @ViewBuilder
+    private func takeRow(_ i: Int, groups: [[Int]]) -> some View {
+        let key = "k\(i)"
+        let isLast = i == groups.count - 1
+        let chosen = pair.choice == key
+            || (isLast && pair.choice == "b") || (i == 0 && pair.choice == "a")
+        let dropped = pair.choice != nil && pair.choice != "both" && !chosen
+        let segs = groups[i].filter { $0 < player.segments.count }.map { player.segments[$0] }
+        let text = segs.map(\.text).filter { !$0.isEmpty }.joined(separator: " ")
+        let len = segs.reduce(0.0) { $0 + ($1.end - $1.start) }
+        let suffix = i == 0 ? " · first attempt" : (isLast ? " · final attempt" : "")
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Text("Take \(i + 1)\(suffix)")
+                    .font(.system(size: 13.5, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                Text(String(format: "%.1fs", len))
+                    .font(.system(size: 12)).foregroundStyle(ChopColor.muted)
+                if isLast {
+                    Text("AI pick").font(.system(size: 9.5, weight: .heavy))
+                        .foregroundStyle(ChopColor.green)
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(ChopColor.greenSoft, in: RoundedRectangle(cornerRadius: 7))
+                }
+                Spacer()
+            }
+            Text("\u{201C}\(text)\u{201D}")
+                .font(.system(size: 14.5))
+                .foregroundStyle(dropped ? ChopColor.muted : ChopColor.ink)
+                .strikethrough(dropped)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button {
+                    if let first = groups[i].first, first < player.segments.count, !player.cut(first) {
+                        player.playFrom(segment: first)
+                        player.player.play()
+                    } else {
+                        ChopToasts.shared.show("This take is cut right now — Keep it to preview")
+                    }
+                } label: {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 11, weight: .bold)).foregroundStyle(ChopColor.ink)
+                        .frame(width: 40, height: 40)
+                        .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 11))
+                        .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.chopLine, lineWidth: 1))
+                }
+                Button {
+                    choose(key)
+                } label: {
+                    Text(chosen ? "✓ Keeping this" : "Keep this take")
+                        .font(.system(size: 13.5, weight: .heavy))
+                        .frame(maxWidth: .infinity).padding(.vertical, 11)
+                        .background(chosen ? ChopColor.green : ChopColor.blue,
+                                    in: RoundedRectangle(cornerRadius: 11))
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .padding(12)
+        .background(ChopColor.soft2.opacity(dropped ? 0.4 : 1),
+                    in: RoundedRectangle(cornerRadius: 11))
+        .overlay(RoundedRectangle(cornerRadius: 11)
+            .stroke(chosen ? ChopColor.green : Color.chopLine, lineWidth: chosen ? 1.5 : 1))
+        .opacity(dropped ? 0.55 : 1)
     }
 
     // .take — panel per take: header, quote, ▶ + Keep this take
