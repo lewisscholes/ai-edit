@@ -4124,8 +4124,10 @@ struct ChopPlayerScreen: View {
     @State private var editingText: ChopTextOv? = nil // TikTok edit screen when set
     @State private var txDragID: UUID? = nil
     @State private var txDragStart: (Double, Double)? = nil
-    @State private var txGuideV = false, txGuideH = false
-    @State private var txSnapV = false, txSnapH = false
+    @State private var txGuideV = false
+    @State private var txGuideH = false
+    @State private var txSnapV = false
+    @State private var txSnapH = false
     @State private var cageSize: CGSize = .zero     // measured cage — pan maths
 
     /// FREEFORM (Lewis 18 Aug v2): the keyframe ramp a one-finger drag should
