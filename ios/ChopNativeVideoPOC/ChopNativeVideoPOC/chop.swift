@@ -1899,6 +1899,7 @@ struct AuthGridOverlay: Shape {
 struct ChopRootView: View {
     @StateObject private var api = ChopAPI()
     @Environment(\.scenePhase) private var scenePhase   // token refresh on foreground
+    @State private var importMode = 0   // 0 = single take (unchanged flow) · 1 = multi-take stitch
     @State private var showImport = false
     @State private var showImportPicker = false            // photo library, straight from the dashboard
     @State private var importPicks: [PhotosPickerItem] = []
@@ -2064,7 +2065,7 @@ struct ChopRootView: View {
                     showImport = true
                 }
                 .sheet(isPresented: $showImport, onDismiss: { importPicks = [] }) {
-                    ImportSheet(api: api, initialPicks: importPicks)
+                    ImportSheet(api: api, initialPicks: importPicks, stitch: importMode == 1)
                 }
                 .sheet(isPresented: $showSettings) { ChopSettingsView(api: api) { theme = $0 } }
                 .sheet(isPresented: $showBilling) { ChopBillingView(api: api) }
@@ -2521,6 +2522,24 @@ struct ChopRootView: View {
         return CHOP_AV_COLOURS[idx % CHOP_AV_COLOURS.count]
     }
 
+    /// Single take vs Multi-take — quiet 50/50 chips above the drop zone.
+    private func importModeButton(_ title: String, mode: Int) -> some View {
+        Button {
+            withAnimation(.easeInOut(duration: 0.15)) { importMode = mode }
+        } label: {
+            Text(title)
+                .font(.system(size: 13.5, weight: .bold))
+                .foregroundStyle(importMode == mode ? ChopColor.blue : ChopColor.muted)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 11)
+                .background(importMode == mode ? ChopColor.blueSoft : ChopColor.card,
+                            in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12)
+                    .stroke(importMode == mode ? ChopColor.blue.opacity(0.55) : Color.chopLine, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
     private func statCard(_ value: String, _ label: String, sub: String? = nil) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(value).font(ChopFont.cardBig).foregroundStyle(ChopColor.blue)
@@ -2647,6 +2666,18 @@ struct ChopRootView: View {
                     statCard(moneyLabel, "Saved vs. manual editing", sub: "at $30/h")
                     statCard("\(streak)", "Day streak")
                 }
+
+                // MULTI-TAKE selector (Lewis 18 Aug): quiet 50/50 row between the
+                // stats and the drop zone. Single take = the existing flow,
+                // untouched. Multi-take = pick several clips; they're stitched
+                // into ONE video in selection order BEFORE the normal pipeline
+                // runs, so upload/analysis/retakes/editor/export never know the
+                // difference.
+                HStack(spacing: 8) {
+                    importModeButton("Single take", mode: 0)
+                    importModeButton("Multi-take", mode: 1)
+                }
+                .padding(.top, 8)
 
                 Button {
                     // straight to the photo library — no interim "Choose videos" tab
@@ -5687,13 +5718,92 @@ struct ChopProcessingStage: View {
     }
 }
 
+/// MULTI-TAKE STITCH (Lewis 18 Aug, additive): joins the picked clips into ONE
+/// video, in selection order, BEFORE the pipeline runs — so the locked
+/// upload/analysis/retakes/editor/export path processes a perfectly ordinary
+/// single video and never knows the difference. Same-shape clips (the normal
+/// case: same phone, same orientation) concat LOSSLESSLY via passthrough in a
+/// few seconds; mixed shapes fall back to a highest-quality re-encode using
+/// the first clip's orientation.
+enum ChopStitcher {
+    static func stitch(_ urls: [URL]) async -> URL? {
+        guard urls.count > 1 else { return urls.first }
+        let comp = AVMutableComposition()
+        guard let vTrack = comp.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else { return nil }
+        let aTrack = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+        var cursor = CMTime.zero
+        var firstTransform: CGAffineTransform? = nil
+        var firstSize: CGSize? = nil
+        var uniform = true
+        for url in urls {
+            let asset = AVURLAsset(url: url)
+            guard let v = try? await asset.loadTracks(withMediaType: .video).first,
+                  let dur = try? await asset.load(.duration) else { return nil }
+            let range = CMTimeRange(start: .zero, duration: dur)
+            do { try vTrack.insertTimeRange(range, of: v, at: cursor) } catch { return nil }
+            if let a = try? await asset.loadTracks(withMediaType: .audio).first {
+                try? aTrack?.insertTimeRange(range, of: a, at: cursor)
+            }
+            let t = (try? await v.load(.preferredTransform)) ?? .identity
+            let s = (try? await v.load(.naturalSize)) ?? .zero
+            if firstTransform == nil { firstTransform = t; firstSize = s }
+            else if t != firstTransform || s != firstSize { uniform = false }
+            cursor = CMTimeAdd(cursor, dur)
+        }
+        vTrack.preferredTransform = firstTransform ?? .identity
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chop-stitch-\(UUID().uuidString.prefix(8)).mov")
+        try? FileManager.default.removeItem(at: out)
+        if uniform, let ex = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetPassthrough) {
+            ex.outputURL = out; ex.outputFileType = .mov
+            await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in ex.exportAsynchronously { c.resume() } }
+            if ex.status == .completed { return out }
+            try? FileManager.default.removeItem(at: out)
+        }
+        guard let ex2 = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetHighestQuality) else { return nil }
+        ex2.outputURL = out; ex2.outputFileType = .mov
+        await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in ex2.exportAsynchronously { c.resume() } }
+        return ex2.status == .completed ? out : nil
+    }
+}
+
 struct ImportSheet: View {
     @ObservedObject var api: ChopAPI
     @StateObject private var imp = ChopImporter()
     @State private var pickedMany: [PhotosPickerItem] = []
     @State private var preparing = false        // copying from the photo library — busy from frame one
     var initialPicks: [PhotosPickerItem] = []   // videos already chosen on the dashboard
+    var stitch = false                          // multi-take: join clips into ONE video first
     @Environment(\.dismiss) private var dismiss
+
+    /// MULTI-TAKE path — loads every pick in selection order, stitches them
+    /// into one file, then hands that file to the UNCHANGED single-video
+    /// pipeline. Mirrors the single-take completion flow exactly.
+    private func runStitched(_ items: [PhotosPickerItem]) async {
+        preparing = true
+        if imp.stepIndex < 0 { imp.stepIndex = 0 }
+        var urls: [URL] = []
+        for item in items {
+            guard let movie = try? await item.loadTransferable(type: ChopMovie.self) else {
+                imp.failed = "Couldn't read one of those videos"; preparing = false; return
+            }
+            urls.append(movie.url)
+        }
+        guard let combined = await ChopStitcher.stitch(urls) else {
+            imp.failed = "Couldn't combine those videos"; preparing = false; return
+        }
+        let df = DateFormatter(); df.dateFormat = "d MMM, HH.mm"
+        let friendly = "Chop " + df.string(from: Date()) + " (\(urls.count) clips).mp4"
+        await imp.run(pickedURL: combined, name: friendly, api: api)
+        preparing = false
+        if imp.done, let job = api.jobs.first(where: { $0.name == friendly }) {
+            dismiss()
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            if !api.editorOpen, api.openJob == nil { api.openJob = job }
+        } else if imp.failed.isEmpty {
+            dismiss()
+        }
+    }
 
     /// debug: `-screen proc` shows the processing card mid-run for review
     private func debugPreview() {
@@ -5755,6 +5865,10 @@ struct ImportSheet: View {
             preparing = true
             if imp.stepIndex < 0 { imp.stepIndex = 0 }
             Task {
+                // MULTI-TAKE (Lewis 18 Aug): stitch the clips into one video
+                // first, then run the unchanged pipeline once. Single-take
+                // continues below exactly as before.
+                if stitch, items.count > 1 { await runStitched(items); return }
                 // one at a time — parallel imports exhaust memory on a phone
                 var lastName: String?
                 for (n, item) in items.enumerated() {
