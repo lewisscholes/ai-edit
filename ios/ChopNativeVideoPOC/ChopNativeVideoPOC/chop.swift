@@ -2830,7 +2830,7 @@ final class ChopPlayer: ObservableObject {
                                   "x": Double($0.ox), "y": Double($0.oy)] },
             "rotations": rotations.map { ["s": $0.start, "e": $0.end, "q": $0.q] },
             "kfZooms": kfZooms.map { ["s": $0.start, "e": $0.end, "z": Double($0.scale),
-                                      "x": Double($0.ax), "y": Double($0.ay)] },
+                                      "x": Double($0.ax), "y": Double($0.ay), "z0": Double($0.s0)] },
             "editedSec": editedDuration,
         ]
         await api.mergeJobData(name, fields: fields)
@@ -2859,7 +2859,7 @@ final class ChopPlayer: ObservableObject {
         var splits: [Double] = []
         var zooms: [(start: Double, end: Double, scale: CGFloat, ox: CGFloat, oy: CGFloat)] = []
         var rotations: [(start: Double, end: Double, q: Int)] = []
-        var kfZooms: [(start: Double, end: Double, scale: CGFloat, ax: CGFloat, ay: CGFloat)] = []
+        var kfZooms: [(start: Double, end: Double, scale: CGFloat, ax: CGFloat, ay: CGFloat, s0: CGFloat)] = []
     }
     private var past: [Snapshot] = []
     private var future: [Snapshot] = []
@@ -2918,7 +2918,8 @@ final class ChopPlayer: ObservableObject {
                 guard let s = $0["s"] as? Double, let e2 = $0["e"] as? Double,
                       let z = $0["z"] as? Double else { return nil }
                 return (s, e2, CGFloat(z),
-                        CGFloat(($0["x"] as? Double) ?? 0), CGFloat(($0["y"] as? Double) ?? 0))
+                        CGFloat(($0["x"] as? Double) ?? 0), CGFloat(($0["y"] as? Double) ?? 0),
+                        CGFloat(($0["z0"] as? Double) ?? 1))
             }
         }
         guard !e.segments.isEmpty else { status = "No analysis on this job"; return }
@@ -3183,7 +3184,7 @@ final class ChopPlayer: ObservableObject {
                                 zooms: [(start: Double, end: Double, scale: CGFloat, ox: CGFloat, oy: CGFloat)],
                                 totalDuration: CMTime,
                                 rotations: [(start: Double, end: Double, q: Int)] = [],
-                                kfZooms: [(start: Double, end: Double, scale: CGFloat, ax: CGFloat, ay: CGFloat)] = []) -> AVMutableVideoComposition {
+                                kfZooms: [(start: Double, end: Double, scale: CGFloat, ax: CGFloat, ay: CGFloat, s0: CGFloat)] = []) -> AVMutableVideoComposition {
         let bounds = CGRect(origin: .zero, size: srcNatural).applying(srcTransform)
         let base = srcTransform.concatenating(
             CGAffineTransform(translationX: -bounds.minX, y: -bounds.minY))
@@ -3203,8 +3204,8 @@ final class ChopPlayer: ObservableObject {
         func kfAt(_ rt: Double) -> CGFloat {
             guard let k = kfZooms.first(where: { rt >= $0.start - 0.0001 && rt <= $0.end + 0.0001 })
             else { return 1 }
-            let f = (rt - k.start) / max(k.end - k.start, 0.001)
-            return 1 + (k.scale - 1) * CGFloat(min(max(f, 0), 1))
+            let f = CGFloat(min(max((rt - k.start) / max(k.end - k.start, 0.001), 0), 1))
+            return k.s0 + (k.scale - k.s0) * f
         }
         var pieces: [Piece] = []
         var outCursor = CMTime.zero
@@ -3663,7 +3664,10 @@ final class ChopPlayer: ObservableObject {
     // from 1× at the first keyframe to the target at the second, then snaps
     // back to normal. Pinch (with no clip selected) sets the target. Separate
     // list from the locked per-clip pinch zooms; raw-time ranges like them.
-    @Published var kfZooms: [(start: Double, end: Double, scale: CGFloat, ax: CGFloat, ay: CGFloat)] = []
+    // s0 = scale at KF1, scale = scale at KF2 (Lewis 18 Aug: reverse ramps —
+    // s0 > 1 with scale 1 plays a slow ZOOM-OUT; s0 defaults to 1 so forward
+    // ramps behave exactly as locked in).
+    @Published var kfZooms: [(start: Double, end: Double, scale: CGFloat, ax: CGFloat, ay: CGFloat, s0: CGFloat)] = []
     @Published var kfPending: Double? = nil   // first keyframe dropped (raw time)
 
     func kfIndex(atEditTime t: Double) -> Int? {
@@ -3675,8 +3679,21 @@ final class ChopPlayer: ObservableObject {
         guard let r = raw(fromEdit: t),
               let k = kfZooms.first(where: { r >= $0.start - 0.001 && r <= $0.end + 0.001 })
         else { return 1 }
-        let f = (r - k.start) / max(k.end - k.start, 0.001)
-        return 1 + (k.scale - 1) * CGFloat(min(max(f, 0), 1))
+        let f = CGFloat(min(max((r - k.start) / max(k.end - k.start, 0.001), 0), 1))
+        return k.s0 + (k.scale - k.s0) * f
+    }
+    /// Is this EDIT moment nearer the ramp's END keyframe than its start?
+    /// (Decides which end a pinch is setting.)
+    func kfNearerEnd(atEditTime t: Double, index i: Int) -> Bool {
+        guard i < kfZooms.count, let r = raw(fromEdit: t) else { return true }
+        let k = kfZooms[i]
+        return r >= (k.start + k.end) / 2
+    }
+    func setKFScale(_ s: CGFloat, at i: Int, end: Bool) {
+        guard i < kfZooms.count else { return }
+        let v = min(3, max(1.0, s))   // 1.0 = inert end
+        if end { kfZooms[i].scale = v } else { kfZooms[i].s0 = v }
+        scheduleSave()
     }
     /// FREEFORM (Lewis 18 Aug): the ramp zooms toward a chosen focal point —
     /// dragged while pinching — not just the centre. 0.5/0.5 = centre.
@@ -3686,11 +3703,7 @@ final class ChopPlayer: ObservableObject {
         else { return .center }
         return UnitPoint(x: 0.5 + Double(k.ax), y: 0.5 + Double(k.ay))
     }
-    func setKFTarget(_ s: CGFloat, at i: Int) {
-        guard i < kfZooms.count else { return }
-        kfZooms[i].scale = min(3, max(1.0, s))   // 1.0 = inert ramp (nothing happens)
-        scheduleSave()
-    }
+
     func setKFAnchor(ax: CGFloat, ay: CGFloat, at i: Int) {
         guard i < kfZooms.count else { return }
         kfZooms[i].ax = min(0.5, max(-0.5, ax))
@@ -3726,7 +3739,7 @@ final class ChopPlayer: ObservableObject {
                 kfZooms.removeAll { $0.start < r && $0.end > a }   // no overlaps
                 // scale 1.0 = INERT (Lewis): dropping keyframes does nothing
                 // visible until the creator pinches to set how far it zooms
-                kfZooms.append((a, r, 1.0, 0, 0))
+                kfZooms.append((a, r, 1.0, 0, 0, 1.0))
                 kfPending = nil
                 scheduleSave()
             } else if abs(r - a) <= 0.2 {
@@ -4080,6 +4093,7 @@ struct ChopPlayerScreen: View {
     @State private var pinchStart: CGFloat? = nil   // pinch-zoom on the selected clip
     @State private var pinchLive: CGFloat? = nil
     @State private var pinchKF: Int? = nil          // pinch is adjusting this keyframe ramp
+    @State private var pinchKFEnd = true            // …and which of its keyframes (false = KF1)
     @State private var kfPanStart: (CGFloat, CGFloat)? = nil   // anchor at freeform-drag start
     @State private var kfDragging = false           // show the centre guides
     @State private var kfGuideIdx: Int? = nil       // ramp whose guides are showing
@@ -4092,7 +4106,8 @@ struct ChopPlayerScreen: View {
     private var panKF: Int? {
         guard p.showEdited, selected == nil, pinchLive == nil else { return nil }
         if let ki = pinchKF { return ki }
-        if let ki = p.kfIndex(atEditTime: p.time), p.kfZooms[ki].scale > 1.01 { return ki }
+        if let ki = p.kfIndex(atEditTime: p.time),
+           p.kfZooms[ki].scale > 1.01 || p.kfZooms[ki].s0 > 1.01 { return ki }
         return nil
     }
     /// FREEFORM v3: a SELECTED, zoomed clip is draggable anywhere on the
@@ -4303,11 +4318,16 @@ struct ChopPlayerScreen: View {
                            pinchKF != nil || pinchStart == nil,
                            let ki = pinchKF ?? p.kfIndex(atEditTime: p.time) {
                             if pinchStart == nil {
-                                pinchStart = p.kfZooms[ki].scale
+                                // REVERSE RAMPS (Lewis): the pinch sets the
+                                // scale of whichever KEYFRAME the playhead is
+                                // nearer — KF1 for zoom-out ramps, KF2 for
+                                // zoom-in. Decided once, at pinch start.
+                                pinchKFEnd = p.kfNearerEnd(atEditTime: p.time, index: ki)
+                                pinchStart = pinchKFEnd ? p.kfZooms[ki].scale : p.kfZooms[ki].s0
                                 pinchKF = ki
                                 p.pushHistory()   // one pinch = one undoable action
                             }
-                            p.setKFTarget((pinchStart ?? 1.5) * v, at: ki)
+                            p.setKFScale((pinchStart ?? 1) * v, at: ki, end: pinchKFEnd)
                             return
                         }
                         guard p.showEdited, let sel = selected, sel < p.bands.count else { return }
@@ -7166,12 +7186,13 @@ final class ChopExporter {
                       let q = $0["q"] as? Int else { return nil }
                 return (s, e2, q % 4)
             }
-        let savedKFs: [(start: Double, end: Double, scale: CGFloat, ax: CGFloat, ay: CGFloat)] =
+        let savedKFs: [(start: Double, end: Double, scale: CGFloat, ax: CGFloat, ay: CGFloat, s0: CGFloat)] =
             ((job.data["kfZooms"] as? [[String: Any]]) ?? []).compactMap {
                 guard let s = $0["s"] as? Double, let e2 = $0["e"] as? Double,
                       let z = $0["z"] as? Double else { return nil }
                 return (s, e2, CGFloat(z),
-                        CGFloat(($0["x"] as? Double) ?? 0), CGFloat(($0["y"] as? Double) ?? 0))
+                        CGFloat(($0["x"] as? Double) ?? 0), CGFloat(($0["y"] as? Double) ?? 0),
+                        CGFloat(($0["z0"] as? Double) ?? 1))
             }
         if !savedZooms.isEmpty || !savedRots.isEmpty || !savedKFs.isEmpty {
             session.videoComposition = ChopPlayer.zoomComposition(
