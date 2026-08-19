@@ -3870,6 +3870,14 @@ final class ChopPlayer: ObservableObject {
         guard let r = raw(fromEdit: t) else { return nil }
         return kfZooms.firstIndex(where: { r >= $0.start - 0.001 && r <= $0.end + 0.001 })
     }
+    /// LOCKED-ON check (Lewis 19 Aug): the ramp whose DIAMOND the playhead is
+    /// sitting on (within a small tolerance — the scrub magnet parks it there).
+    /// Used so a pinch with a clip selected can still drive the keystone, but
+    /// ONLY when the stick is actually on a keystone.
+    func kfIndexLocked(atEditTime t: Double, eps: Double = 0.08) -> Int? {
+        guard let r = raw(fromEdit: t) else { return nil }
+        return kfZooms.firstIndex(where: { abs(r - $0.start) <= eps || abs(r - $0.end) <= eps })
+    }
     /// The ramped keyframe scale at an EDIT moment — multiplies the preview.
     func kfScale(atEditTime t: Double) -> CGFloat {
         guard let r = raw(fromEdit: t),
@@ -4499,9 +4507,16 @@ struct ChopPlayerScreen: View {
                         // selected + playhead inside a ramp → pinch sets the
                         // ramp's TARGET zoom. The locked selected-clip path
                         // below is untouched.
-                        if selected == nil, p.showEdited,
+                        // + Lewis 19 Aug: with a clip SELECTED the keystone
+                        // still wins — but ONLY when the playhead is locked
+                        // right on a keystone diamond (kfIndexLocked). Off the
+                        // diamond, the selected-clip pinch behaves exactly as
+                        // it always has.
+                        if p.showEdited,
                            pinchKF != nil || pinchStart == nil,
-                           let ki = pinchKF ?? p.kfIndex(atEditTime: p.time) {
+                           let ki = pinchKF ?? (selected == nil
+                                ? p.kfIndex(atEditTime: p.time)
+                                : p.kfIndexLocked(atEditTime: p.time)) {
                             if pinchStart == nil {
                                 pinchStart = p.kfZooms[ki].scale
                                 pinchKF = ki
