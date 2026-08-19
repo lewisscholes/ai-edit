@@ -6335,7 +6335,8 @@ struct ImportSheet: View {
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button("Close") { dismiss() }
             } else {
-                PhotosPicker(selection: $pickedMany, maxSelectionCount: 5, matching: .videos,
+                PhotosPicker(selection: $pickedMany, maxSelectionCount: stitch ? 5 : 10,
+                             matching: .videos,
                              preferredItemEncoding: .current) {   // no iOS transcode — see dashboard picker note
                     Label("Choose videos", systemImage: "video.badge.plus")
                         .frame(maxWidth: .infinity)
