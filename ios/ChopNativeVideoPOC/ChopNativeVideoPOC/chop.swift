@@ -929,6 +929,31 @@ final class ChopAPI: ObservableObject {
         }
     }
 
+    /// A password-reset link from the email opened the app: adopt the
+    /// recovery session carried in the URL fragment so updatePassword works.
+    /// Signed OUT on purpose — the auth screen's "new password" stage shows.
+    func adoptRecovery(token: String, refresh: String?) {
+        accessToken = token
+        tokenExpiresAt = Date().addingTimeInterval(3600)
+        if let refresh { ChopKeychain.set(refresh, "chop-refresh") }
+        signedIn = false
+    }
+
+    /// Change the account email. Supabase emails a confirmation link to the
+    /// new address; the change lands once it's clicked.
+    func updateEmail(_ newEmail: String) async -> Bool {
+        guard let url = URL(string: "\(SB_URL)/auth/v1/user") else { return false }
+        var req = URLRequest(url: url)
+        req.httpMethod = "PUT"
+        req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["email": newEmail])
+        guard let (_, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse else { return false }
+        return (200...299).contains(http.statusCode)
+    }
+
     /// Save a new password mid-recovery (mode `new`). PUT /auth/v1/user.
     func updatePassword(_ newPassword: String) async -> Bool {
         guard let url = URL(string: "\(SB_URL)/auth/v1/user") else { return false }
@@ -1212,8 +1237,13 @@ final class ChopAPI: ObservableObject {
         req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
         req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         guard let (data, _) = try? await URLSession.shared.data(for: req),
-              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-              let row = rows.first else { return }
+              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
+        guard let row = rows.first else {
+            // No profile row yet (brand-new account): show defaults, never
+            // whatever the previous signed-in user left behind.
+            profileName = ""; profileTiktok = ""; profileAvatar = ""
+            return
+        }
         credits = (row["credits"] as? Int) ?? 0
         profileName = (row["name"] as? String) ?? ""
         profileTiktok = (row["tiktok"] as? String) ?? ""
@@ -1252,7 +1282,10 @@ final class ChopAPI: ObservableObject {
     /// Send the reset email — same Supabase endpoint the web app calls, so it
     /// goes out through Resend with the branded template.
     func sendPasswordReset(email: String) async -> Bool {
-        guard let url = URL(string: "\(SB_URL)/auth/v1/recover") else { return false }
+        // redirect_to = the app's own scheme: tapping the email link bounces
+        // through Supabase verify and lands back INSIDE the app with a
+        // recovery session, where the "Choose a new password" stage takes over.
+        guard let url = URL(string: "\(SB_URL)/auth/v1/recover?redirect_to=chopedit%3A%2F%2Fauth-callback") else { return false }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
@@ -1378,6 +1411,11 @@ final class ChopAPI: ObservableObject {
     func signOut() {
         ChopKeychain.delete("chop-refresh")   // an explicit sign-out means OUT
         accessToken = ""; userId = ""; signedIn = false; jobs = []; credits = 0
+        // Profile state must die with the session — leaving it made a NEW
+        // account on the same phone inherit the previous account's avatar
+        // (and then save it as its own).
+        profileName = ""; profileTiktok = ""; profileAvatar = ""
+        password = ""
     }
 }
 
@@ -1899,7 +1937,7 @@ struct AuthGridOverlay: Shape {
 struct ChopRootView: View {
     @StateObject private var api = ChopAPI()
     @Environment(\.scenePhase) private var scenePhase   // token refresh on foreground
-    @State private var importMode = 0   // 0 = single take (unchanged flow) · 1 = multi-take stitch
+    @State private var importMode = 0   // 0 = one video · 1 = bulk (each edited separately) · 2 = combine (stitched into one)
     @State private var showImport = false
     @State private var showImportPicker = false            // photo library, straight from the dashboard
     @State private var importPicks: [PhotosPickerItem] = []
@@ -1994,6 +2032,25 @@ struct ChopRootView: View {
         .onChange(of: scenePhase) { _, p in
             if p == .active { Task { await api.ensureFreshToken() } }
         }
+        // Password-reset links (chopedit://auth-callback#access_token=…&type=recovery)
+        // open the app here. Adopt the recovery session and jump straight to
+        // the "Choose a new password" stage.
+        .onOpenURL { url in
+            guard url.scheme == "chopedit" else { return }
+            var frag: [String: String] = [:]
+            for pair in (url.fragment ?? "").split(separator: "&") {
+                let kv = pair.split(separator: "=", maxSplits: 1)
+                if kv.count == 2 { frag[String(kv[0])] = String(kv[1]) }
+            }
+            guard frag["type"] == "recovery" || frag["type"] == "magiclink",
+                  let token = frag["access_token"] else { return }
+            api.adoptRecovery(token: token, refresh: frag["refresh_token"])
+            seenIntro = true
+            authIntro = false
+            authStage = 2
+            newPassword = ""
+            api.error = ""; api.note = ""
+        }
         .preferredColorScheme(theme.scheme)
         .tint(ChopColor.blue)
         .chopToasts()
@@ -2058,14 +2115,14 @@ struct ChopRootView: View {
                 // reads HEVC natively, so audio extract/thumb/export are
                 // unaffected.
                 .photosPicker(isPresented: $showImportPicker, selection: $importPicks,
-                              maxSelectionCount: 5, matching: .videos,
+                              maxSelectionCount: importMode == 0 ? 1 : 5, matching: .videos,
                               preferredItemEncoding: .current)
                 .onChange(of: importPicks) { _, items in
                     guard !items.isEmpty else { return }
                     showImport = true
                 }
                 .sheet(isPresented: $showImport, onDismiss: { importPicks = [] }) {
-                    ImportSheet(api: api, initialPicks: importPicks, stitch: importMode == 1)
+                    ImportSheet(api: api, initialPicks: importPicks, stitch: importMode == 2)
                 }
                 .sheet(isPresented: $showSettings) { ChopSettingsView(api: api) { theme = $0 } }
                 .sheet(isPresented: $showBilling) { ChopBillingView(api: api) }
@@ -2667,17 +2724,30 @@ struct ChopRootView: View {
                     statCard("\(streak)", "Day streak")
                 }
 
-                // MULTI-TAKE selector (Lewis 18 Aug): quiet 50/50 row between the
-                // stats and the drop zone. Single take = the existing flow,
-                // untouched. Multi-take = pick several clips; they're stitched
-                // into ONE video in selection order BEFORE the normal pipeline
-                // runs, so upload/analysis/retakes/editor/export never know the
-                // difference.
+                // UPLOAD MODE selector (Lewis 19 Aug: clearer wording, 3 options).
+                // Same two locked pipelines as before, now named honestly:
+                //   Single  = one video, the untouched original flow
+                //   Bulk    = several videos, EACH processed separately
+                //             (first in the foreground, rest in background batch)
+                //   Combine = several clips stitched into ONE video in selection
+                //             order BEFORE the normal pipeline runs
+                // Only the labels/selection limit changed — upload, analysis,
+                // retakes, editor and export are byte-identical.
                 HStack(spacing: 8) {
-                    importModeButton("Single video", mode: 0)
-                    importModeButton("Multi video", mode: 1)
+                    importModeButton("Single", mode: 0)
+                    importModeButton("Bulk", mode: 1)
+                    importModeButton("Combine", mode: 2)
                 }
                 .padding(.top, 8)
+
+                // one plain line so nobody has to guess what a mode does
+                Text(importMode == 0 ? "One video, one edit."
+                     : importMode == 1 ? "Up to 5 videos — each gets its own separate edit."
+                     : "Up to 5 clips joined into ONE video, then edited.")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(ChopColor.muted)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 6)
 
                 Button {
                     // straight to the photo library — no interim "Choose videos" tab
@@ -6735,6 +6805,14 @@ struct ChopSettingsView: View {
     @State private var deleting = false
     @State private var failed = ""
     @State private var pwSent = false
+    @State private var showChangeEmail = false
+    @State private var showChangePassword = false
+    @State private var newEmail = ""
+    @State private var newPw = ""
+    @State private var newPw2 = ""
+    @State private var acctBusy = false
+    @State private var acctError = ""
+    @State private var acctNote = ""
 
     var body: some View {
         NavigationStack {
@@ -6793,22 +6871,17 @@ struct ChopSettingsView: View {
                     }
 
                     group("Account") {
-                        staticRow("Email", value: api.email.isEmpty ? "—" : api.email)
+                        row("Email", value: api.email.isEmpty ? "—" : api.email, chevron: true) {
+                            newEmail = ""; acctError = ""; acctNote = ""; showChangeEmail = true
+                        }
                         divider
                         row("Credits", value: "\(api.credits)", chevron: true) { showBilling = true }
                         divider
                         row("Billing", action: "Buy credits", chevron: true) { showBilling = true }
                         divider
-                        staticRow("Member since", value: "—")
-                        divider
-                        row("Password", action: pwSent ? "Sent ✓" : "Reset", chevron: false) {
-                            Task {
-                                let e = api.email
-                                guard !e.isEmpty else { return }
-                                _ = await api.sendPasswordReset(email: e)
-                                pwSent = true
-                                ChopToasts.shared.show("Reset link sent — check your inbox")
-                            }
+                        row("Password", action: "Change", chevron: true) {
+                            newPw = ""; newPw2 = ""; acctError = ""; acctNote = ""; pwSent = false
+                            showChangePassword = true
                         }
                     }
 
@@ -6897,6 +6970,8 @@ struct ChopSettingsView: View {
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
             .sheet(isPresented: $showProfile) { ChopProfileView(api: api) }
             .sheet(isPresented: $showBilling) { ChopBillingView(api: api) }
+            .sheet(isPresented: $showChangeEmail) { changeEmailSheet }
+            .sheet(isPresented: $showChangePassword) { changePasswordSheet }
             .alert("Delete your account?", isPresented: $confirming) {
                 Button("Cancel", role: .cancel) {}
                 Button("Delete", role: .destructive) {
@@ -6912,6 +6987,94 @@ struct ChopSettingsView: View {
             }
         }
         .preferredColorScheme(theme.scheme)
+    }
+
+    // ---- Change email ----
+    private var changeEmailSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("We'll email a confirmation link to the new address — the change takes effect once you tap it.")
+                    .font(.system(size: 13)).foregroundStyle(ChopColor.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                ChopField(label: "New email", placeholder: "you@example.com",
+                          contentType: .emailAddress, text: $newEmail)
+                    .keyboardType(.emailAddress)
+                ChopButton(title: "Send confirmation", kind: .primary, loading: acctBusy) {
+                    Task {
+                        let e = newEmail.trimmingCharacters(in: .whitespaces).lowercased()
+                        guard e.contains("@"), e.contains(".") else { acctError = "Enter a valid email address."; return }
+                        acctBusy = true; acctError = ""; acctNote = ""
+                        let ok = await api.updateEmail(e)
+                        acctBusy = false
+                        if ok { acctNote = "Check \(e) — tap the link there to confirm the change." }
+                        else { acctError = "Couldn't start the change — try again." }
+                    }
+                }
+                if !acctError.isEmpty {
+                    Text(acctError).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(ChopColor.rose)
+                }
+                if !acctNote.isEmpty {
+                    Text(acctNote).font(.system(size: 12.5, weight: .bold)).foregroundStyle(ChopColor.green)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+            }
+            .padding(20)
+            .background(ChopColor.bg)
+            .navigationTitle("Change email")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showChangeEmail = false } } }
+        }
+        .presentationDetents([.medium])
+    }
+
+    // ---- Change password ----
+    private var changePasswordSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                ChopField(label: "New password", placeholder: "••••••••", secure: true,
+                          contentType: .newPassword, text: $newPw)
+                ChopField(label: "Repeat new password", placeholder: "••••••••", secure: true,
+                          contentType: .newPassword, text: $newPw2)
+                ChopButton(title: "Save new password", kind: .primary, loading: acctBusy) {
+                    Task {
+                        guard newPw.count >= 6 else { acctError = "Use at least 6 characters."; return }
+                        guard newPw == newPw2 else { acctError = "Those don't match."; return }
+                        acctBusy = true; acctError = ""; acctNote = ""
+                        let ok = await api.updatePassword(newPw)
+                        acctBusy = false
+                        if ok { acctNote = "Password updated ✓"; newPw = ""; newPw2 = "" }
+                        else { acctError = "Couldn't save that — try again." }
+                    }
+                }
+                if !acctError.isEmpty {
+                    Text(acctError).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(ChopColor.rose)
+                }
+                if !acctNote.isEmpty {
+                    Text(acctNote).font(.system(size: 12.5, weight: .bold)).foregroundStyle(ChopColor.green)
+                }
+                Button {
+                    Task {
+                        let e = api.email
+                        guard !e.isEmpty else { return }
+                        _ = await api.sendPasswordReset(email: e)
+                        pwSent = true
+                    }
+                } label: {
+                    Text(pwSent ? "Reset link sent ✓ — check your inbox"
+                                : "Forgotten it? Email me a reset link instead")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(pwSent ? ChopColor.green : ChopColor.muted)
+                }
+                Spacer()
+            }
+            .padding(20)
+            .background(ChopColor.bg)
+            .navigationTitle("Change password")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { showChangePassword = false } } }
+        }
+        .presentationDetents([.medium])
     }
 
     private var divider: some View {
