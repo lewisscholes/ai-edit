@@ -1943,6 +1943,7 @@ struct ChopRootView: View {
     @State private var importPicks: [PhotosPickerItem] = []
     @State private var showSettings = false
     @State private var showBilling = false
+    @State private var showProfileMenu = false   // avatar pop-out (web parity)
     @State private var demoJob: ChopJob? = nil   // -screen editor design preview
     @AppStorage("chopTourSeen") private var tourSeen = false
     @State private var showTour = false          // one-time app tour
@@ -2546,7 +2547,7 @@ struct ChopRootView: View {
             .background(ChopColor.blueSoft, in: Capsule())
             .tourAnchor("tour-credits")
 
-            Button { showSettings = true } label: {
+            Button { showProfileMenu = true } label: {
                 ZStack {
                     if api.profileAvatar.hasPrefix("http") {
                         AsyncImage(url: URL(string: api.profileAvatar)) { img in
@@ -2561,8 +2562,81 @@ struct ChopRootView: View {
                 .frame(width: 36, height: 36)
                 .clipShape(Circle())
             }
+            // web-parity pop-out: Billing · Settings · App tour · Sign out · Dark mode
+            .popover(isPresented: $showProfileMenu, arrowEdge: .top) {
+                profileMenu.presentationCompactAdaptation(.popover)
+            }
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
+    }
+
+    /// The avatar pop-out — same items as the web app's profile menu.
+    private var profileMenu: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(api.profileName.isEmpty ? "Your account" : api.profileName)
+                    .font(.system(size: 15, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                if !api.profileTiktok.isEmpty {
+                    Text("@\(api.profileTiktok)").font(.system(size: 12.5))
+                        .foregroundStyle(ChopColor.muted)
+                }
+            }
+            .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
+            Rectangle().fill(ChopColor.line).frame(height: 1)
+
+            menuItem("creditcard", "Billing") { menuThen { showBilling = true } }
+            menuItem("gearshape", "Settings") { menuThen { showSettings = true } }
+            menuItem("sparkles", "App tour") {
+                showProfileMenu = false
+                tab = 0   // the tour's first stop lives on the dashboard
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { showTour = true }
+            }
+            menuItem("rectangle.portrait.and.arrow.right", "Sign out") {
+                showProfileMenu = false
+                api.signOut()
+            }
+
+            Rectangle().fill(ChopColor.line).frame(height: 1)
+            HStack(spacing: 10) {
+                Image(systemName: "moon").font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(ChopColor.ink).frame(width: 20)
+                Text("Dark mode").font(.system(size: 14.5, weight: .semibold))
+                    .foregroundStyle(ChopColor.ink)
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { theme == .dark },
+                    set: { on in
+                        theme = on ? .dark : .light
+                        ChopTheme.set(theme)
+                    }))
+                    .labelsHidden()
+            }
+            .padding(.horizontal, 16).padding(.vertical, 10)
+        }
+        .frame(width: 240)
+        .background(ChopColor.card)
+        .preferredColorScheme(theme.scheme)
+    }
+
+    private func menuItem(_ icon: String, _ label: String, _ tap: @escaping () -> Void) -> some View {
+        Button(action: tap) {
+            HStack(spacing: 10) {
+                Image(systemName: icon).font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(ChopColor.ink).frame(width: 20)
+                Text(label).font(.system(size: 14.5, weight: .semibold))
+                    .foregroundStyle(ChopColor.ink)
+                Spacer()
+            }
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Close the pop-out, then present a sheet — same-tick presentation clashes.
+    private func menuThen(_ then: @escaping () -> Void) {
+        showProfileMenu = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: then)
     }
 
     private var avatarEmoji: String {
@@ -2609,8 +2683,11 @@ struct ChopRootView: View {
                 .fixedSize(horizontal: false, vertical: true)
             if let sub { Text(sub).font(.caption2).foregroundStyle(Color.chopMuted) }
         }
-        .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
-        .padding(16)
+        // no minHeight (Lewis 19 Aug): the cards used to reserve 96pt and sit
+        // mostly empty, pushing the upload box down on smaller phones — now
+        // they hug their text.
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(.horizontal, 16).padding(.vertical, 14)
         .background(Color.chopPanel)
         .clipShape(RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.chopLine, lineWidth: 1))
@@ -6868,27 +6945,29 @@ struct ChopSettingsView: View {
                     }
                     .padding(.vertical, 22)
 
+                    // ONE clean profile group (Aaron 19 Aug): everything about
+                    // who you are in a single place — then billing below it.
                     group("Profile") {
                         row("Name", value: api.profileName.isEmpty ? "Not set" : api.profileName, chevron: true) { showProfile = true }
                         divider
                         row("TikTok", value: api.profileTiktok.isEmpty ? "Not set" : "@\(api.profileTiktok)", chevron: true) { showProfile = true }
                         divider
                         row("Photo", action: "Change", chevron: true) { showProfile = true }
-                    }
-
-                    group("Account") {
+                        divider
                         row("Email", value: api.email.isEmpty ? "—" : api.email, chevron: true) {
                             newEmail = ""; acctError = ""; acctNote = ""; showChangeEmail = true
                         }
-                        divider
-                        row("Credits", value: "\(api.credits)", chevron: true) { showBilling = true }
-                        divider
-                        row("Billing", action: "Buy credits", chevron: true) { showBilling = true }
                         divider
                         row("Password", action: "Change", chevron: true) {
                             newPw = ""; newPw2 = ""; acctError = ""; acctNote = ""; pwSent = false
                             showChangePassword = true
                         }
+                    }
+
+                    group("Account") {
+                        row("Credits", value: "\(api.credits)", chevron: true) { showBilling = true }
+                        divider
+                        row("Billing", action: "Buy credits", chevron: true) { showBilling = true }
                     }
 
                     group("Preferences") {
@@ -7172,6 +7251,13 @@ struct ChopCoachModifier: ViewModifier {
     func body(content: Content) -> some View {
         content.overlayPreferenceValue(ChopTourAnchorKey.self) { prefs in
             if active, index < steps.count {
+                // ONE coordinate space for everything (fixes the drifted
+                // highlights): the GeometryReader itself ignores the safe
+                // areas, so geo covers the full screen, the anchors resolve
+                // into that same space, and the dim layer / cutout / stroke /
+                // callout all agree. Previously only the dim Path ignored the
+                // safe area — its cutout landed a notch-height away from the
+                // stroke and the actual control.
                 GeometryReader { geo in
                     let step = steps[index]
                     let rect: CGRect = prefs[step.id].map { geo[$0] } ?? .zero
@@ -7179,14 +7265,13 @@ struct ChopCoachModifier: ViewModifier {
                     ZStack {
                         // dim everything except a rounded cutout on the target
                         Path { p in
-                            p.addRect(CGRect(origin: .zero, size: geo.size).insetBy(dx: -200, dy: -200))
+                            p.addRect(CGRect(origin: .zero, size: geo.size))
                             if rect != .zero {
                                 p.addRoundedRect(in: rect.insetBy(dx: -8, dy: -8),
                                                  cornerSize: CGSize(width: 14, height: 14))
                             }
                         }
                         .fill(Color.black.opacity(0.62), style: FillStyle(eoFill: true))
-                        .ignoresSafeArea()
 
                         if rect != .zero {
                             RoundedRectangle(cornerRadius: 14)
@@ -7201,6 +7286,7 @@ struct ChopCoachModifier: ViewModifier {
                     .id(index)   // re-render per step for clean transitions
                     .transition(.opacity)
                 }
+                .ignoresSafeArea()
             }
         }
         .animation(.easeInOut(duration: 0.22), value: index)
