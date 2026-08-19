@@ -2135,12 +2135,9 @@ struct ChopRootView: View {
                 // 4K sync uploads the smaller HEVC file too. AVFoundation
                 // reads HEVC natively, so audio extract/thumb/export are
                 // unaffected.
-                // Selection caps (Lewis 19 Aug): Single 1 · Bulk 30 · Combine 5.
-                // Bulk videos process one at a time in the background, so a
-                // bigger cap just means a longer queue; Combine stays at 5 so
-                // a stitched timeline stays manageable.
+                // Selection caps (Lewis 19 Aug): Single 1 · Bulk 30 · Combine 30.
                 .photosPicker(isPresented: $showImportPicker, selection: $importPicks,
-                              maxSelectionCount: importMode == 0 ? 1 : (importMode == 1 ? 30 : 5),
+                              maxSelectionCount: importMode == 0 ? 1 : 30,
                               matching: .videos,
                               preferredItemEncoding: .current)
                 .onChange(of: importPicks) { _, items in
@@ -2177,7 +2174,7 @@ struct ChopRootView: View {
                     ChopBotButton { showAssist = true }
                 }
                 .padding(.horizontal, 14)
-                .padding(.bottom, 22)
+                .padding(.bottom, 2)   // sit just above the home indicator
             }
         }
         // first-launch tour: spotlights on the real controls, short and sharp
@@ -2857,7 +2854,7 @@ struct ChopRootView: View {
                 // one plain line so nobody has to guess what a mode does
                 Text(importMode == 0 ? "One video, one edit."
                      : importMode == 1 ? "Up to 30 videos — each gets its own separate edit."
-                     : "Up to 5 clips joined into ONE video, then edited.")
+                     : "Up to 30 clips joined into ONE video, then edited.")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(ChopColor.muted)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -6444,7 +6441,7 @@ struct ImportSheet: View {
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button("Close") { dismiss() }
             } else {
-                PhotosPicker(selection: $pickedMany, maxSelectionCount: stitch ? 5 : 30,
+                PhotosPicker(selection: $pickedMany, maxSelectionCount: 30,
                              matching: .videos,
                              preferredItemEncoding: .current) {   // no iOS transcode — see dashboard picker note
                     Label("Choose videos", systemImage: "video.badge.plus")
@@ -8224,7 +8221,7 @@ struct ChopGlassNav: View {
             item(1, "tray.full", "Queue", queueCount)
             item(2, "scissors", "Cuts", 0)
         }
-        .padding(.horizontal, 10).padding(.vertical, 7)
+        .padding(.horizontal, 10).padding(.vertical, 3)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 1))
         .shadow(color: .black.opacity(0.45), radius: 18, y: 10)
@@ -8233,16 +8230,16 @@ struct ChopGlassNav: View {
     private func item(_ i: Int, _ icon: String, _ label: String, _ badge: Int) -> some View {
         let on = tab == i
         return Button { tab = i } label: {
-            VStack(spacing: 4) {
+            VStack(spacing: 2) {
                 Image(systemName: icon)
-                    .font(.system(size: 20, weight: .regular))
+                    .font(.system(size: 17, weight: .regular))
                 Text(label)
-                    .font(.system(size: 11.5, weight: on ? .bold : .semibold))
+                    .font(.system(size: 10.5, weight: on ? .bold : .semibold))
                     .fixedSize()
             }
             .foregroundStyle(on ? Color.chopBlue : Color.chopMuted)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)
             .background(on ? Color.chopBlue.opacity(0.12) : .clear, in: Capsule())
             .overlay(alignment: .topTrailing) {
                 if badge > 0 {
@@ -8281,7 +8278,7 @@ struct ChopBotButton: View {
                         .font(.system(size: 26, weight: .semibold)).foregroundStyle(.white)
                 }
             }
-            .frame(width: 56, height: 56)
+            .frame(width: 50, height: 50)
             .clipShape(Circle())
             .overlay(Circle().stroke(.white.opacity(0.7), lineWidth: 1))
             // breathing glow
