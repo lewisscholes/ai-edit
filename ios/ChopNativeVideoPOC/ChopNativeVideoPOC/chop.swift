@@ -6853,11 +6853,23 @@ struct ChopBillingView: View {
         let on = sel == p
         let per = perCredit(p)
         let save = Double(p) * 0.998 - price(p)   // vs the starter 99.8p rate
+        // Lewis 19 Aug: anchor badges from the approved pricing mockup
+        let badge: (String, Color)? = p == 100 ? ("MOST POPULAR", ChopColor.blue)
+                                    : p == 250 ? ("BEST VALUE", ChopColor.green) : nil
         return Button { withAnimation(.easeInOut(duration: 0.18)) { sel = p } } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(p) credits")
-                        .font(.system(size: 14.5, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                    HStack(spacing: 7) {
+                        Text("\(p) credits")
+                            .font(.system(size: 14.5, weight: .heavy)).foregroundStyle(ChopColor.ink)
+                        if let badge {
+                            Text(badge.0)
+                                .font(.system(size: 8.5, weight: .black)).kerning(0.4)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 7).padding(.vertical, 2.5)
+                                .background(badge.1, in: Capsule())
+                        }
+                    }
                     Text("\(perLabel(per)) per video")
                         .font(.system(size: 10.5)).foregroundStyle(ChopColor.muted)
                 }
