@@ -2725,15 +2725,30 @@ struct ChopRootView: View {
     }
 
     // ---- numbers, derived from the jobs themselves ----
+    /// TIME SAVED EDITING (Lewis 19 Aug — the equation):
+    /// hand-editing a talking-head video takes roughly 3 minutes per minute
+    /// of raw footage (scrubbing, cutting silences/fillers, checking retakes,
+    /// tightening ends). Chop leaves ~1 minute of review per video. So:
+    ///     time saved = Σ(rawSec × 3) − (videos × 60s review)
     private var savedSeconds: Double {
-        api.jobs.reduce(0.0) { $0 + max(0, $1.rawSec - $1.editedSec) }
+        let manual = api.jobs.reduce(0.0) { $0 + $1.rawSec * 3 }
+        let review = Double(api.jobs.count) * 60
+        return max(0, manual - review)
     }
     private var savedLabel: String {
         let m = Int(savedSeconds / 60)
         return m >= 60 ? String(format: "%.1fh", savedSeconds / 3600) : "\(m)m"
     }
-    /// Same basis as the web dashboard: manual editing valued at $30/hour.
-    private var moneyLabel: String { "$\(Int(savedSeconds / 3600 * 30))" }
+    /// SAVED PAYING AN EDITOR (Lewis 19 Aug — the equation):
+    ///     (videos edited × £5) − what the credits for those videos cost.
+    /// The free 3 credits cost £0; beyond that a credit is priced at the
+    /// blended 90p Creator rate until real purchase history is wired in.
+    private var moneyLabel: String {
+        let n = api.jobs.count
+        let earned = Double(n) * 5.0
+        let creditCost = Double(max(0, n - 3)) * 0.90
+        return "£\(Int(max(0, earned - creditCost)))"
+    }
 
     private var editDays: [String] {
         api.jobs.compactMap { j in
