@@ -2114,8 +2114,13 @@ struct ChopRootView: View {
                 // 4K sync uploads the smaller HEVC file too. AVFoundation
                 // reads HEVC natively, so audio extract/thumb/export are
                 // unaffected.
+                // Selection caps (Lewis 19 Aug): Single 1 · Bulk 10 · Combine 5.
+                // Bulk videos process one at a time in the background, so a
+                // bigger cap just means a longer queue; Combine stays at 5 so
+                // a stitched timeline stays manageable.
                 .photosPicker(isPresented: $showImportPicker, selection: $importPicks,
-                              maxSelectionCount: importMode == 0 ? 1 : 5, matching: .videos,
+                              maxSelectionCount: importMode == 0 ? 1 : (importMode == 1 ? 10 : 5),
+                              matching: .videos,
                               preferredItemEncoding: .current)
                 .onChange(of: importPicks) { _, items in
                     guard !items.isEmpty else { return }
@@ -2742,7 +2747,7 @@ struct ChopRootView: View {
 
                 // one plain line so nobody has to guess what a mode does
                 Text(importMode == 0 ? "One video, one edit."
-                     : importMode == 1 ? "Up to 5 videos — each gets its own separate edit."
+                     : importMode == 1 ? "Up to 10 videos — each gets its own separate edit."
                      : "Up to 5 clips joined into ONE video, then edited.")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(ChopColor.muted)
