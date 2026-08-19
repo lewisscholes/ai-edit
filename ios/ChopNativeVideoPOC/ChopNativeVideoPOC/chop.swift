@@ -2584,13 +2584,13 @@ struct ChopRootView: View {
             .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
             Rectangle().fill(ChopColor.line).frame(height: 1)
 
-            menuItem("creditcard", "Billing") { menuThen { showBilling = true } }
-            menuItem("gearshape", "Settings") { menuThen { showSettings = true } }
+            menuItem("person.crop.circle", "Profile") { menuThen { showSettings = true } }
             menuItem("sparkles", "App tour") {
                 showProfileMenu = false
                 tab = 0   // the tour's first stop lives on the dashboard
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { showTour = true }
             }
+            menuItem("creditcard", "Billing") { menuThen { showBilling = true } }
             menuItem("rectangle.portrait.and.arrow.right", "Sign out") {
                 showProfileMenu = false
                 api.signOut()
@@ -2680,7 +2680,7 @@ struct ChopRootView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(value).font(ChopFont.cardBig).foregroundStyle(ChopColor.blue)
             Text(label).font(ChopFont.cardLabel).foregroundStyle(ChopColor.ink)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(2, reservesSpace: true)   // every card = same height
             if let sub { Text(sub).font(.caption2).foregroundStyle(Color.chopMuted) }
         }
         // no minHeight (Lewis 19 Aug): the cards used to reserve 96pt and sit
@@ -2782,16 +2782,18 @@ struct ChopRootView: View {
                     .font(.subheadline).foregroundStyle(Color.chopMuted)
                     .padding(.bottom, 4)
 
-                // 2x2, hero first — same arrangement as the web dashboard
-                HStack(spacing: 12) {
+                // 2x2 — all four cards the SAME compact size (Lewis 19 Aug:
+                // the blue hero kept its old 96pt minHeight and towered over
+                // the slimmed cards).
+                HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(savedLabel).font(ChopFont.cardBig)
                         Text("Time saved editing").font(ChopFont.cardLabel)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .lineLimit(2, reservesSpace: true)   // matches statCard height
                     }
                     .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, minHeight: 96, alignment: .topLeading)
-                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                    .padding(.horizontal, 16).padding(.vertical, 14)
                     .background(  // web: linear-gradient(135deg,#1a6dff,#4e8dff) + blue shadow
                         LinearGradient(colors: [Color(red: 0x1a/255, green: 0x6d/255, blue: 1.0),
                                                 Color(red: 0x4e/255, green: 0x8d/255, blue: 1.0)],
@@ -2801,8 +2803,8 @@ struct ChopRootView: View {
 
                     statCard("\(api.jobs.count)", "Videos edited")
                 }
-                HStack(spacing: 12) {
-                    statCard(moneyLabel, "Saved vs. manual editing", sub: "at $30/h")
+                HStack(alignment: .top, spacing: 12) {
+                    statCard(moneyLabel, "Saved paying an editor")
                     statCard("\(streak)", "Day streak")
                 }
 
@@ -6946,7 +6948,7 @@ struct ChopSettingsView: View {
                     .padding(.vertical, 22)
 
                     // ONE clean profile group (Aaron 19 Aug): everything about
-                    // who you are in a single place — then billing below it.
+                    // who you are in a single place.
                     group("Profile") {
                         row("Name", value: api.profileName.isEmpty ? "Not set" : api.profileName, chevron: true) { showProfile = true }
                         divider
@@ -6964,34 +6966,9 @@ struct ChopSettingsView: View {
                         }
                     }
 
-                    group("Account") {
-                        row("Credits", value: "\(api.credits)", chevron: true) { showBilling = true }
-                        divider
-                        row("Billing", action: "Buy credits", chevron: true) { showBilling = true }
-                    }
-
-                    group("Preferences") {
-                        HStack {
-                            Text("Theme").font(ChopFont.body).foregroundStyle(ChopColor.ink)
-                            Spacer()
-                            Picker("", selection: $theme) {
-                                Text("System").tag(ChopTheme.system)
-                                Text("Light").tag(ChopTheme.light)
-                                Text("Dark").tag(ChopTheme.dark)
-                            }
-                            .pickerStyle(.segmented).frame(width: 190)
-                            .onChange(of: theme) { _, t in ChopTheme.set(t); onThemeChange?(t) }
-                        }
-                        .padding(.horizontal, 15).padding(.vertical, 10)
-                        divider
-                        row("App tour", action: "Replay", chevron: true) {
-                            // both tours re-arm: dashboard pointers now,
-                            // editor pointers next time a video opens
-                            UserDefaults.standard.set(false, forKey: "chopTourSeen")
-                            UserDefaults.standard.set(false, forKey: "chopEditorTourSeen")
-                            dismiss()
-                        }
-                        divider
+                    // Billing/tour/theme all live in the avatar pop-out now —
+                    // this page is purely WHO YOU ARE (Aaron 19 Aug).
+                    group("Legal") {
                         Link(destination: URL(string: "https://chopedit.com/privacy.html")!) {
                             HStack {
                                 Text("Privacy policy").font(ChopFont.body).foregroundStyle(ChopColor.ink)
@@ -7050,7 +7027,7 @@ struct ChopSettingsView: View {
                 }
             }
             .background(ChopColor.bg)
-            .navigationTitle("Settings")
+            .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
             .sheet(isPresented: $showProfile) { ChopProfileView(api: api) }
