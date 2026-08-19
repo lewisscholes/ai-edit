@@ -1408,6 +1408,25 @@ final class ChopAPI: ObservableObject {
         return true
     }
 
+    /// Chop Bot — one round trip to the chop-assist edge function.
+    /// Sends the running conversation, gets the next reply back.
+    func askAssist(_ messages: [[String: String]]) async -> String? {
+        guard let url = URL(string: "\(SB_URL)/functions/v1/chop-assist") else { return nil }
+        await ensureFreshToken()
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.timeoutInterval = 30
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["messages": messages])
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode),
+              let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let reply = o["reply"] as? String, !reply.isEmpty else { return nil }
+        return reply
+    }
+
     func signOut() {
         ChopKeychain.delete("chop-refresh")   // an explicit sign-out means OUT
         accessToken = ""; userId = ""; signedIn = false; jobs = []; credits = 0
@@ -1944,6 +1963,7 @@ struct ChopRootView: View {
     @State private var showSettings = false
     @State private var showBilling = false
     @State private var showProfileMenu = false   // avatar pop-out (web parity)
+    @State private var showAssist = false        // Chop Bot chat sheet
     @State private var demoJob: ChopJob? = nil   // -screen editor design preview
     @AppStorage("chopTourSeen") private var tourSeen = false
     @State private var showTour = false          // one-time app tour
@@ -2115,12 +2135,12 @@ struct ChopRootView: View {
                 // 4K sync uploads the smaller HEVC file too. AVFoundation
                 // reads HEVC natively, so audio extract/thumb/export are
                 // unaffected.
-                // Selection caps (Lewis 19 Aug): Single 1 · Bulk 10 · Combine 5.
+                // Selection caps (Lewis 19 Aug): Single 1 · Bulk 30 · Combine 5.
                 // Bulk videos process one at a time in the background, so a
                 // bigger cap just means a longer queue; Combine stays at 5 so
                 // a stitched timeline stays manageable.
                 .photosPicker(isPresented: $showImportPicker, selection: $importPicks,
-                              maxSelectionCount: importMode == 0 ? 1 : (importMode == 1 ? 10 : 5),
+                              maxSelectionCount: importMode == 0 ? 1 : (importMode == 1 ? 30 : 5),
                               matching: .videos,
                               preferredItemEncoding: .current)
                 .onChange(of: importPicks) { _, items in
@@ -2132,6 +2152,11 @@ struct ChopRootView: View {
                 }
                 .sheet(isPresented: $showSettings) { ChopSettingsView(api: api) { theme = $0 } }
                 .sheet(isPresented: $showBilling) { ChopBillingView(api: api) }
+                .sheet(isPresented: $showAssist) {
+                    ChopBotChat(api: api)
+                        .presentationDetents([.fraction(0.8), .large])
+                        .presentationDragIndicator(.visible)
+                }
                 .fullScreenCover(item: $demoJob) { j in
                     NavigationStack { ChopPlayerScreen(job: j, api: api) }
                 }
@@ -2146,8 +2171,13 @@ struct ChopRootView: View {
                 }
                 .refreshable { await api.loadJobs() }
             }
-            if !api.editorOpen {   // web: no Dashboard/Queue/Cut Lab pill inside the editor
-                ChopGlassNav(tab: $tab, queueCount: reviewCount)
+            if !api.editorOpen {   // web: no Home/Queue/Cuts pill inside the editor
+                HStack(spacing: 12) {
+                    ChopGlassNav(tab: $tab, queueCount: reviewCount)
+                    ChopBotButton { showAssist = true }
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 22)
             }
         }
         // first-launch tour: spotlights on the real controls, short and sharp
@@ -2826,7 +2856,7 @@ struct ChopRootView: View {
 
                 // one plain line so nobody has to guess what a mode does
                 Text(importMode == 0 ? "One video, one edit."
-                     : importMode == 1 ? "Up to 10 videos — each gets its own separate edit."
+                     : importMode == 1 ? "Up to 30 videos — each gets its own separate edit."
                      : "Up to 5 clips joined into ONE video, then edited.")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(ChopColor.muted)
@@ -6414,7 +6444,7 @@ struct ImportSheet: View {
                     .font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
                 Button("Close") { dismiss() }
             } else {
-                PhotosPicker(selection: $pickedMany, maxSelectionCount: stitch ? 5 : 10,
+                PhotosPicker(selection: $pickedMany, maxSelectionCount: stitch ? 5 : 30,
                              matching: .videos,
                              preferredItemEncoding: .current) {   // no iOS transcode — see dashboard picker note
                     Label("Choose videos", systemImage: "video.badge.plus")
@@ -8186,42 +8216,214 @@ struct ChopGlassNav: View {
     @Binding var tab: Int
     let queueCount: Int
 
+    // Apple Files-style pill (Lewis 19 Aug): airy, thin icons with the label
+    // UNDERNEATH, soft blue tint on the active tab. Home · Queue · Cuts.
     var body: some View {
-        HStack(spacing: 4) {
-            item(0, "square.grid.2x2", "Dashboard", 0)
-            item(1, "chart.bar.fill", "Queue", queueCount)
-            item(2, "slider.horizontal.3", "Cut Lab", 0)
+        HStack(spacing: 2) {
+            item(0, "house", "Home", 0)
+            item(1, "tray.full", "Queue", queueCount)
+            item(2, "scissors", "Cuts", 0)
         }
-        .padding(5)
+        .padding(.horizontal, 10).padding(.vertical, 7)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 1))
         .shadow(color: .black.opacity(0.45), radius: 18, y: 10)
-        .padding(.bottom, 22)
     }
 
     private func item(_ i: Int, _ icon: String, _ label: String, _ badge: Int) -> some View {
         let on = tab == i
         return Button { tab = i } label: {
-            HStack(spacing: 7) {
+            VStack(spacing: 4) {
                 Image(systemName: icon)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(on ? Color.chopBlue : Color.chopMuted)
+                    .font(.system(size: 20, weight: .regular))
                 Text(label)
-                    .font(.system(size: 13.5, weight: .bold))
+                    .font(.system(size: 11.5, weight: on ? .bold : .semibold))
                     .fixedSize()
-                    .foregroundStyle(on ? Color.chopInk : Color.chopMuted)
+            }
+            .foregroundStyle(on ? Color.chopBlue : Color.chopMuted)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(on ? Color.chopBlue.opacity(0.12) : .clear, in: Capsule())
+            .overlay(alignment: .topTrailing) {
                 if badge > 0 {
                     Text("\(badge)")
-                        .font(.system(size: 10, weight: .black))
-                        .foregroundStyle(Color.chopInk)
-                        .frame(minWidth: 17, minHeight: 17)
-                        .background(Color.chopBlue, in: Capsule())
+                        .font(.system(size: 9.5, weight: .black))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 1.5)
+                        .background(Color(red: 1, green: 0.23, blue: 0.19), in: Capsule())
+                        .offset(x: -14, y: 2)
                 }
             }
-            .padding(.horizontal, 15).padding(.vertical, 11)
-            .background(on ? Color.white.opacity(0.10) : .clear, in: Capsule())
         }
         .tourAnchor(i == 1 ? "tour-queue" : i == 2 ? "tour-lab" : "tour-dash")
+    }
+}
+
+// MARK: - Chop Bot (Lewis 19 Aug): the onboarding helper.
+// A detached circle beside the nav pill — Lewis's robot artwork with a
+// breathing glow and a pulsing ring — opening a chat sheet backed by the
+// chop-assist edge function.
+
+struct ChopBotButton: View {
+    let tap: () -> Void
+    @State private var glow = false
+
+    var body: some View {
+        Button(action: tap) {
+            ZStack {
+                if UIImage(named: "chopbot") != nil {
+                    Image("chopbot").resizable().scaledToFill()
+                } else {
+                    LinearGradient(colors: [Color(red: 0x1a/255, green: 0x6d/255, blue: 1.0),
+                                            Color(red: 0x4e/255, green: 0x8d/255, blue: 1.0)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    Image(systemName: "face.smiling")
+                        .font(.system(size: 26, weight: .semibold)).foregroundStyle(.white)
+                }
+            }
+            .frame(width: 56, height: 56)
+            .clipShape(Circle())
+            .overlay(Circle().stroke(.white.opacity(0.7), lineWidth: 1))
+            // breathing glow
+            .shadow(color: Color.chopBlue.opacity(glow ? 0.75 : 0.35),
+                    radius: glow ? 16 : 8, y: 4)
+            // inviting ring that pulses outward
+            .overlay(
+                Circle()
+                    .stroke(Color.chopBlue.opacity(glow ? 0 : 0.55), lineWidth: 2)
+                    .scaleEffect(glow ? 1.5 : 1.0)
+            )
+            .offset(y: glow ? -2 : 0)   // gentle bob
+        }
+        .buttonStyle(.plain)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
+                glow = true
+            }
+        }
+    }
+}
+
+struct ChopBotChat: View {
+    @ObservedObject var api: ChopAPI
+    @Environment(\.dismiss) private var dismiss
+    @State private var msgs: [(role: String, text: String)] = [
+        ("assistant", "Hey, this is Chop Bot 🤖 Is there anything I can help you with?")
+    ]
+    @State private var draft = ""
+    @State private var thinking = false
+    @State private var showChips = true
+    @FocusState private var focused: Bool
+
+    private let chips = ["How do credits work?", "Bulk vs Combine?", "How do I export?"]
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(Array(msgs.enumerated()), id: \.offset) { _, m in
+                                bubble(m.role, m.text)
+                            }
+                            if showChips {
+                                FlowChips(chips: chips) { c in Task { await send(c) } }
+                            }
+                            if thinking {
+                                HStack(spacing: 4) {
+                                    ForEach(0..<3, id: \.self) { _ in
+                                        Circle().fill(ChopColor.muted.opacity(0.5))
+                                            .frame(width: 7, height: 7)
+                                    }
+                                }
+                                .padding(14)
+                                .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 18))
+                            }
+                            Color.clear.frame(height: 6).id("end")
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                    }
+                    .onChange(of: msgs.count) { _, _ in
+                        withAnimation { proxy.scrollTo("end", anchor: .bottom) }
+                    }
+                }
+
+                HStack(spacing: 8) {
+                    TextField("Message Chop Bot…", text: $draft)
+                        .focused($focused)
+                        .padding(.horizontal, 16).padding(.vertical, 11)
+                        .background(ChopColor.soft2, in: Capsule())
+                        .onSubmit { Task { await send(draft) } }
+                    Button {
+                        Task { await send(draft) }
+                    } label: {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 15, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .frame(width: 40, height: 40)
+                            .background(ChopColor.blue, in: Circle())
+                    }
+                    .disabled(thinking || draft.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                .padding(.horizontal, 14).padding(.top, 8).padding(.bottom, 10)
+            }
+            .background(ChopColor.bg)
+            .navigationTitle("Chop Bot")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
+        }
+    }
+
+    @ViewBuilder
+    private func bubble(_ role: String, _ text: String) -> some View {
+        HStack {
+            if role == "user" { Spacer(minLength: 40) }
+            Text(text)
+                .font(.system(size: 14.5))
+                .foregroundStyle(role == "user" ? .white : ChopColor.ink)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(role == "user" ? AnyShapeStyle(ChopColor.blue)
+                                           : AnyShapeStyle(ChopColor.soft2),
+                            in: RoundedRectangle(cornerRadius: 18))
+            if role != "user" { Spacer(minLength: 40) }
+        }
+    }
+
+    private func send(_ text: String) async {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, !thinking else { return }
+        draft = ""
+        showChips = false
+        msgs.append(("user", t))
+        thinking = true
+        let history = msgs.map { ["role": $0.role, "content": $0.text] }
+        let reply = await api.askAssist(history)
+        thinking = false
+        msgs.append(("assistant",
+                     reply ?? "Hmm, I couldn't reach base just then — give it another go in a second, or email hello@chopedit.com and a human will help."))
+    }
+}
+
+/// The suggested-question chips under Chop Bot's greeting.
+struct FlowChips: View {
+    let chips: [String]
+    let tap: (String) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(chips, id: \.self) { c in
+                Button { tap(c) } label: {
+                    Text(c)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(ChopColor.blue)
+                        .padding(.horizontal, 14).padding(.vertical, 9)
+                        .background(ChopColor.blueSoft, in: Capsule())
+                        .overlay(Capsule().stroke(ChopColor.blue.opacity(0.35), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 }
 
