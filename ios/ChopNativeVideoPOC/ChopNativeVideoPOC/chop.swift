@@ -2565,13 +2565,17 @@ struct ChopRootView: View {
 
             Spacer()
 
-            HStack(spacing: 5) {
-                Image(systemName: "bolt.fill").font(.system(size: 11, weight: .bold))
-                Text("\(api.credits) credits").font(.system(size: 14, weight: .heavy))
+            // tapping the balance goes straight to Billing (Lewis 19 Aug)
+            Button { showBilling = true } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "bolt.fill").font(.system(size: 11, weight: .bold))
+                    Text("\(api.credits) credits").font(.system(size: 14, weight: .heavy))
+                }
+                .foregroundStyle(ChopColor.blue)
+                .padding(.horizontal, 13).padding(.vertical, 8)
+                .background(ChopColor.blueSoft, in: Capsule())
             }
-            .foregroundStyle(ChopColor.blue)
-            .padding(.horizontal, 13).padding(.vertical, 8)
-            .background(ChopColor.blueSoft, in: Capsule())
+            .buttonStyle(.plain)
             .tourAnchor("tour-credits")
 
             Button { showProfileMenu = true } label: {
@@ -7793,13 +7797,13 @@ struct ChopLabBody: View {
     @State private var s = ChopPresets.saved
     @State private var savedNote = false
 
-    // web PRESETS copy, verbatim
+    // Four presets (Lewis 19 Aug): Relaxed dropped, Recommended renamed —
+    // TikTok Affiliate is THE default. Short descriptions, thin cards.
     private let presetMeta: [(String, String, ChopSettings?)] = [
-        ("Recommended", "Our pick, on by default. Silences over 0.01s, −260ms clip pads — the tightest clean cut.", ChopPresets.recommended),
-        ("Relaxed",  "Keeps natural pauses. Silences over 0.7s, hard fillers only.",            ChopPresets.relaxed),
-        ("Balanced", "The Chop standard. Silences over 0.4s, fillers removed.",                 ChopPresets.balanced),
-        ("Snappy",   "TikTok-tight. Silences over 0.05s, all fillers, tight clip ends.",        ChopPresets.snappy),
-        ("Custom",   "Your own recipe, saved from the sliders below.",                          nil)
+        ("TikTok Affiliate", "For TikTok Shop affiliates — 0.01s silences, −260ms clip pads.", ChopPresets.recommended),
+        ("Balanced", "Silences over 0.4s, fillers removed.",          ChopPresets.balanced),
+        ("Snappy",   "TikTok-tight — 0.05s silences, tight clip ends.", ChopPresets.snappy),
+        ("Custom",   "Your own recipe from the sliders below.",       nil)
     ]
 
     var body: some View {
@@ -7856,7 +7860,7 @@ struct ChopLabBody: View {
                             Button {
                                 s = ChopPresets.recommended; savedNote = false
                             } label: {
-                                Text("Reset to Recommended")
+                                Text("Reset to TikTok Affiliate")
                                     .font(.system(size: 13, weight: .bold)).foregroundStyle(ChopColor.ink)
                                     .padding(.vertical, 13).padding(.horizontal, 20)
                                     .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 12))
@@ -7904,16 +7908,22 @@ struct ChopLabBody: View {
         let on = isCustom ? ChopPresets.name(s) == "Custom" : s.matches(v!)
         let isDefault = isCustom ? ChopPresets.name(ChopPresets.saved) == "Custom"
                                  : ChopPresets.saved.matches(v!)
-        return Button { if let v { s = v; savedNote = false } } label: {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.system(size: 15, weight: .bold))
+        return Button {
+            // Custom is tappable too (it read as dead before): it selects
+            // your saved recipe if that IS custom, otherwise it just arms
+            // the sliders below — either way the card responds.
+            if let v { s = v } else if ChopPresets.name(ChopPresets.saved) == "Custom" { s = ChopPresets.saved }
+            savedNote = false
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 14.5, weight: .bold))
                     .foregroundStyle(ChopColor.ink)
-                Text(desc).font(.system(size: 12)).foregroundStyle(ChopColor.muted)
+                Text(desc).font(.system(size: 11.5)).foregroundStyle(ChopColor.muted)
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
             }
-            .frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading)
-            .padding(.horizontal, 20).padding(.vertical, 18)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .padding(.horizontal, 16).padding(.vertical, 11)
             .background(ChopColor.card, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16)
                 .stroke(on ? ChopColor.blue : Color.chopLine, lineWidth: 1.5))
