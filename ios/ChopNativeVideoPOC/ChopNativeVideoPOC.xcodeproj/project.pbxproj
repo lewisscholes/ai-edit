@@ -255,7 +255,7 @@
 				DEVELOPMENT_TEAM = 6TX34UPX9H;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = ChopNativeVideoPOC/Info.plist;
+				INFOPLIST_FILE = AppInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Chop;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Chop saves your finished videos to your camera roll.";
@@ -293,7 +293,7 @@
 				DEVELOPMENT_TEAM = 6TX34UPX9H;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = ChopNativeVideoPOC/Info.plist;
+				INFOPLIST_FILE = AppInfo.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Chop;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Chop saves your finished videos to your camera roll.";
