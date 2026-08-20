@@ -8520,31 +8520,23 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         videoDevice = dev
 
         if front {
-            // FRONT FOV v3 (Lewis 20 Aug — the TikTok build): TikTok records
-            // the selfie sensor's WIDE 4:3 mode and crops it to 9:16, which
-            // keeps far more horizontal view in portrait than any native 16:9
-            // format. So: pick the format with the widest EFFECTIVE PORTRAIT
-            // width — FOV × (short side / long side) — across ALL aspects,
-            // then normalized() crops the recording to 9:16 during the mirror
-            // re-render every front take already gets. Width capped so files
-            // stay sane.
+            // FRONT FOV — settled by the 20 Aug sensor dump on Lewis's
+            // iPhone 17 Pro Max: EVERY front video format reports the same
+            // 73.19° field of view and minAvailableVideoZoomFactor is 1.0, so
+            // no format switch or zoom-out can widen the picture through the
+            // public capture API — the default 16:9 1080p format already IS
+            // the full-width selfie. (The earlier 4:3 experiment gained zero
+            // width and cost resolution; reverted.)
             oneX = 1
-            func portraitWidth(_ f: AVCaptureDevice.Format) -> Double {
-                let d = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
-                return Double(f.videoFieldOfView) * Double(d.height) / Double(d.width)
-            }
-            let wide = dev.formats.filter { f in
-                let d = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
-                return d.height >= 1080 && d.width <= 2688 &&
-                       f.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= 30 }
-            }.max(by: { portraitWidth($0) < portraitWidth($1) })
-            if let f = wide, portraitWidth(f) > portraitWidth(dev.activeFormat) + 0.1,
-               (try? dev.lockForConfiguration()) != nil {
-                session.sessionPreset = .inputPriority
-                dev.activeFormat = f
-                dev.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
-                dev.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
-                dev.unlockForConfiguration()
+            if session.sessionPreset != .high { session.sessionPreset = .high }
+            // DIAGNOSTIC (temporary): does this phone expose a WIDER front
+            // device, like the back ultra-wide?
+            let disco = AVCaptureDevice.DiscoverySession(
+                deviceTypes: [.builtInWideAngleCamera, .builtInUltraWideCamera,
+                              .builtInTrueDepthCamera, .builtInDualWideCamera],
+                mediaType: .video, position: .front)
+            for d in disco.devices {
+                print("CHOPCAM front-device \(d.deviceType.rawValue) fov=\(d.activeFormat.videoFieldOfView) minZ=\(d.minAvailableVideoZoomFactor)")
             }
         } else {
             if session.sessionPreset != .high { session.sessionPreset = .high }
