@@ -1427,6 +1427,69 @@ final class ChopAPI: ObservableObject {
         return reply
     }
 
+    // MARK: local-import persistence (Lewis 20 Aug — the 'no video track' /
+    // 'isn't synced yet' fixes). Imports used to live in tmp, which iOS purges
+    // and which never survives a relaunch — a filmed video whose background
+    // sync hadn't finished then had NO copy anywhere. Now every import is
+    // cloned into Documents/chop-imports (APFS copy-on-write = instant) and
+    // the map is rebuilt on launch.
+
+    private var importsDir: URL {
+        let d = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("chop-imports", isDirectory: true)
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+
+    /// Clone a picked/filmed file into permanent storage; falls back to the
+    /// original URL (the old behaviour, byte-identical) if the clone fails.
+    func persistImport(_ url: URL, name: String) -> URL {
+        let safe = name.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? UUID().uuidString
+        let dest = importsDir.appendingPathComponent(safe + ".mp4")
+        try? FileManager.default.removeItem(at: dest)
+        do {
+            try FileManager.default.copyItem(at: url, to: dest)
+            return dest
+        } catch { return url }
+    }
+
+    /// On launch: re-point localImports at the surviving permanent copies.
+    func rebuildLocalImports() {
+        guard let files = try? FileManager.default.contentsOfDirectory(at: importsDir,
+                                                                       includingPropertiesForKeys: nil) else { return }
+        for f in files {
+            let stem = f.deletingPathExtension().lastPathComponent
+            guard let name = stem.removingPercentEncoding else { continue }
+            if localImports[name] == nil { localImports[name] = f }
+        }
+    }
+
+    /// Foreground pass: any job whose cloud sync never finished (no videoKey)
+    /// but whose file is still on the phone gets re-uploaded quietly. This is
+    /// what un-sticks 'isn't synced yet' for good.
+    private var resyncing = Set<String>()
+    func resyncMissing() {
+        for job in jobs where job.videoKey == nil {
+            let name = job.name
+            guard !resyncing.contains(name),
+                  let local = localImports[name],
+                  FileManager.default.fileExists(atPath: local.path) else { continue }
+            resyncing.insert(name)
+            Task { [weak self] in
+                guard let self else { return }
+                defer { self.resyncing.remove(name) }
+                guard let (put, key) = await self.presignPutRetrying(filename: "sync-" + name),
+                      await self.putFileRetrying(local, to: put) else { return }
+                await self.mergeJobData(name, fields: ["videoKey": key])
+                await self.loadJobs()
+            }
+        }
+    }
+
+    /// Background imports in flight — the queue shows these as spinner cards
+    /// in Ready to review so nothing ever looks lost.
+    @Published var pendingImports: [String] = []
+
     func signOut() {
         ChopKeychain.delete("chop-refresh")   // an explicit sign-out means OUT
         accessToken = ""; userId = ""; signedIn = false; jobs = []; credits = 0
@@ -2052,8 +2115,12 @@ struct ChopRootView: View {
             }
         }
         .onChange(of: scenePhase) { _, p in
-            if p == .active { Task { await api.ensureFreshToken() } }
+            if p == .active {
+                Task { await api.ensureFreshToken() }
+                api.resyncMissing()   // finish any interrupted cloud syncs
+            }
         }
+        .task { api.rebuildLocalImports() }   // survive relaunches
         // Password-reset links (chopedit://auth-callback#access_token=…&type=recovery)
         // open the app here. Adopt the recovery session and jump straight to
         // the "Choose a new password" stage.
@@ -5988,8 +6055,11 @@ final class ChopImporter: ObservableObject {
         stepIndex = 5; step = "Saving…"
         await api.spendCredit()
         // the picked file is already on the phone — let the editor open it
-        // instantly instead of waiting for the cloud round-trip
-        api.localImports[name] = pickedURL
+        // instantly instead of waiting for the cloud round-trip.
+        // persistImport (Lewis 20 Aug): instant APFS clone into Documents so
+        // the copy survives tmp purges and relaunches; falls back to the old
+        // tmp URL if the clone ever fails.
+        api.localImports[name] = api.persistImport(pickedURL, name: name)
         await api.saveJob(name: name, payload: payload, rawSec: rawSec, videoKey: nil, thumb: thumb)
         await api.loadJobs()
         ChopToasts.shared.show("Chopped ✓")
@@ -6543,13 +6613,20 @@ struct ImportSheet: View {
                 let rest = Array(items.dropFirst())
                 if !rest.isEmpty {
                     let apiRef = api
+                    // ghost cards for the whole batch — visible in the queue
+                    // immediately so nothing looks lost (Lewis 20 Aug)
+                    let batchNames = (1...rest.count).map { batchName($0) }
+                    apiRef.pendingImports.append(contentsOf: batchNames)
                     Task {   // survives the sheet's dismissal; fresh importer so
                              // its progress never repaints the (closed) sheet
                         let bg = ChopImporter()
                         for (n, item) in rest.enumerated() {
+                            let nm = batchName(n + 1)
+                            defer { apiRef.pendingImports.removeAll { $0 == nm } }
                             guard let movie = try? await item.loadTransferable(type: ChopMovie.self) else { continue }
-                            await bg.run(pickedURL: movie.url, name: batchName(n + 1), api: apiRef)
+                            await bg.run(pickedURL: movie.url, name: nm, api: apiRef)
                         }
+                        apiRef.pendingImports.removeAll { batchNames.contains($0) }
                         ChopToasts.shared.show("All videos chopped — waiting in your queue")
                     }
                 }
@@ -7599,14 +7676,40 @@ struct ChopQueueBody: View {
                                     .disabled(exportingBatch)
                                 }
                             }
-                            if list.isEmpty {
+                            // ghost cards (Lewis 20 Aug): background imports
+                            // show HERE with a spinner the moment ✓ is tapped,
+                            // unclickable until processing lands them for real
+                            if i == 1 {
+                                ForEach(api.pendingImports, id: \.self) { name in
+                                    HStack(spacing: 11) {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                            .frame(width: 44, height: 44 * 16 / 9)
+                                            .background(ChopColor.soft2, in: RoundedRectangle(cornerRadius: 8))
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(name)
+                                                .font(.system(size: 12.5, weight: .bold))
+                                                .lineLimit(1).foregroundStyle(Color.chopInk)
+                                            Text("Chopping — nearly there…")
+                                                .font(.system(size: 11)).foregroundStyle(ChopColor.muted)
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(10)
+                                    .background(ChopColor.card.opacity(0.65))
+                                    .clipShape(RoundedRectangle(cornerRadius: 13))
+                                    .overlay(RoundedRectangle(cornerRadius: 13)
+                                        .stroke(Color.chopLine, lineWidth: 1))
+                                }
+                            }
+                            if list.isEmpty && (i != 1 || api.pendingImports.isEmpty) {
                                 Text(empties[i])
                                     .font(.system(size: 12.5))
                                     .foregroundStyle(ChopColor.muted)
                                     .multilineTextAlignment(.center)
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 18).padding(.horizontal, 6)
-                            } else {
+                            } else if !list.isEmpty {
                                 // Long columns fold away: 3 cards by default,
                                 // See more opens up to 10, anything past 10 scrolls.
                                 let expanded = expandedCols.contains(i)
@@ -8818,9 +8921,11 @@ struct ChopCameraView: View {
         let friendly = "Chop " + df.string(from: Date()) + " (filmed).mp4"
         showBanner("Sent to edit 🎬\nYour video will be in Ready to review in your Queue when it's done.")
         let apiRef = api
+        apiRef.pendingImports.append(friendly)   // ghost card in the queue NOW
         Task.detached(priority: .userInitiated) {
             // straighten any take whose orientation metadata drifted, then the
             // LOCKED stitch + import pipeline, same as the Combine upload mode
+            defer { Task { @MainActor in apiRef.pendingImports.removeAll { $0 == friendly } } }
             let fixed = await ChopCamera.normalized(urls)
             guard let combined = await ChopStitcher.stitch(fixed) else {
                 await MainActor.run { ChopToasts.shared.show("Couldn't combine those takes") }
