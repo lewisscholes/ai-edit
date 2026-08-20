@@ -8507,16 +8507,21 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         configureOutputConnection()
     }
 
-    /// ONE place that pins the recording orientation (portrait, front
-    /// mirrored). Called after every camera attach/flip AND before every take
-    /// — the take-2-came-out-sideways bug was this state not re-applying
-    /// reliably between recordings.
+    /// ONE place that pins the recording orientation. Called after every
+    /// camera attach/flip AND before every take.
+    /// NEVER MIRRORED (Lewis 20 Aug — the flipped/distorted mixed-camera bug):
+    /// front-mirrored files carry a negative-determinant transform; the
+    /// stitcher applies clip 1's transform to EVERY clip (so a back take after
+    /// a front take came out flipped) and the editor's rotation maths only
+    /// speaks 0/90/180/270 (the distortion). Files are now always plain
+    /// portrait — the viewfinder still previews the front camera mirrored,
+    /// like every camera app, but what's SAVED is standard.
     func configureOutputConnection() {
         guard let conn = movieOut.connection(with: .video) else { return }
         if conn.isVideoOrientationSupported { conn.videoOrientation = .portrait }
         if conn.isVideoMirroringSupported {
             conn.automaticallyAdjustsVideoMirroring = false
-            conn.isVideoMirrored = front
+            conn.isVideoMirrored = false
         }
     }
 
@@ -8557,29 +8562,38 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
     /// normal path.
     static func normalized(_ urls: [URL]) async -> [URL] {
         guard urls.count > 1 else { return urls }
-        func xf(_ u: URL) async -> CGAffineTransform {
+        // a take's signature: its transform AND its oriented display size —
+        // front and back cameras record different resolutions, and a size
+        // mismatch through the stitcher is the distortion Lewis saw
+        func sig(_ u: URL) async -> (t: CGAffineTransform, disp: CGSize) {
             let a = AVURLAsset(url: u)
-            guard let t = try? await a.loadTracks(withMediaType: .video).first,
-                  let p = try? await t.load(.preferredTransform) else { return .identity }
-            return p
+            guard let tr = try? await a.loadTracks(withMediaType: .video).first,
+                  let p = try? await tr.load(.preferredTransform),
+                  let n = try? await tr.load(.naturalSize) else { return (.identity, .zero) }
+            let r = CGRect(origin: .zero, size: n).applying(p)
+            return (p, CGSize(width: abs(r.width), height: abs(r.height)))
         }
-        let first = await xf(urls[0])
+        let first = await sig(urls[0])
         var out: [URL] = [urls[0]]
         for u in urls.dropFirst() {
-            let t = await xf(u)
-            if abs(t.a - first.a) < 0.01, abs(t.b - first.b) < 0.01,
-               abs(t.c - first.c) < 0.01, abs(t.d - first.d) < 0.01 {
+            let s = await sig(u)
+            let sameT = abs(s.t.a - first.t.a) < 0.01 && abs(s.t.b - first.t.b) < 0.01
+                     && abs(s.t.c - first.t.c) < 0.01 && abs(s.t.d - first.t.d) < 0.01
+            let sameSize = abs(s.disp.width - first.disp.width) < 2
+                        && abs(s.disp.height - first.disp.height) < 2
+            if sameT && sameSize {
                 out.append(u)
             } else {
-                out.append(await uprightRender(u, like: first) ?? u)
+                out.append(await uprightRender(u, target: first.disp) ?? u)
             }
         }
         return out
     }
 
-    /// Re-encode one take so its pixels are upright and its transform matches
-    /// the reference clip's coordinate space.
-    private static func uprightRender(_ url: URL, like ref: CGAffineTransform) async -> URL? {
+    /// Re-encode one take upright at the TARGET display size (the first
+    /// take's) — aspect-fill, centred — so every take enters the stitcher with
+    /// identical geometry.
+    private static func uprightRender(_ url: URL, target: CGSize) async -> URL? {
         let asset = AVURLAsset(url: url)
         guard let track = try? await asset.loadTracks(withMediaType: .video).first,
               let nat = try? await track.load(.naturalSize),
@@ -8588,16 +8602,23 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         // oriented (display) size of this take
         let r = CGRect(origin: .zero, size: nat).applying(tf)
         let disp = CGSize(width: abs(r.width), height: abs(r.height))
+        let out = target.width > 1 && target.height > 1 ? target : disp
 
         let comp = AVMutableVideoComposition()
-        comp.renderSize = disp
+        comp.renderSize = out
         comp.frameDuration = CMTime(value: 1, timescale: 30)
         let inst = AVMutableVideoCompositionInstruction()
         inst.timeRange = CMTimeRange(start: .zero, duration: dur)
         let li = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
-        // apply the take's own transform, then shift the oriented image so it
-        // sits at the origin of the render canvas
-        li.setTransform(tf.concatenating(CGAffineTransform(translationX: -r.minX, y: -r.minY)), at: .zero)
+        // own transform → origin, then aspect-FILL scale into the target,
+        // centred (never squashed — the distortion fix)
+        let s = max(out.width / disp.width, out.height / disp.height)
+        let t = tf
+            .concatenating(CGAffineTransform(translationX: -r.minX, y: -r.minY))
+            .concatenating(CGAffineTransform(scaleX: s, y: s))
+            .concatenating(CGAffineTransform(translationX: (out.width - disp.width * s) / 2,
+                                             y: (out.height - disp.height * s) / 2))
+        li.setTransform(t, at: .zero)
         inst.layerInstructions = [li]
         comp.instructions = [inst]
 
