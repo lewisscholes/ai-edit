@@ -8587,25 +8587,29 @@ struct ChopCameraView: View {
 
             cameraUI
 
-            // sent-to-edit message — BIG and readable (Lewis), 5 seconds
-            if let b = banner {
-                VStack(spacing: 10) {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 34, weight: .bold))
-                        .foregroundStyle(Color.chopGreen)
-                    Text(b)
-                        .font(.system(size: 17, weight: .heavy))
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                        .lineSpacing(3)
-                }
-                .padding(.horizontal, 24).padding(.vertical, 22)
-                .frame(maxWidth: 310)
-                .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 22))
-                .transition(.scale(scale: 0.9).combined(with: .opacity))
-                .allowsHitTesting(false)
-                .zIndex(10)   // always above the camera UI
+            // sent-to-edit message — BIG and readable (Lewis), 5 seconds.
+            // ALWAYS in the hierarchy, faded in/out via opacity: an inserted
+            // view gets dropped by the alert's dismiss transaction (invisible-
+            // banner bug), and a delayed insert felt laggy — opacity does
+            // neither, so it appears the instant Send to edit is tapped.
+            VStack(spacing: 10) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 34, weight: .bold))
+                    .foregroundStyle(Color.chopGreen)
+                Text(banner ?? "")
+                    .font(.system(size: 17, weight: .heavy))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(3)
             }
+            .padding(.horizontal, 24).padding(.vertical, 22)
+            .frame(maxWidth: 310)
+            .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 22))
+            .opacity(banner == nil ? 0 : 1)
+            .scaleEffect(banner == nil ? 0.92 : 1)
+            .animation(.spring(duration: 0.28), value: banner == nil)
+            .allowsHitTesting(false)
+            .zIndex(10)   // always above the camera UI
 
             if let n = countNum {
                 Color.black.opacity(0.35).ignoresSafeArea()
@@ -8830,13 +8834,10 @@ struct ChopCameraView: View {
 
     @State private var banner: String? = nil
     private func showBanner(_ s: String) {
+        banner = s   // instant — the card is opacity-driven, nothing to drop
         Task { @MainActor in
-            // wait out the alert's dismiss transition — a view inserted while
-            // it's mid-dismissal gets silently dropped (the invisible-banner bug)
-            try? await Task.sleep(nanoseconds: 400_000_000)
-            withAnimation(.spring(duration: 0.3)) { banner = s }
             try? await Task.sleep(nanoseconds: 5_000_000_000)   // 5s, Lewis's spec
-            withAnimation(.easeOut(duration: 0.3)) { banner = nil }
+            banner = nil
         }
     }
 
