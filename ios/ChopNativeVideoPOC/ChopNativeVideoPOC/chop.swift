@@ -8495,7 +8495,9 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         ready = true
     }
 
-    @Published var halfX = false   // back camera 0.5× (ultra-wide lens)
+    private var videoDevice: AVCaptureDevice? = nil   // the live camera
+    private var oneX: CGFloat = 1     // zoom factor that means "1×" (virtual back = ~2)
+    private var pinchBase: CGFloat? = nil
 
     private func attachCamera() {
         for inp in session.inputs {
@@ -8504,24 +8506,31 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
             }
         }
         let pos: AVCaptureDevice.Position = front ? .front : .back
-        // 0.5× (Lewis 20 Aug): the back ultra-wide is its own lens — swap to it
-        let kind: AVCaptureDevice.DeviceType = (!front && halfX) ? .builtInUltraWideCamera
-                                                                 : .builtInWideAngleCamera
+        // BACK = the dual-lens VIRTUAL device (Lewis 20 Aug): pinch ramps the
+        // zoom factor smoothly through 0.5×→1×→tele — TikTok's mechanism —
+        // with ZERO session reconfig (the old lens swap froze the screen when
+        // combined with the torch). Falls back to the plain wide lens on
+        // hardware without an ultra-wide.
+        let kind: AVCaptureDevice.DeviceType = front ? .builtInWideAngleCamera
+                                                     : .builtInDualWideCamera
         guard let dev = AVCaptureDevice.default(kind, for: .video, position: pos)
                      ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: pos),
               let inp = try? AVCaptureDeviceInput(device: dev), session.canAddInput(inp) else { return }
         session.addInput(inp)
+        videoDevice = dev
 
-        // FRONT FOV (Lewis 20 Aug — 'more zoomed than TikTok'): the default
-        // session preset picks a centre-cropped front format; TikTok asks for
-        // the WIDEST one. Choose the widest-FOV 1080p30 format explicitly.
         if front {
+            // FRONT FOV (Lewis 20 Aug v2 — 'still not as wide as TikTok'):
+            // consider EVERY 16:9 format at ≥1080p30, not just exactly 1080p,
+            // and take the widest field of view the sensor offers.
+            oneX = 1
             let wide = dev.formats.filter { f in
                 let d = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
-                return d.width == 1920 && d.height == 1080 &&
+                let ar = Double(d.width) / Double(d.height)
+                return d.height >= 1080 && abs(ar - 16.0 / 9.0) < 0.05 &&
                        f.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= 30 }
             }.max(by: { $0.videoFieldOfView < $1.videoFieldOfView })
-            if let f = wide, f.videoFieldOfView > dev.activeFormat.videoFieldOfView + 0.5,
+            if let f = wide, f.videoFieldOfView > dev.activeFormat.videoFieldOfView + 0.1,
                (try? dev.lockForConfiguration()) != nil {
                 session.sessionPreset = .inputPriority
                 dev.activeFormat = f
@@ -8529,19 +8538,30 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
                 dev.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
                 dev.unlockForConfiguration()
             }
-        } else if session.sessionPreset != .high {
-            session.sessionPreset = .high
+        } else {
+            if session.sessionPreset != .high { session.sessionPreset = .high }
+            // on the virtual device, "1×" lives at the switch-over factor
+            oneX = CGFloat(dev.virtualDeviceSwitchOverVideoZoomFactors.first?.doubleValue ?? 1)
+            if (try? dev.lockForConfiguration()) != nil {
+                dev.videoZoomFactor = oneX
+                dev.unlockForConfiguration()
+            }
         }
         configureOutputConnection()
     }
 
-    func toggleHalfX() {
-        guard !front, !recording else { return }
-        session.beginConfiguration()
-        halfX.toggle()
-        attachCamera()
-        session.commitConfiguration()
+    /// TikTok pinch: two fingers in → 0.5×, out → zoom in. Back camera only.
+    func pinchZoom(_ scale: CGFloat) {
+        guard !front, let dev = videoDevice else { return }
+        if pinchBase == nil { pinchBase = dev.videoZoomFactor }
+        let target = min(max((pinchBase ?? oneX) * scale, dev.minAvailableVideoZoomFactor),
+                         min(dev.maxAvailableVideoZoomFactor, oneX * 6))
+        if (try? dev.lockForConfiguration()) != nil {
+            dev.videoZoomFactor = target
+            dev.unlockForConfiguration()
+        }
     }
+    func pinchEnded() { pinchBase = nil }
 
     /// ONE place that pins the recording orientation. Called after every
     /// camera attach/flip AND before every take.
@@ -8565,17 +8585,16 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         guard !recording else { return }
         session.beginConfiguration()
         front.toggle()
-        if front { setTorch(false); halfX = false }
+        if front { setTorch(false) }
         attachCamera()
         session.commitConfiguration()
     }
 
-    /// Torch = the back camera's light. The front camera has no torch, so the
-    /// button simply arms/disarms and does nothing up front (like most apps).
+    /// Torch = the back camera's light — always addressed on the LIVE device
+    /// (the freeze came from locking a different device than the session's).
     func setTorch(_ on: Bool) {
         torchOn = on
-        guard !front,
-              let dev = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+        guard !front, let dev = videoDevice,
               dev.hasTorch, (try? dev.lockForConfiguration()) != nil else { return }
         dev.torchMode = on ? .on : .off
         dev.unlockForConfiguration()
@@ -8790,6 +8809,13 @@ struct ChopCameraView: View {
             if cam.denied { deniedView }
         }
         .statusBarHidden()
+        // TikTok pinch-zoom (Lewis 20 Aug): two fingers in → 0.5×, out → tele.
+        // Simultaneous so buttons/taps keep working exactly as before.
+        .simultaneousGesture(
+            MagnificationGesture()
+                .onChanged { v in cam.pinchZoom(v) }
+                .onEnded { _ in cam.pinchEnded() }
+        )
         .task { await cam.start() }
         .onDisappear { cam.shutdown() }
         .alert("Delete this video?", isPresented: $confirmDiscard) {
@@ -8852,9 +8878,6 @@ struct ChopCameraView: View {
                         railTool(cam.torchOn ? "bolt.fill" : "bolt.slash.fill", "Flash", on: cam.torchOn) { cam.setTorch(!cam.torchOn) }
                         railTool("timer", "3s", on: countdownArmed) { countdownArmed.toggle() }
                         railTool("grid", "Grid", on: grid) { grid.toggle() }
-                        if !cam.front {
-                            railText(cam.halfX ? "0.5×" : "1×", on: cam.halfX) { cam.toggleHalfX() }
-                        }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                     .padding(.trailing, 16).padding(.top, 64)
@@ -9066,17 +9089,6 @@ struct ChopCameraView: View {
         .buttonStyle(.plain)
     }
 
-    private func railText(_ label: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
-        Button(action: tap) {
-            Text(label)
-                .font(.system(size: 15, weight: .heavy))
-                .foregroundStyle(on ? Color(red: 1.0, green: 0.85, blue: 0.3) : .white)
-                .shadow(color: .black.opacity(0.55), radius: 4, y: 1)
-                .frame(width: 48, height: 30)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
 
     private var gridLines: some View {
         GeometryReader { g in
