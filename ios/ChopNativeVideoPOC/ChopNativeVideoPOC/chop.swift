@@ -8818,6 +8818,12 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         guard let t = takes.popLast() else { return }
         try? FileManager.default.removeItem(at: t.url)
     }
+    /// Preview overlay (Lewis 20 Aug): bin ANY take, not just the last.
+    func deleteTake(_ i: Int) {
+        guard takes.indices.contains(i) else { return }
+        try? FileManager.default.removeItem(at: takes[i].url)
+        takes.remove(at: i)
+    }
     func discardAll() {
         takes.forEach { try? FileManager.default.removeItem(at: $0.url) }
         takes = []
@@ -8852,6 +8858,229 @@ struct ChopCameraPreview: UIViewRepresentable {
     }
 }
 
+// MARK: - Take preview (Lewis 20 Aug, approved mockup): replay your takes
+// full-screen BEFORE deciding — keep filming, bin a take, or send to edit.
+// Purely additive: it plays the take files already on disk with an AVPlayer
+// (zero processing, zero network) while the camera session stays live behind
+// it. "Send to edit" runs the exact same finish() as the ✓ — nothing in the
+// locked filming flow changes.
+
+private struct TakePlayerSurface: UIViewRepresentable {
+    let player: AVPlayer
+    final class V: UIView { override class var layerClass: AnyClass { AVPlayerLayer.self } }
+    func makeUIView(context: Context) -> V {
+        let v = V()
+        v.backgroundColor = .black
+        let l = v.layer as! AVPlayerLayer
+        l.player = player
+        l.videoGravity = .resizeAspectFill   // same fill the viewfinder shows
+        return v
+    }
+    func updateUIView(_ v: V, context: Context) { (v.layer as! AVPlayerLayer).player = player }
+}
+
+struct ChopTakePreview: View {
+    @ObservedObject var cam: ChopCamera
+    var onSend: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var player = AVPlayer()
+    @State private var cur = 0
+    @State private var playing = false
+    @State private var confirmBin = false
+    @State private var thumbs: [URL: UIImage] = [:]
+
+    private let rose = Color(red: 1.0, green: 0x2d/255, blue: 0x55/255)
+    private var totalSec: Double { cam.takes.reduce(0) { $0 + $1.sec } }
+    private func startOf(_ i: Int) -> Double { cam.takes.prefix(i).reduce(0) { $0 + $1.sec } }
+    private static func clock(_ s: Double) -> String {
+        let v = max(0, Int(s.rounded())); return "\(v / 60):" + String(format: "%02d", v % 60)
+    }
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !playing)) { _ in
+            let inTake = player.currentTime().seconds
+            let pos = startOf(cur) + (inTake.isFinite ? max(0, inTake) : 0)
+            VStack(spacing: 0) {
+                // header
+                HStack {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .heavy)).foregroundStyle(.white)
+                            .frame(width: 34, height: 34)
+                            .background(.white.opacity(0.12), in: Circle())
+                    }
+                    Spacer()
+                    Text("Preview").font(.system(size: 15, weight: .heavy)).foregroundStyle(.white)
+                    Spacer()
+                    Color.clear.frame(width: 34, height: 34)
+                }
+                .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 8)
+
+                // the video — tap to play/pause; front takes shown mirrored,
+                // exactly like the viewfinder they were filmed in
+                ZStack {
+                    TakePlayerSurface(player: player)
+                        .scaleEffect(x: (cam.takes.indices.contains(cur) && cam.takes[cur].front) ? -1 : 1, y: 1)
+                    VStack {
+                        HStack {
+                            Text("Take \(cur + 1) of \(cam.takes.count)")
+                                .font(.system(size: 11.5, weight: .heavy)).foregroundStyle(.white)
+                                .padding(.horizontal, 11).padding(.vertical, 5)
+                                .background(.black.opacity(0.55), in: Capsule())
+                            Spacer()
+                        }
+                        .padding(12)
+                        Spacer()
+                    }
+                    if !playing {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 24)).foregroundStyle(.white)
+                            .frame(width: 64, height: 64)
+                            .background(.black.opacity(0.5), in: Circle())
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+                .padding(.horizontal, 14)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    playing.toggle()
+                    if playing { player.play() } else { player.pause() }
+                }
+
+                // segmented scrubber — one segment per take, widths proportional,
+                // same language as the record ring's take markers
+                GeometryReader { geo in
+                    let gaps = CGFloat(max(0, cam.takes.count - 1)) * 4
+                    HStack(spacing: 4) {
+                        ForEach(Array(cam.takes.enumerated()), id: \.offset) { i, t in
+                            let frac = min(max((pos - startOf(i)) / max(t.sec, 0.001), 0), 1)
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(.white.opacity(0.18))
+                                Capsule().fill(Color.chopBlue)
+                                    .frame(width: max(0, (geo.size.width - gaps) * t.sec / max(totalSec, 0.001)) * frac)
+                            }
+                            .frame(width: max(6, (geo.size.width - gaps) * t.sec / max(totalSec, 0.001)))
+                            .onTapGesture { jump(i) }
+                        }
+                    }
+                }
+                .frame(height: 4)
+                .padding(.horizontal, 16).padding(.top, 14)
+
+                HStack {
+                    Text(Self.clock(pos)); Spacer(); Text(Self.clock(totalSec))
+                }
+                .font(.system(size: 10.5, weight: .bold)).foregroundStyle(Color.chopMuted)
+                .padding(.horizontal, 16).padding(.top, 5)
+
+                // take strip — tap = jump, bin on the selected take
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(Array(cam.takes.enumerated()), id: \.offset) { i, t in
+                            VStack(spacing: 5) {
+                                ZStack(alignment: .topTrailing) {
+                                    ZStack {
+                                        if let img = thumbs[t.url] {
+                                            Image(uiImage: img).resizable().scaledToFill()
+                                                .scaleEffect(x: t.front ? -1 : 1, y: 1)
+                                        } else { Color.white.opacity(0.08) }
+                                    }
+                                    .frame(width: 64, height: 84)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                                    .overlay(RoundedRectangle(cornerRadius: 12)
+                                        .stroke(i == cur ? Color.chopBlue : .clear, lineWidth: 2.5))
+                                    .overlay(alignment: .bottomTrailing) {
+                                        Text(String(format: "%.1fs", t.sec))
+                                            .font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+                                            .padding(.horizontal, 5).padding(.vertical, 2)
+                                            .background(.black.opacity(0.65), in: RoundedRectangle(cornerRadius: 6))
+                                            .padding(5)
+                                    }
+                                    if i == cur {
+                                        Button { confirmBin = true } label: {
+                                            Image(systemName: "xmark")
+                                                .font(.system(size: 9, weight: .black)).foregroundStyle(.white)
+                                                .frame(width: 20, height: 20)
+                                                .background(rose, in: Circle())
+                                                .overlay(Circle().stroke(.black, lineWidth: 2))
+                                        }
+                                        .offset(x: 7, y: -7)
+                                    }
+                                }
+                                Text("Take \(i + 1)")
+                                    .font(.system(size: 10, weight: .heavy))
+                                    .foregroundStyle(i == cur ? .white : Color.chopMuted)
+                            }
+                            .onTapGesture { jump(i) }
+                        }
+                    }
+                    .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 4)
+                }
+
+                // exits
+                HStack(spacing: 10) {
+                    Button { dismiss() } label: {
+                        Text("← Keep filming")
+                            .font(.system(size: 14.5, weight: .black)).foregroundStyle(.white)
+                            .frame(maxWidth: .infinity).padding(.vertical, 15)
+                            .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 15))
+                    }
+                    Button { onSend(); dismiss() } label: {
+                        Text("Send to edit ✓")
+                            .font(.system(size: 14.5, weight: .black)).foregroundStyle(.white)
+                            .frame(maxWidth: .infinity).padding(.vertical, 15)
+                            .background(rose, in: RoundedRectangle(cornerRadius: 15))
+                    }
+                }
+                .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 18)
+            }
+        }
+        .background(Color.black.ignoresSafeArea())
+        .preferredColorScheme(.dark)
+        .statusBarHidden()
+        .onAppear { if !cam.takes.isEmpty { jump(0) } else { dismiss() } }
+        .onDisappear { player.pause() }
+        .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { note in
+            guard (note.object as? AVPlayerItem) === player.currentItem else { return }
+            if cur + 1 < cam.takes.count { jump(cur + 1) }        // roll into the next take
+            else {                                                // finished — rewind, paused
+                playing = false
+                cur = 0
+                if let first = cam.takes.first {
+                    player.replaceCurrentItem(with: AVPlayerItem(url: first.url))
+                    player.pause()
+                }
+            }
+        }
+        .alert("Discard take \(cur + 1)?", isPresented: $confirmBin) {
+            Button("Discard", role: .destructive) {
+                cam.deleteTake(cur)
+                if cam.takes.isEmpty { dismiss() }
+                else { jump(min(cur, cam.takes.count - 1)) }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .task(id: cam.takes.count) {
+            for t in cam.takes where thumbs[t.url] == nil {
+                let g = AVAssetImageGenerator(asset: AVURLAsset(url: t.url))
+                g.appliesPreferredTrackTransform = true
+                g.maximumSize = CGSize(width: 200, height: 200)
+                if let cg = try? await g.image(at: CMTime(seconds: 0.1, preferredTimescale: 600)).image {
+                    thumbs[t.url] = UIImage(cgImage: cg)
+                }
+            }
+        }
+    }
+
+    private func jump(_ i: Int) {
+        guard cam.takes.indices.contains(i) else { return }
+        cur = i
+        player.replaceCurrentItem(with: AVPlayerItem(url: cam.takes[i].url))
+        player.play()
+        playing = true
+    }
+}
+
 struct ChopCameraView: View {
     @ObservedObject var api: ChopAPI
     @Environment(\.dismiss) private var dismiss
@@ -8867,6 +9096,8 @@ struct ChopCameraView: View {
     @State private var confirmDelete = false   // TikTok "Discard the last clip?"
     @State private var confirmFinish = false   // ✓ → "Send to edit / Continue filming"
     @State private var preparing = false
+    @State private var showPreview = false     // take preview overlay (Lewis 20 Aug)
+    @State private var chipThumb: UIImage?     // latest take's frame on the preview chip
 
     private let rose = Color(red: 1.0, green: 0x2d/255, blue: 0x55/255)
 
@@ -8938,6 +9169,22 @@ struct ChopCameraView: View {
         .alert("All done?", isPresented: $confirmFinish) {
             Button("Send to edit") { finish() }   // synchronous — fires instantly
             Button("Continue filming", role: .cancel) {}
+        }
+        // Take preview (Lewis 20 Aug): the camera session stays live behind
+        // it — "Keep filming" just closes; "Send to edit" = the same finish().
+        .fullScreenCover(isPresented: $showPreview) {
+            ChopTakePreview(cam: cam, onSend: { finish() })
+        }
+        // preview-chip thumbnail: latest take's first frame, tiny and async —
+        // never in the way of recording or the import path
+        .task(id: cam.takes.count) {
+            guard let last = cam.takes.last else { chipThumb = nil; return }
+            let g = AVAssetImageGenerator(asset: AVURLAsset(url: last.url))
+            g.appliesPreferredTrackTransform = true
+            g.maximumSize = CGSize(width: 160, height: 160)
+            if let cg = try? await g.image(at: CMTime(seconds: 0.1, preferredTimescale: 600)).image {
+                chipThumb = UIImage(cgImage: cg)
+            }
         }
     }
 
@@ -9016,6 +9263,38 @@ struct ChopCameraView: View {
                         recordButton(total: total)
                         if !cam.recording && !cam.takes.isEmpty {
                             HStack {
+                                // NEW (Lewis 20 Aug, approved mockup): take
+                                // stack, TikTok's upload position — tap to
+                                // replay everything filmed so far
+                                Button { showPreview = true } label: {
+                                    VStack(spacing: 4) {
+                                        ZStack(alignment: .topTrailing) {
+                                            ZStack {
+                                                if let chipThumb {
+                                                    Image(uiImage: chipThumb).resizable().scaledToFill()
+                                                        .scaleEffect(x: cam.takes.last?.front == true ? -1 : 1, y: 1)
+                                                } else { Color.black.opacity(0.5) }
+                                            }
+                                            .frame(width: 44, height: 58)
+                                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                                            .overlay(RoundedRectangle(cornerRadius: 10).stroke(.white, lineWidth: 2))
+                                            Text("\(cam.takes.count)")
+                                                .font(.system(size: 10.5, weight: .black)).foregroundStyle(.white)
+                                                .padding(.horizontal, 5).frame(minWidth: 19, minHeight: 19)
+                                                .background(rose, in: Capsule())
+                                                .overlay(Capsule().stroke(.black, lineWidth: 2))
+                                                .offset(x: 8, y: -7)
+                                        }
+                                        HStack(spacing: 3) {
+                                            Image(systemName: "play.fill").font(.system(size: 8, weight: .bold))
+                                            Text("Preview").font(.system(size: 10.5, weight: .heavy))
+                                        }
+                                        .foregroundStyle(.white)
+                                        .shadow(color: .black.opacity(0.6), radius: 4)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.leading, 22)
                                 Spacer()
                                 // TikTok's exact backspace-tag delete button →
                                 // confirmation popup, no two-tap arming
