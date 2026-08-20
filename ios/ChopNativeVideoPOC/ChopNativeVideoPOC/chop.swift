@@ -8740,7 +8740,7 @@ struct ChopCameraView: View {
             Button("Cancel", role: .cancel) {}
         }
         .alert("All done?", isPresented: $confirmFinish) {
-            Button("Send to edit") { Task { await finish() } }
+            Button("Send to edit") { finish() }   // synchronous — fires instantly
             Button("Continue filming", role: .cancel) {}
         }
     }
@@ -8912,28 +8912,45 @@ struct ChopCameraView: View {
     /// ✓ = fire-and-forget (Lewis 20 Aug: affiliates bulk-film). The takes are
     /// handed to a BACKGROUND import — stitch, upload, auto-edit — and land in
     /// the queue on their own while the camera stays open for the next video.
-    private func finish() async {
+    /// SYNCHRONOUS front half (Lewis: 'all functions fire right away'): the
+    /// banner, the ghost card and the take capture happen in the alert button's
+    /// own transaction — nothing waits on a scheduled Task, so the first send
+    /// can't swallow its UI.
+    private func finish() {
         guard !cam.takes.isEmpty else { return }
         let urls = cam.takes.map { $0.url }
         cam.takes = []          // camera is instantly ready for the next video
         delArmed = false
         let df = DateFormatter(); df.dateFormat = "d MMM, HH.mm.ss"
         let friendly = "Chop " + df.string(from: Date()) + " (filmed).mp4"
-        showBanner("Sent to edit 🎬\nYour video will be in Ready to review in your Queue when it's done.")
         let apiRef = api
         apiRef.pendingImports.append(friendly)   // ghost card in the queue NOW
+        showBanner("Sent to edit 🎬\nYour video will be in Ready to review in your Queue when it's done.")
         Task.detached(priority: .userInitiated) {
             // straighten any take whose orientation metadata drifted, then the
             // LOCKED stitch + import pipeline, same as the Combine upload mode
-            defer { Task { @MainActor in apiRef.pendingImports.removeAll { $0 == friendly } } }
             let fixed = await ChopCamera.normalized(urls)
             guard let combined = await ChopStitcher.stitch(fixed) else {
-                await MainActor.run { ChopToasts.shared.show("Couldn't combine those takes") }
+                await MainActor.run {
+                    apiRef.pendingImports.removeAll { $0 == friendly }
+                    ChopToasts.shared.show("Couldn't combine those takes")
+                }
                 return
             }
             let bg = await MainActor.run { ChopImporter() }
             await bg.run(pickedURL: combined, name: friendly, api: apiRef)
-            urls.forEach { try? FileManager.default.removeItem(at: $0) }
+            let ok: Bool = await MainActor.run {
+                apiRef.pendingImports.removeAll { $0 == friendly }
+                // a failed background run used to vanish SILENTLY (and delete
+                // the takes) — now it says so and keeps the files for retry
+                if !bg.done {
+                    ChopToasts.shared.show(bg.failed.isEmpty
+                        ? "Couldn't process \(friendly) — try filming again"
+                        : bg.failed)
+                }
+                return bg.done
+            }
+            if ok { urls.forEach { try? FileManager.default.removeItem(at: $0) } }
         }
     }
 
