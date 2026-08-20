@@ -8572,6 +8572,8 @@ struct ChopCameraView: View {
     @State private var grid = false
     @State private var delArmed = false
     @State private var confirmDiscard = false
+    @State private var confirmDelete = false   // TikTok "Discard the last clip?"
+    @State private var confirmFinish = false   // ✓ → "Send to edit / Continue filming"
     @State private var preparing = false
 
     private let rose = Color(red: 1.0, green: 0x2d/255, blue: 0x55/255)
@@ -8585,18 +8587,22 @@ struct ChopCameraView: View {
 
             cameraUI
 
-            // background-processing banner (finish is fire-and-forget)
+            // sent-to-edit message — BIG and readable (Lewis), 5 seconds
             if let b = banner {
-                VStack {
+                VStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 34, weight: .bold))
+                        .foregroundStyle(Color.chopGreen)
                     Text(b)
-                        .font(.system(size: 13, weight: .heavy))
+                        .font(.system(size: 17, weight: .heavy))
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 18).padding(.vertical, 12)
-                        .background(.black.opacity(0.75), in: Capsule())
-                        .padding(.top, 116)
-                    Spacer()
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(3)
                 }
-                .transition(.move(edge: .top).combined(with: .opacity))
+                .padding(.horizontal, 24).padding(.vertical, 22)
+                .frame(maxWidth: 310)
+                .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 22))
+                .transition(.scale(scale: 0.9).combined(with: .opacity))
                 .allowsHitTesting(false)
             }
 
@@ -8620,6 +8626,14 @@ struct ChopCameraView: View {
             Button("Keep filming", role: .cancel) {}
         } message: {
             Text("You've filmed \(cam.takes.count) take\(cam.takes.count == 1 ? "" : "s"). Going back deletes them — this can't be undone.")
+        }
+        .alert("Discard the last clip?", isPresented: $confirmDelete) {
+            Button("Discard", role: .destructive) { cam.deleteLast() }
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert("All done?", isPresented: $confirmFinish) {
+            Button("Send to edit") { Task { await finish() } }
+            Button("Continue filming", role: .cancel) {}
         }
     }
 
@@ -8699,18 +8713,16 @@ struct ChopCameraView: View {
                         if !cam.recording && !cam.takes.isEmpty {
                             HStack {
                                 Spacer()
-                                Button {
-                                    if delArmed { cam.deleteLast(); delArmed = false
-                                        ChopToasts.shared.show("Last take deleted") }
-                                    else { delArmed = true }
-                                } label: {
-                                    Image(systemName: "xmark")
-                                        .font(.system(size: 16, weight: .heavy))
-                                        .foregroundStyle(.white)
-                                        .frame(width: 48, height: 48)
-                                        .background(delArmed ? rose.opacity(0.85) : .black.opacity(0.45), in: Circle())
+                                // TikTok's exact backspace-tag delete button →
+                                // confirmation popup, no two-tap arming
+                                Button { confirmDelete = true } label: {
+                                    Image(systemName: "delete.left.fill")
+                                        .font(.system(size: 30, weight: .semibold))
+                                        .foregroundStyle(.white, .black.opacity(0.55))
+                                        .shadow(color: .black.opacity(0.35), radius: 5)
+                                        .frame(width: 54, height: 48)
                                 }
-                                Button { Task { await finish() } } label: {
+                                Button { confirmFinish = true } label: {
                                     Image(systemName: "checkmark")
                                         .font(.system(size: 18, weight: .heavy))
                                         .foregroundStyle(.white)
@@ -8799,7 +8811,7 @@ struct ChopCameraView: View {
         delArmed = false
         let df = DateFormatter(); df.dateFormat = "d MMM, HH.mm.ss"
         let friendly = "Chop " + df.string(from: Date()) + " (filmed).mp4"
-        showBanner("Processing in the background — check the Queue in a minute 🎬")
+        showBanner("Sent to edit 🎬\nYour video will be in Ready to review in your Queue when it's done.")
         let apiRef = api
         Task.detached(priority: .userInitiated) {
             // straighten any take whose orientation metadata drifted, then the
@@ -8817,10 +8829,10 @@ struct ChopCameraView: View {
 
     @State private var banner: String? = nil
     private func showBanner(_ s: String) {
-        banner = s
+        withAnimation(.spring(duration: 0.3)) { banner = s }
         Task {
-            try? await Task.sleep(nanoseconds: 2_600_000_000)
-            banner = nil
+            try? await Task.sleep(nanoseconds: 5_000_000_000)   // 5s, Lewis's spec
+            withAnimation(.easeOut(duration: 0.3)) { banner = nil }
         }
     }
 
