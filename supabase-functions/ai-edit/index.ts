@@ -219,11 +219,32 @@ function detectRetakes(utts: Utt[]) {
    detections authoritative. */
 function detectAnchorTakes(words: Word[]): Utt[][] {
   const cwd = (w: Word) => w.word.toLowerCase().replace(/[^a-z0-9']/g, "");
+  /* v22 (Lewis 20 Aug — Aaron's teeth-whitening video): a repeated bigram only
+     counts as a retake ANCHOR when it sits at a RESTART BOUNDARY. v21 accepted
+     "thirty minutes" MID-SENTENCE — a topic phrase said 4× in thirty seconds
+     welded six unrelated sentences into one 6-take group. A restart boundary
+     means: stream start, OR a real pause (≥0.25s) right before the anchor
+     (after walking back over glued lead-ins like "so"/"and"), OR a retake
+     marker ("wait", "again"…) within the three words before it. Lewis's 14s
+     rapid-fire video passes all four takes via exactly these three doors;
+     mid-flow topic phrases have none of them. */
+  const MARKERS = new Set(["wait","again","redo","scratch","sorry","nope","restart"]);
+  const boundaryOK = (i: number): boolean => {
+    let j = i;
+    while (j > 0 && LEAD_IN.has(cwd(words[j - 1])) && words[j].start - words[j - 1].end < 0.6) j--;
+    if (j === 0) return true;                                   // stream start
+    if (words[j].start - words[j - 1].end >= 0.25) return true; // real pause
+    for (let m = Math.max(0, j - 3); m < j; m++) {              // "wait"/"again"…
+      if (MARKERS.has(cwd(words[m]))) return true;
+    }
+    return false;
+  };
   const occ = new Map<string, number[]>();
   for (let i = 0; i + 1 < words.length; i++) {
     const a = cwd(words[i]), b = cwd(words[i + 1]);
     if (!a || !b || HARD_FILLERS.has(a) || HARD_FILLERS.has(b)) continue;
     if (words[i + 1].start - words[i].end >= 0.6) continue;
+    if (!boundaryOK(i)) continue;   // v22: mid-sentence repeats can't anchor
     const k = a + " " + b;
     if (!occ.has(k)) occ.set(k, []);
     occ.get(k)!.push(i);
