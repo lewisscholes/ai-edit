@@ -8470,8 +8470,9 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
     @Published var recording = false
     @Published var front = true          // talking-head default
     @Published var torchOn = false
-    @Published var takes: [(url: URL, sec: Double)] = []
+    @Published var takes: [(url: URL, sec: Double, front: Bool)] = []
     private var takeStart: Date? = nil
+    private var takeFront = false   // which camera THIS take is using
 
     var totalSec: Double { takes.reduce(0) { $0 + $1.sec } + liveSec }
     var liveSec: Double { takeStart.map { -$0.timeIntervalSinceNow } ?? 0 }
@@ -8550,6 +8551,7 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("chopcam-\(UUID().uuidString).mov")
         configureOutputConnection()
+        takeFront = front
         movieOut.startRecording(to: url, recordingDelegate: self)
         takeStart = Date()
         recording = true
@@ -8560,8 +8562,8 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
     /// BEFORE the stitcher (which by design uses the first clip's transform
     /// for the lot). Matching takes pass through untouched — zero cost on the
     /// normal path.
-    static func normalized(_ urls: [URL]) async -> [URL] {
-        guard urls.count > 1 else { return urls }
+    static func normalized(_ items: [(url: URL, front: Bool)]) async -> [URL] {
+        guard !items.isEmpty else { return [] }
         // a take's signature: its transform AND its oriented display size —
         // front and back cameras record different resolutions, and a size
         // mismatch through the stitcher is the distortion Lewis saw
@@ -8573,18 +8575,21 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
             let r = CGRect(origin: .zero, size: n).applying(p)
             return (p, CGSize(width: abs(r.width), height: abs(r.height)))
         }
-        let first = await sig(urls[0])
-        var out: [URL] = [urls[0]]
-        for u in urls.dropFirst() {
-            let s = await sig(u)
+        let first = await sig(items[0].url)
+        var out: [URL] = []
+        for (i, item) in items.enumerated() {
+            let s = i == 0 ? first : await sig(item.url)
             let sameT = abs(s.t.a - first.t.a) < 0.01 && abs(s.t.b - first.t.b) < 0.01
                      && abs(s.t.c - first.t.c) < 0.01 && abs(s.t.d - first.t.d) < 0.01
             let sameSize = abs(s.disp.width - first.disp.width) < 2
                         && abs(s.disp.height - first.disp.height) < 2
-            if sameT && sameSize {
-                out.append(u)
+            // FRONT takes ALWAYS re-render (Lewis 20 Aug): the mirror gets
+            // baked into the PIXELS so the saved video matches the mirrored
+            // viewfinder — with clean plain metadata the editor understands.
+            if !item.front && sameT && sameSize {
+                out.append(item.url)
             } else {
-                out.append(await uprightRender(u, target: first.disp) ?? u)
+                out.append(await uprightRender(item.url, target: first.disp, mirror: item.front) ?? item.url)
             }
         }
         return out
@@ -8593,7 +8598,7 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
     /// Re-encode one take upright at the TARGET display size (the first
     /// take's) — aspect-fill, centred — so every take enters the stitcher with
     /// identical geometry.
-    private static func uprightRender(_ url: URL, target: CGSize) async -> URL? {
+    private static func uprightRender(_ url: URL, target: CGSize, mirror: Bool = false) async -> URL? {
         let asset = AVURLAsset(url: url)
         guard let track = try? await asset.loadTracks(withMediaType: .video).first,
               let nat = try? await track.load(.naturalSize),
@@ -8613,11 +8618,15 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         // own transform → origin, then aspect-FILL scale into the target,
         // centred (never squashed — the distortion fix)
         let s = max(canvas.width / disp.width, canvas.height / disp.height)
-        let t = tf
+        var t = tf
             .concatenating(CGAffineTransform(translationX: -r.minX, y: -r.minY))
             .concatenating(CGAffineTransform(scaleX: s, y: s))
             .concatenating(CGAffineTransform(translationX: (canvas.width - disp.width * s) / 2,
                                              y: (canvas.height - disp.height * s) / 2))
+        if mirror {   // bake the selfie mirror into the pixels, metadata stays clean
+            t = t.concatenating(CGAffineTransform(scaleX: -1, y: 1))
+                 .concatenating(CGAffineTransform(translationX: canvas.width, y: 0))
+        }
         li.setTransform(t, at: .zero)
         inst.layerInstructions = [li]
         comp.instructions = [inst]
@@ -8646,7 +8655,7 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
             self.takeStart = nil
             self.recording = false
             if sec > 0.2, FileManager.default.fileExists(atPath: outputFileURL.path) {
-                self.takes.append((outputFileURL, sec))
+                self.takes.append((outputFileURL, sec, self.takeFront))
             } else {
                 try? FileManager.default.removeItem(at: outputFileURL)
             }
@@ -8939,6 +8948,7 @@ struct ChopCameraView: View {
     /// can't swallow its UI.
     private func finish() {
         guard !cam.takes.isEmpty else { return }
+        let items = cam.takes.map { (url: $0.url, front: $0.front) }
         let urls = cam.takes.map { $0.url }
         cam.takes = []          // camera is instantly ready for the next video
         delArmed = false
@@ -8950,7 +8960,7 @@ struct ChopCameraView: View {
         Task.detached(priority: .userInitiated) {
             // straighten any take whose orientation metadata drifted, then the
             // LOCKED stitch + import pipeline, same as the Combine upload mode
-            let fixed = await ChopCamera.normalized(urls)
+            let fixed = await ChopCamera.normalized(items)
             guard let combined = await ChopStitcher.stitch(fixed) else {
                 await MainActor.run {
                     apiRef.pendingImports.removeAll { $0 == friendly }
