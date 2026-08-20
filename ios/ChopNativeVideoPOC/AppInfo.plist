@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Chop uses the camera so you can film your videos right in the app.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Chop records audio with your video so it can cut silences, filler words and retakes.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

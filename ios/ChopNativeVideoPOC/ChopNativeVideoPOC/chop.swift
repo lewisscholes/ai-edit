@@ -1964,6 +1964,7 @@ struct ChopRootView: View {
     @State private var showBilling = false
     @State private var showProfileMenu = false   // avatar pop-out (web parity)
     @State private var showAssist = false        // Chop Bot chat sheet
+    @State private var showFilm = false          // in-app camera (red ⊕)
     @State private var demoJob: ChopJob? = nil   // -screen editor design preview
     @AppStorage("chopTourSeen") private var tourSeen = false
     @State private var showTour = false          // one-time app tour
@@ -2154,6 +2155,9 @@ struct ChopRootView: View {
                         .presentationDetents([.fraction(0.8), .large])
                         .presentationDragIndicator(.visible)
                 }
+                .fullScreenCover(isPresented: $showFilm) {
+                    ChopCameraView(api: api)
+                }
                 .fullScreenCover(item: $demoJob) { j in
                     NavigationStack { ChopPlayerScreen(job: j, api: api) }
                 }
@@ -2169,12 +2173,12 @@ struct ChopRootView: View {
                 .refreshable { await api.loadJobs() }
             }
             if !api.editorOpen {   // web: no Home/Queue/Cuts pill inside the editor
-                HStack(spacing: 12) {
-                    ChopGlassNav(tab: $tab, queueCount: reviewCount)
-                    ChopBotButton { showAssist = true }
-                }
-                .padding(.horizontal, 14)
-                .padding(.bottom, 2)   // sit just above the home indicator
+                // V1 bar (Lewis 20 Aug): red ⊕ film button centre, Bot in-bar
+                ChopGlassNav(tab: $tab, queueCount: reviewCount,
+                             film: { showFilm = true },
+                             bot: { showAssist = true })
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 2)   // sit just above the home indicator
             }
         }
         // first-launch tour: spotlights on the real controls, short and sharp
@@ -8264,19 +8268,60 @@ struct OutOfCreditsSheet: View {
 struct ChopGlassNav: View {
     @Binding var tab: Int
     let queueCount: Int
+    var film: () -> Void = {}   // the red + (TikTok-style camera)
+    var bot: () -> Void = {}    // Chop Bot chat
 
     // Apple Files-style pill (Lewis 19 Aug): airy, thin icons with the label
-    // UNDERNEATH, soft blue tint on the active tab. Home · Queue · Cuts.
+    // UNDERNEATH, soft blue tint on the active tab.
+    // V1 layout (Lewis 20 Aug, approved mockup): Home · Queue · red ⊕ FILM ·
+    // Cuts · Bot — the + button opens the in-app camera, Chop Bot moved INTO
+    // the bar as a normal item.
     var body: some View {
         HStack(spacing: 2) {
             item(0, "house", "Home", 0)
             item(1, "tray.full", "Queue", queueCount)
+            plusButton
             item(2, "scissors", "Cuts", 0)
+            botItem
         }
         .padding(.horizontal, 10).padding(.vertical, 3)
         .background(.ultraThinMaterial, in: Capsule())
         .overlay(Capsule().stroke(Color.white.opacity(0.10), lineWidth: 1))
         .shadow(color: .black.opacity(0.45), radius: 18, y: 10)
+    }
+
+    /// The red circle + with TikTok's dual-tone wing discs peeking behind.
+    private var plusButton: some View {
+        Button(action: film) {
+            ZStack {
+                Circle().fill(Color(red: 0x7c/255, green: 0xc7/255, blue: 1.0))
+                    .frame(width: 40, height: 40).offset(x: -7)
+                Circle().fill(Color(red: 1.0, green: 0x8f/255, blue: 0xa3/255))
+                    .frame(width: 40, height: 40).offset(x: 7)
+                Circle().fill(Color(red: 1.0, green: 0x2d/255, blue: 0x55/255))
+                    .frame(width: 46, height: 46)
+                    .shadow(color: Color(red: 1.0, green: 0x2d/255, blue: 0x55/255).opacity(0.45),
+                            radius: 7, y: 3)
+                Image(systemName: "plus")
+                    .font(.system(size: 21, weight: .bold)).foregroundStyle(.white)
+            }
+            .frame(width: 62, height: 48)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var botItem: some View {
+        Button(action: bot) {
+            VStack(spacing: 2) {
+                Image(systemName: "face.smiling")
+                    .font(.system(size: 17, weight: .regular))
+                Text("Bot").font(.system(size: 10.5, weight: .semibold)).fixedSize()
+            }
+            .foregroundStyle(Color.chopMuted)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
     }
 
     private func item(_ i: Int, _ icon: String, _ label: String, _ badge: Int) -> some View {
@@ -8305,6 +8350,453 @@ struct ChopGlassNav: View {
             }
         }
         .tourAnchor(i == 1 ? "tour-queue" : i == 2 ? "tour-lab" : "tour-dash")
+    }
+}
+
+// MARK: - In-app filming (Lewis 20 Aug, approved v2 mockup — TikTok model).
+// Each press-to-pause burst records its OWN clip file; finish stitches them
+// through the LOCKED ChopStitcher + ChopImporter pipeline exactly like the
+// Combine upload mode — the auto-edit never knows the video wasn't uploaded.
+
+@MainActor
+final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecordingDelegate {
+    let session = AVCaptureSession()
+    private let movieOut = AVCaptureMovieFileOutput()
+    @Published var ready = false
+    @Published var denied = false
+    @Published var recording = false
+    @Published var front = true          // talking-head default
+    @Published var torchOn = false
+    @Published var takes: [(url: URL, sec: Double)] = []
+    private var takeStart: Date? = nil
+
+    var totalSec: Double { takes.reduce(0) { $0 + $1.sec } + liveSec }
+    var liveSec: Double { takeStart.map { -$0.timeIntervalSinceNow } ?? 0 }
+
+    func start() async {
+        let cam = await AVCaptureDevice.requestAccess(for: .video)
+        let mic = await AVCaptureDevice.requestAccess(for: .audio)
+        guard cam, mic else { denied = true; return }
+        session.beginConfiguration()
+        session.sessionPreset = .high
+        attachCamera()
+        if let m = AVCaptureDevice.default(for: .audio),
+           let mIn = try? AVCaptureDeviceInput(device: m), session.canAddInput(mIn) {
+            session.addInput(mIn)
+        }
+        if session.canAddOutput(movieOut) { session.addOutput(movieOut) }
+        session.commitConfiguration()
+        let s = session
+        DispatchQueue.global(qos: .userInitiated).async { s.startRunning() }
+        ready = true
+    }
+
+    private func attachCamera() {
+        for inp in session.inputs {
+            if let d = inp as? AVCaptureDeviceInput, d.device.hasMediaType(.video) {
+                session.removeInput(d)
+            }
+        }
+        let pos: AVCaptureDevice.Position = front ? .front : .back
+        guard let dev = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: pos),
+              let inp = try? AVCaptureDeviceInput(device: dev), session.canAddInput(inp) else { return }
+        session.addInput(inp)
+    }
+
+    func flip() {
+        guard !recording else { return }
+        session.beginConfiguration()
+        front.toggle()
+        if front { setTorch(false) }
+        attachCamera()
+        session.commitConfiguration()
+    }
+
+    /// Torch = the back camera's light. The front camera has no torch, so the
+    /// button simply arms/disarms and does nothing up front (like most apps).
+    func setTorch(_ on: Bool) {
+        torchOn = on
+        guard !front,
+              let dev = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back),
+              dev.hasTorch, (try? dev.lockForConfiguration()) != nil else { return }
+        dev.torchMode = on ? .on : .off
+        dev.unlockForConfiguration()
+    }
+
+    func startTake() {
+        guard ready, !recording else { return }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chopcam-\(UUID().uuidString).mov")
+        if let conn = movieOut.connection(with: .video) {
+            if conn.isVideoOrientationSupported { conn.videoOrientation = .portrait }
+            if front, conn.isVideoMirroringSupported {
+                conn.automaticallyAdjustsVideoMirroring = false
+                conn.isVideoMirrored = true
+            }
+        }
+        movieOut.startRecording(to: url, recordingDelegate: self)
+        takeStart = Date()
+        recording = true
+    }
+
+    func stopTake() {
+        guard recording else { return }
+        movieOut.stopRecording()
+    }
+
+    nonisolated func fileOutput(_ output: AVCaptureFileOutput,
+                                didFinishRecordingTo outputFileURL: URL,
+                                from connections: [AVCaptureConnection],
+                                error: Error?) {
+        Task { @MainActor in
+            let sec = self.takeStart.map { -$0.timeIntervalSinceNow } ?? 0
+            self.takeStart = nil
+            self.recording = false
+            if sec > 0.2, FileManager.default.fileExists(atPath: outputFileURL.path) {
+                self.takes.append((outputFileURL, sec))
+            } else {
+                try? FileManager.default.removeItem(at: outputFileURL)
+            }
+        }
+    }
+
+    func deleteLast() {
+        guard let t = takes.popLast() else { return }
+        try? FileManager.default.removeItem(at: t.url)
+    }
+    func discardAll() {
+        takes.forEach { try? FileManager.default.removeItem(at: $0.url) }
+        takes = []
+    }
+    func shutdown() {
+        setTorch(false)
+        let s = session
+        DispatchQueue.global(qos: .userInitiated).async { s.stopRunning() }
+    }
+}
+
+/// Live viewfinder.
+struct ChopCameraPreview: UIViewRepresentable {
+    let session: AVCaptureSession
+    final class V: UIView {
+        override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+    }
+    func makeUIView(context: Context) -> V {
+        let v = V()
+        let l = v.layer as! AVCaptureVideoPreviewLayer
+        l.session = session
+        l.videoGravity = .resizeAspectFill
+        return v
+    }
+    func updateUIView(_ uiView: V, context: Context) {}
+}
+
+struct ChopCameraView: View {
+    @ObservedObject var api: ChopAPI
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var cam = ChopCamera()
+    @StateObject private var imp = ChopImporter()
+
+    @State private var maxSec: Double = 60
+    @State private var countdownArmed = false
+    @State private var countNum: Int? = nil
+    @State private var grid = false
+    @State private var delArmed = false
+    @State private var confirmDiscard = false
+    @State private var preparing = false
+
+    private let rose = Color(red: 1.0, green: 0x2d/255, blue: 0x55/255)
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if cam.ready { ChopCameraPreview(session: cam.session).ignoresSafeArea() }
+
+            if grid { gridLines }
+
+            if imp.busy || preparing {
+                // the SAME processing card as every other import
+                ChopProcessingStage(stepIndex: imp.stepIndex, done: imp.done,
+                                    frame: imp.previewFrame)
+                    .padding(20)
+                    .background(Color.black.opacity(0.85).ignoresSafeArea())
+            } else {
+                cameraUI
+            }
+
+            if let n = countNum {
+                Color.black.opacity(0.35).ignoresSafeArea()
+                Text("\(n)")
+                    .font(.system(size: 110, weight: .black))
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.5), radius: 20)
+            }
+
+            if cam.denied { deniedView }
+        }
+        .statusBarHidden()
+        .task { await cam.start() }
+        .onDisappear { cam.shutdown() }
+        .alert("Delete this video?", isPresented: $confirmDiscard) {
+            Button("Delete takes", role: .destructive) {
+                cam.discardAll(); cam.shutdown(); dismiss()
+            }
+            Button("Keep filming", role: .cancel) {}
+        } message: {
+            Text("You've filmed \(cam.takes.count) take\(cam.takes.count == 1 ? "" : "s"). Going back deletes them — this can't be undone.")
+        }
+    }
+
+    // MARK: pieces
+
+    private var cameraUI: some View {
+        // TimelineView drives the live ring/timer every frame while recording
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !cam.recording)) { _ in
+            let total = cam.totalSec
+            ZStack {
+                // top bar — hidden while recording, like TikTok
+                if !cam.recording {
+                    VStack {
+                        HStack {
+                            Button {
+                                if cam.takes.isEmpty { cam.shutdown(); dismiss() }
+                                else { confirmDiscard = true }
+                            } label: {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 17, weight: .heavy))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 38, height: 38)
+                                    .background(.black.opacity(0.45), in: Circle())
+                            }
+                            Spacer()
+                            HStack(spacing: 0) {
+                                Text("Film with ").foregroundStyle(.white)
+                                Text("chop").foregroundStyle(Color(red: 0x7c/255, green: 0xb0/255, blue: 1.0))
+                            }
+                            .font(.system(size: 13.5, weight: .heavy))
+                            .padding(.horizontal, 15).padding(.vertical, 8)
+                            .background(.black.opacity(0.45), in: Capsule())
+                            Spacer()
+                            Color.clear.frame(width: 38, height: 38)
+                        }
+                        .padding(.horizontal, 18).padding(.top, 12)
+                        Spacer()
+                    }
+
+                    // right rail
+                    VStack(spacing: 15) {
+                        railTool("arrow.triangle.2.circlepath.camera", "Flip", on: false) { cam.flip() }
+                        railTool("bolt.fill", "Flash", on: cam.torchOn) { cam.setTorch(!cam.torchOn) }
+                        railTool("timer", "3s", on: countdownArmed) { countdownArmed.toggle() }
+                        railTool("grid", "Grid", on: grid) { grid.toggle() }
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                    .padding(.trailing, 12).padding(.top, 64)
+                }
+
+                VStack(spacing: 0) {
+                    Spacer()
+
+                    // timer
+                    if cam.recording || !cam.takes.isEmpty {
+                        Text(Self.fmt(total))
+                            .font(.system(size: 14, weight: .heavy))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.6), radius: 5)
+                            .padding(.bottom, 10)
+                    }
+
+                    // duration pills — only before anything is filmed
+                    if !cam.recording && cam.takes.isEmpty {
+                        HStack(spacing: 8) {
+                            durPill("10m", 600); durPill("60s", 60); durPill("15s", 15)
+                        }
+                        .padding(.bottom, 14)
+                    }
+
+                    // record row: ⊥upload · [ring+button] · ✕ · ✓
+                    ZStack {
+                        recordButton(total: total)
+                        if !cam.recording && !cam.takes.isEmpty {
+                            HStack {
+                                Spacer()
+                                Button {
+                                    if delArmed { cam.deleteLast(); delArmed = false
+                                        ChopToasts.shared.show("Last take deleted") }
+                                    else { delArmed = true }
+                                } label: {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 16, weight: .heavy))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 48, height: 48)
+                                        .background(delArmed ? rose.opacity(0.85) : .black.opacity(0.45), in: Circle())
+                                }
+                                Button { Task { await finish() } } label: {
+                                    Image(systemName: "checkmark")
+                                        .font(.system(size: 18, weight: .heavy))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 48, height: 48)
+                                        .background(rose, in: Circle())
+                                }
+                                .padding(.trailing, 26)
+                            }
+                        }
+                    }
+                    .padding(.bottom, 36)
+                }
+            }
+        }
+    }
+
+    private func recordButton(total: Double) -> some View {
+        ZStack {
+            Circle().stroke(Color.white.opacity(0.28), lineWidth: 5)
+                .frame(width: 100, height: 100)
+            // live progress ring
+            Circle().trim(from: 0, to: min(total / maxSec, 1))
+                .stroke(rose, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .frame(width: 100, height: 100)
+            // white take markers
+            ForEach(Array(takeBounds().enumerated()), id: \.offset) { _, f in
+                Circle().trim(from: max(0, f - 0.006), to: f)
+                    .stroke(Color.white, style: StrokeStyle(lineWidth: 7))
+                    .rotationEffect(.degrees(-90))
+                    .frame(width: 100, height: 100)
+            }
+            Button {
+                if cam.recording { cam.stopTake(); return }
+                guard cam.totalSec < maxSec else { return }
+                delArmed = false
+                if countdownArmed { runCountdown() } else { cam.startTake() }
+            } label: {
+                ZStack {
+                    Circle().fill(cam.recording ? .white : rose)
+                        .frame(width: 74, height: 74)
+                        .overlay(Circle().stroke(rose.opacity(cam.recording ? 0 : 0.35), lineWidth: 6).padding(-6))
+                    RoundedRectangle(cornerRadius: 8).fill(rose)
+                        .frame(width: cam.recording ? 30 : 0, height: cam.recording ? 30 : 0)
+                }
+                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: cam.recording)
+            }
+            .buttonStyle(.plain)
+        }
+        .onChange(of: cam.recording) { _, rec in
+            // auto-stop at the cap
+            if rec {
+                Task {
+                    while cam.recording {
+                        try? await Task.sleep(nanoseconds: 100_000_000)
+                        if cam.totalSec >= maxSec { cam.stopTake(); break }
+                    }
+                }
+            }
+        }
+    }
+
+    private func takeBounds() -> [Double] {
+        var acc = 0.0
+        return cam.takes.map { t in acc += t.sec; return min(acc / maxSec, 1) }
+    }
+
+    private func runCountdown() {
+        Task {
+            for n in [3, 2, 1] {
+                countNum = n
+                try? await Task.sleep(nanoseconds: 900_000_000)
+            }
+            countNum = nil
+            cam.startTake()
+        }
+    }
+
+    private func finish() async {
+        guard !cam.takes.isEmpty else { return }
+        preparing = true
+        cam.setTorch(false)
+        guard let combined = await ChopStitcher.stitch(cam.takes.map { $0.url }) else {
+            preparing = false
+            ChopToasts.shared.show("Couldn't combine those takes — try again")
+            return
+        }
+        let df = DateFormatter(); df.dateFormat = "d MMM, HH.mm"
+        let friendly = "Chop " + df.string(from: Date()) + " (filmed).mp4"
+        await imp.run(pickedURL: combined, name: friendly, api: api)
+        preparing = false
+        if imp.done, let job = api.jobs.first(where: { $0.name == friendly }) {
+            cam.discardAll(); cam.shutdown()
+            dismiss()
+            try? await Task.sleep(nanoseconds: 450_000_000)
+            if !api.editorOpen, api.openJob == nil { api.openJob = job }
+        } else if !imp.failed.isEmpty {
+            ChopToasts.shared.show(imp.failed)
+        }
+    }
+
+    private func durPill(_ label: String, _ sec: Double) -> some View {
+        let on = maxSec == sec
+        return Button { maxSec = sec } label: {
+            Text(label)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(on ? Color.black : .white.opacity(0.85))
+                .padding(.horizontal, 15).padding(.vertical, 7)
+                .background(on ? .white : .clear, in: Capsule())
+                .shadow(color: .black.opacity(on ? 0 : 0.4), radius: 3)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func railTool(_ icon: String, _ label: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
+        Button(action: tap) {
+            VStack(spacing: 1) {
+                Image(systemName: icon).font(.system(size: 16, weight: .semibold))
+                Text(label).font(.system(size: 8, weight: .bold))
+            }
+            .foregroundStyle(.white)
+            .frame(width: 44, height: 44)
+            .background(on ? ChopColor.blue.opacity(0.75) : .black.opacity(0.45), in: Circle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var gridLines: some View {
+        GeometryReader { g in
+            Path { p in
+                for f in [1.0/3.0, 2.0/3.0] {
+                    p.move(to: CGPoint(x: g.size.width * f, y: 0))
+                    p.addLine(to: CGPoint(x: g.size.width * f, y: g.size.height))
+                    p.move(to: CGPoint(x: 0, y: g.size.height * f))
+                    p.addLine(to: CGPoint(x: g.size.width, y: g.size.height * f))
+                }
+            }
+            .stroke(Color.white.opacity(0.35), lineWidth: 1)
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+
+    private var deniedView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "video.slash").font(.largeTitle).foregroundStyle(.white)
+            Text("Chop needs the camera and mic")
+                .font(.system(size: 16, weight: .heavy)).foregroundStyle(.white)
+            Text("Turn them on in Settings → Chop to film in the app.")
+                .font(.system(size: 13)).foregroundStyle(.white.opacity(0.8))
+                .multilineTextAlignment(.center)
+            Button("Open Settings") {
+                if let u = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(u) }
+            }
+            .font(.system(size: 14, weight: .heavy))
+            Button("Close") { dismiss() }
+                .font(.system(size: 13, weight: .bold)).foregroundStyle(.white.opacity(0.7))
+        }
+        .padding(30)
+        .background(Color.black.opacity(0.85).ignoresSafeArea())
+    }
+
+    private static func fmt(_ s: Double) -> String {
+        let t = Int(s)
+        return String(format: "%02d:%02d", t / 60, t % 60)
     }
 }
 
