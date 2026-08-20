@@ -8554,6 +8554,8 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
                 dev.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
                 dev.unlockForConfiguration()
             }
+            let d = CMVideoFormatDescriptionGetDimensions(dev.activeFormat.formatDescription)
+            print("CHOPCAM front active \(d.width)x\(d.height) fov=\(dev.activeFormat.videoFieldOfView)")
         } else {
             if session.sessionPreset != .high { session.sessionPreset = .high }
             // on the virtual device, "1×" lives at the switch-over factor
@@ -8750,20 +8752,27 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
     }
 }
 
-/// Live viewfinder.
+/// Live viewfinder. FRONT = fit-with-bars (Lewis 20 Aug: filling the screen
+/// crops the wide 4:3's sides straight back off in the PREVIEW — TikTok and
+/// Apple letterbox theirs, which is why they LOOK wider while filming).
 struct ChopCameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
+    var fit: Bool = false
     final class V: UIView {
         override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
     }
     func makeUIView(context: Context) -> V {
         let v = V()
+        v.backgroundColor = .black
         let l = v.layer as! AVCaptureVideoPreviewLayer
         l.session = session
-        l.videoGravity = .resizeAspectFill
+        l.videoGravity = fit ? .resizeAspect : .resizeAspectFill
         return v
     }
-    func updateUIView(_ uiView: V, context: Context) {}
+    func updateUIView(_ uiView: V, context: Context) {
+        let l = uiView.layer as! AVCaptureVideoPreviewLayer
+        l.videoGravity = fit ? .resizeAspect : .resizeAspectFill
+    }
 }
 
 struct ChopCameraView: View {
@@ -8787,7 +8796,7 @@ struct ChopCameraView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            if cam.ready { ChopCameraPreview(session: cam.session).ignoresSafeArea() }
+            if cam.ready { ChopCameraPreview(session: cam.session, fit: cam.front).ignoresSafeArea() }
 
             if grid { gridLines }
 
