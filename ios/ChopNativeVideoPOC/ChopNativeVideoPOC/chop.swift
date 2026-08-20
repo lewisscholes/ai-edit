@@ -8604,6 +8604,7 @@ struct ChopCameraView: View {
                 .background(.black.opacity(0.82), in: RoundedRectangle(cornerRadius: 22))
                 .transition(.scale(scale: 0.9).combined(with: .opacity))
                 .allowsHitTesting(false)
+                .zIndex(10)   // always above the camera UI
             }
 
             if let n = countNum {
@@ -8829,8 +8830,11 @@ struct ChopCameraView: View {
 
     @State private var banner: String? = nil
     private func showBanner(_ s: String) {
-        withAnimation(.spring(duration: 0.3)) { banner = s }
-        Task {
+        Task { @MainActor in
+            // wait out the alert's dismiss transition — a view inserted while
+            // it's mid-dismissal gets silently dropped (the invisible-banner bug)
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            withAnimation(.spring(duration: 0.3)) { banner = s }
             try? await Task.sleep(nanoseconds: 5_000_000_000)   // 5s, Lewis's spec
             withAnimation(.easeOut(duration: 0.3)) { banner = nil }
         }
