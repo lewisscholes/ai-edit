@@ -8602,22 +8602,22 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         // oriented (display) size of this take
         let r = CGRect(origin: .zero, size: nat).applying(tf)
         let disp = CGSize(width: abs(r.width), height: abs(r.height))
-        let out = target.width > 1 && target.height > 1 ? target : disp
+        let canvas = target.width > 1 && target.height > 1 ? target : disp
 
         let comp = AVMutableVideoComposition()
-        comp.renderSize = out
+        comp.renderSize = canvas
         comp.frameDuration = CMTime(value: 1, timescale: 30)
         let inst = AVMutableVideoCompositionInstruction()
         inst.timeRange = CMTimeRange(start: .zero, duration: dur)
         let li = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
         // own transform → origin, then aspect-FILL scale into the target,
         // centred (never squashed — the distortion fix)
-        let s = max(out.width / disp.width, out.height / disp.height)
+        let s = max(canvas.width / disp.width, canvas.height / disp.height)
         let t = tf
             .concatenating(CGAffineTransform(translationX: -r.minX, y: -r.minY))
             .concatenating(CGAffineTransform(scaleX: s, y: s))
-            .concatenating(CGAffineTransform(translationX: (out.width - disp.width * s) / 2,
-                                             y: (out.height - disp.height * s) / 2))
+            .concatenating(CGAffineTransform(translationX: (canvas.width - disp.width * s) / 2,
+                                             y: (canvas.height - disp.height * s) / 2))
         li.setTransform(t, at: .zero)
         inst.layerInstructions = [li]
         comp.instructions = [inst]
