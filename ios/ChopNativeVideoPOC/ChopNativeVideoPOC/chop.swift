@@ -8520,23 +8520,39 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         videoDevice = dev
 
         if front {
-            // FRONT FOV — settled by the 20 Aug sensor dump on Lewis's
-            // iPhone 17 Pro Max: EVERY front video format reports the same
-            // 73.19° field of view and minAvailableVideoZoomFactor is 1.0, so
-            // no format switch or zoom-out can widen the picture through the
-            // public capture API — the default 16:9 1080p format already IS
-            // the full-width selfie. (The earlier 4:3 experiment gained zero
-            // width and cost resolution; reverted.)
+            // FRONT WIDTH — SOLVED (Lewis 20 Aug, Camera-app screenshot):
+            // every front format is the same 73° lens, so the extra width in
+            // TikTok/Apple Camera selfies lives in the 4:3 FRAME — both of
+            // them keep it (note the black bars in their previews) instead of
+            // cropping to 9:16, which provably deletes the gain. So Chop now
+            // records front video in the wide 4:3 too (~59° portrait width vs
+            // 44° at 16:9) and the video keeps its true shape through the
+            // pipeline — the editor shows true aspect, TikTok letterboxes 4:3
+            // uploads exactly like its own.
             oneX = 1
-            if session.sessionPreset != .high { session.sessionPreset = .high }
-            // DIAGNOSTIC (temporary): does this phone expose a WIDER front
-            // device, like the back ultra-wide?
-            let disco = AVCaptureDevice.DiscoverySession(
-                deviceTypes: [.builtInWideAngleCamera, .builtInUltraWideCamera,
-                              .builtInTrueDepthCamera, .builtInDualWideCamera],
-                mediaType: .video, position: .front)
-            for d in disco.devices {
-                print("CHOPCAM front-device \(d.deviceType.rawValue) fov=\(d.activeFormat.videoFieldOfView) minZ=\(d.minAvailableVideoZoomFactor)")
+            func portraitWidth(_ f: AVCaptureDevice.Format) -> Double {
+                let d = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
+                return Double(f.videoFieldOfView) * Double(d.height) / Double(d.width)
+            }
+            let wide = dev.formats.filter { f in
+                let d = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
+                return d.height >= 1080 && d.width <= 2688 && !f.isVideoBinned &&
+                       f.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= 30 }
+            }.max(by: { a, b in
+                if abs(portraitWidth(a) - portraitWidth(b)) > 0.1 {
+                    return portraitWidth(a) < portraitWidth(b)
+                }
+                let da = CMVideoFormatDescriptionGetDimensions(a.formatDescription)
+                let db = CMVideoFormatDescriptionGetDimensions(b.formatDescription)
+                return da.width * da.height < db.width * db.height   // tie → higher res
+            })
+            if let f = wide, portraitWidth(f) > portraitWidth(dev.activeFormat) + 0.1,
+               (try? dev.lockForConfiguration()) != nil {
+                session.sessionPreset = .inputPriority
+                dev.activeFormat = f
+                dev.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
+                dev.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
+                dev.unlockForConfiguration()
             }
         } else {
             if session.sessionPreset != .high { session.sessionPreset = .high }
@@ -8630,10 +8646,9 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
             return (p, CGSize(width: abs(r.width), height: abs(r.height)))
         }
         let first = await sig(items[0].url)
-        // the OUTPUT canvas is always 9:16 portrait — a wide 4:3 selfie
-        // recording (FOV v3) gets its sides cropped into this, TikTok-style
-        let canvas = CGSize(width: min(first.disp.width, (first.disp.height * 9 / 16).rounded()),
-                            height: first.disp.height)
+        // canvas = the FIRST take's true shape (Lewis 20 Aug: the width lives
+        // in the 4:3 frame — cropping it to 9:16 deletes the gain, so DON'T)
+        let canvas = first.disp
         var out: [URL] = []
         for (i, item) in items.enumerated() {
             let s = i == 0 ? first : await sig(item.url)
