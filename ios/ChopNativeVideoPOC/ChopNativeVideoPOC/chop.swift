@@ -8401,6 +8401,20 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         guard let dev = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: pos),
               let inp = try? AVCaptureDeviceInput(device: dev), session.canAddInput(inp) else { return }
         session.addInput(inp)
+        configureOutputConnection()
+    }
+
+    /// ONE place that pins the recording orientation (portrait, front
+    /// mirrored). Called after every camera attach/flip AND before every take
+    /// — the take-2-came-out-sideways bug was this state not re-applying
+    /// reliably between recordings.
+    func configureOutputConnection() {
+        guard let conn = movieOut.connection(with: .video) else { return }
+        if conn.isVideoOrientationSupported { conn.videoOrientation = .portrait }
+        if conn.isVideoMirroringSupported {
+            conn.automaticallyAdjustsVideoMirroring = false
+            conn.isVideoMirrored = front
+        }
     }
 
     func flip() {
@@ -8427,16 +8441,71 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         guard ready, !recording else { return }
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("chopcam-\(UUID().uuidString).mov")
-        if let conn = movieOut.connection(with: .video) {
-            if conn.isVideoOrientationSupported { conn.videoOrientation = .portrait }
-            if front, conn.isVideoMirroringSupported {
-                conn.automaticallyAdjustsVideoMirroring = false
-                conn.isVideoMirrored = true
-            }
-        }
+        configureOutputConnection()
         movieOut.startRecording(to: url, recordingDelegate: self)
         takeStart = Date()
         recording = true
+    }
+
+    /// Belt & braces for the sideways-take bug: if any take's orientation
+    /// metadata differs from the first's, re-render the odd ones upright
+    /// BEFORE the stitcher (which by design uses the first clip's transform
+    /// for the lot). Matching takes pass through untouched — zero cost on the
+    /// normal path.
+    static func normalized(_ urls: [URL]) async -> [URL] {
+        guard urls.count > 1 else { return urls }
+        func xf(_ u: URL) async -> CGAffineTransform {
+            let a = AVURLAsset(url: u)
+            guard let t = try? await a.loadTracks(withMediaType: .video).first,
+                  let p = try? await t.load(.preferredTransform) else { return .identity }
+            return p
+        }
+        let first = await xf(urls[0])
+        var out: [URL] = [urls[0]]
+        for u in urls.dropFirst() {
+            let t = await xf(u)
+            if abs(t.a - first.a) < 0.01, abs(t.b - first.b) < 0.01,
+               abs(t.c - first.c) < 0.01, abs(t.d - first.d) < 0.01 {
+                out.append(u)
+            } else {
+                out.append(await uprightRender(u, like: first) ?? u)
+            }
+        }
+        return out
+    }
+
+    /// Re-encode one take so its pixels are upright and its transform matches
+    /// the reference clip's coordinate space.
+    private static func uprightRender(_ url: URL, like ref: CGAffineTransform) async -> URL? {
+        let asset = AVURLAsset(url: url)
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+              let nat = try? await track.load(.naturalSize),
+              let tf = try? await track.load(.preferredTransform),
+              let dur = try? await asset.load(.duration) else { return nil }
+        // oriented (display) size of this take
+        let r = CGRect(origin: .zero, size: nat).applying(tf)
+        let disp = CGSize(width: abs(r.width), height: abs(r.height))
+
+        let comp = AVMutableVideoComposition()
+        comp.renderSize = disp
+        comp.frameDuration = CMTime(value: 1, timescale: 30)
+        let inst = AVMutableVideoCompositionInstruction()
+        inst.timeRange = CMTimeRange(start: .zero, duration: dur)
+        let li = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
+        // apply the take's own transform, then shift the oriented image so it
+        // sits at the origin of the render canvas
+        li.setTransform(tf.concatenating(CGAffineTransform(translationX: -r.minX, y: -r.minY)), at: .zero)
+        inst.layerInstructions = [li]
+        comp.instructions = [inst]
+
+        guard let ex = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetHighestQuality) else { return nil }
+        let out = FileManager.default.temporaryDirectory
+            .appendingPathComponent("chopcam-fix-\(UUID().uuidString).mov")
+        ex.outputURL = out
+        ex.outputFileType = .mov
+        ex.videoComposition = comp
+        await ex.export()
+        return ex.status == .completed ? out : nil
     }
 
     func stopTake() {
@@ -8514,14 +8583,21 @@ struct ChopCameraView: View {
 
             if grid { gridLines }
 
-            if imp.busy || preparing {
-                // the SAME processing card as every other import
-                ChopProcessingStage(stepIndex: imp.stepIndex, done: imp.done,
-                                    frame: imp.previewFrame)
-                    .padding(20)
-                    .background(Color.black.opacity(0.85).ignoresSafeArea())
-            } else {
-                cameraUI
+            cameraUI
+
+            // background-processing banner (finish is fire-and-forget)
+            if let b = banner {
+                VStack {
+                    Text(b)
+                        .font(.system(size: 13, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 18).padding(.vertical, 12)
+                        .background(.black.opacity(0.75), in: Capsule())
+                        .padding(.top, 116)
+                    Spacer()
+                }
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .allowsHitTesting(false)
             }
 
             if let n = countNum {
@@ -8606,9 +8682,12 @@ struct ChopCameraView: View {
                             .padding(.bottom, 10)
                     }
 
-                    // duration pills — only before anything is filmed
-                    if !cam.recording && cam.takes.isEmpty {
-                        HStack(spacing: 8) {
+    // duration pills — visible whenever not recording (Lewis 20 Aug:
+                    // they used to vanish after the first take, which read as
+                    // broken); a cap smaller than what's already filmed is
+                    // dimmed and inert
+                    if !cam.recording {
+                        HStack(spacing: 6) {
                             durPill("10m", 600); durPill("60s", 60); durPill("15s", 15)
                         }
                         .padding(.bottom, 14)
@@ -8710,38 +8789,54 @@ struct ChopCameraView: View {
         }
     }
 
+    /// ✓ = fire-and-forget (Lewis 20 Aug: affiliates bulk-film). The takes are
+    /// handed to a BACKGROUND import — stitch, upload, auto-edit — and land in
+    /// the queue on their own while the camera stays open for the next video.
     private func finish() async {
         guard !cam.takes.isEmpty else { return }
-        preparing = true
-        cam.setTorch(false)
-        guard let combined = await ChopStitcher.stitch(cam.takes.map { $0.url }) else {
-            preparing = false
-            ChopToasts.shared.show("Couldn't combine those takes — try again")
-            return
-        }
-        let df = DateFormatter(); df.dateFormat = "d MMM, HH.mm"
+        let urls = cam.takes.map { $0.url }
+        cam.takes = []          // camera is instantly ready for the next video
+        delArmed = false
+        let df = DateFormatter(); df.dateFormat = "d MMM, HH.mm.ss"
         let friendly = "Chop " + df.string(from: Date()) + " (filmed).mp4"
-        await imp.run(pickedURL: combined, name: friendly, api: api)
-        preparing = false
-        if imp.done, let job = api.jobs.first(where: { $0.name == friendly }) {
-            cam.discardAll(); cam.shutdown()
-            dismiss()
-            try? await Task.sleep(nanoseconds: 450_000_000)
-            if !api.editorOpen, api.openJob == nil { api.openJob = job }
-        } else if !imp.failed.isEmpty {
-            ChopToasts.shared.show(imp.failed)
+        showBanner("Processing in the background — check the Queue in a minute 🎬")
+        let apiRef = api
+        Task.detached(priority: .userInitiated) {
+            // straighten any take whose orientation metadata drifted, then the
+            // LOCKED stitch + import pipeline, same as the Combine upload mode
+            let fixed = await ChopCamera.normalized(urls)
+            guard let combined = await ChopStitcher.stitch(fixed) else {
+                await MainActor.run { ChopToasts.shared.show("Couldn't combine those takes") }
+                return
+            }
+            let bg = await MainActor.run { ChopImporter() }
+            await bg.run(pickedURL: combined, name: friendly, api: apiRef)
+            urls.forEach { try? FileManager.default.removeItem(at: $0) }
+        }
+    }
+
+    @State private var banner: String? = nil
+    private func showBanner(_ s: String) {
+        banner = s
+        Task {
+            try? await Task.sleep(nanoseconds: 2_600_000_000)
+            banner = nil
         }
     }
 
     private func durPill(_ label: String, _ sec: Double) -> some View {
         let on = maxSec == sec
-        return Button { maxSec = sec } label: {
+        let allowed = sec > cam.totalSec   // can't pick a cap below what's filmed
+        return Button {
+            guard allowed else { return }
+            maxSec = sec
+        } label: {
             Text(label)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(on ? Color.black : .white.opacity(0.85))
-                .padding(.horizontal, 15).padding(.vertical, 7)
-                .background(on ? .white : .clear, in: Capsule())
-                .shadow(color: .black.opacity(on ? 0 : 0.4), radius: 3)
+                .font(.system(size: 13.5, weight: .bold))
+                .foregroundStyle(on ? Color.black : .white.opacity(allowed ? 0.9 : 0.35))
+                .padding(.horizontal, 18).padding(.vertical, 10)
+                .background(on ? AnyShapeStyle(.white) : AnyShapeStyle(.black.opacity(0.35)), in: Capsule())
+                .contentShape(Capsule())   // the whole pill is tappable, not just the text
         }
         .buttonStyle(.plain)
     }
