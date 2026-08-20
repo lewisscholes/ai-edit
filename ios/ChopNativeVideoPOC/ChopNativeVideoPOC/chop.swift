@@ -8368,6 +8368,37 @@ struct OutOfCreditsSheet: View {
 // 22px off the bottom. It's the single biggest thing that makes Chop look like
 // Chop, so it's worth matching properly.
 
+/// Bot tab glyph (Lewis 20 Aug: "an actual robot"): SF Symbols has no robot,
+/// so this is a hand-drawn one in the same airy thin-outline language as the
+/// other tab icons — antenna knob, rounded head, dot eyes, flat mouth. Sized
+/// to sit optically level with the 17pt SF icons beside it.
+struct BotGlyph: View {
+    var line: CGFloat = 1.3
+    var body: some View {
+        ZStack {
+            Circle()                             // antenna knob
+                .frame(width: 2.6, height: 2.6)
+                .offset(y: -6.8)
+            Rectangle()                          // antenna stem
+                .frame(width: line, height: 2.6)
+                .offset(y: -4.6)
+            RoundedRectangle(cornerRadius: 3.4)  // head
+                .strokeBorder(style: StrokeStyle(lineWidth: line))
+                .frame(width: 15.5, height: 11)
+                .offset(y: 2.2)
+            HStack(spacing: 4.4) {               // eyes
+                Circle().frame(width: 2.2, height: 2.2)
+                Circle().frame(width: 2.2, height: 2.2)
+            }
+            .offset(y: 0.9)
+            Capsule()                            // mouth
+                .frame(width: 5.4, height: line)
+                .offset(y: 4.6)
+        }
+        .frame(width: 18, height: 18)
+    }
+}
+
 struct ChopGlassNav: View {
     @Binding var tab: Int
     let queueCount: Int
@@ -8416,8 +8447,7 @@ struct ChopGlassNav: View {
     private var botItem: some View {
         Button(action: bot) {
             VStack(spacing: 2) {
-                Image(systemName: "face.smiling")
-                    .font(.system(size: 17, weight: .regular))
+                BotGlyph()
                 Text("Bot").font(.system(size: 10.5, weight: .semibold)).fixedSize()
             }
             .foregroundStyle(Color.chopMuted)
@@ -8520,33 +8550,31 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         videoDevice = dev
 
         if front {
-            // FRONT WIDTH — SOLVED (Lewis 20 Aug, Camera-app screenshot):
-            // every front format is the same 73° lens, so the extra width in
-            // TikTok/Apple Camera selfies lives in the 4:3 FRAME — both of
-            // them keep it (note the black bars in their previews) instead of
-            // cropping to 9:16, which provably deletes the gain. So Chop now
-            // records front video in the wide 4:3 too (~59° portrait width vs
-            // 44° at 16:9) and the video keeps its true shape through the
-            // pipeline — the editor shows true aspect, TikTok letterboxes 4:3
-            // uploads exactly like its own.
+            // FRONT WIDE + FULL-FILL (Lewis 20 Aug — "the ONLY solution"):
+            // how TikTok/Apple combine zoom-out with a filled screen: the
+            // DEFAULT front video format iOS hands out is a cropped ~54°
+            // sensor readout, but the sensor's full readout is ~73°. A 9:16
+            // window cut from the FULL readout is ~35% wider than one cut
+            // from the default — that's the whole trick; nobody gets more
+            // than fov×9÷16 into a filled portrait frame, so matching them
+            // means (1) engage the widest ≥30fps format, (2) kill the
+            // stabilization crop (configureOutputConnection), (3) bake the
+            // maximal 9:16 window in normalized(). Preview aspect-fills
+            // edge-to-edge exactly like the back camera.
             oneX = 1
-            func portraitWidth(_ f: AVCaptureDevice.Format) -> Double {
-                let d = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
-                return Double(f.videoFieldOfView) * Double(d.height) / Double(d.width)
-            }
             let wide = dev.formats.filter { f in
                 let d = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
-                return d.height >= 1080 && d.width <= 2688 && !f.isVideoBinned &&
+                return d.width >= 1920 &&
                        f.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= 30 }
             }.max(by: { a, b in
-                if abs(portraitWidth(a) - portraitWidth(b)) > 0.1 {
-                    return portraitWidth(a) < portraitWidth(b)
+                if abs(Double(a.videoFieldOfView) - Double(b.videoFieldOfView)) > 0.5 {
+                    return a.videoFieldOfView < b.videoFieldOfView   // widest wins
                 }
                 let da = CMVideoFormatDescriptionGetDimensions(a.formatDescription)
                 let db = CMVideoFormatDescriptionGetDimensions(b.formatDescription)
-                return da.width * da.height < db.width * db.height   // tie → higher res
+                return da.width * da.height > db.width * db.height   // tie → LEANEST res (output is 1080p anyway)
             })
-            if let f = wide, portraitWidth(f) > portraitWidth(dev.activeFormat) + 0.1,
+            if let f = wide, f.videoFieldOfView > dev.activeFormat.videoFieldOfView + 0.1,
                (try? dev.lockForConfiguration()) != nil {
                 session.sessionPreset = .inputPriority
                 dev.activeFormat = f
@@ -8554,8 +8582,8 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
                 dev.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
                 dev.unlockForConfiguration()
             }
-            let d = CMVideoFormatDescriptionGetDimensions(dev.activeFormat.formatDescription)
-            print("CHOPCAM front active \(d.width)x\(d.height) fov=\(dev.activeFormat.videoFieldOfView)")
+            // LOCKED (Lewis 20 Aug): wide + full-fill confirmed against
+            // TikTok side-by-side — do not touch without his say-so.
         } else {
             if session.sessionPreset != .high { session.sessionPreset = .high }
             // on the virtual device, "1×" lives at the switch-over factor
@@ -8596,6 +8624,14 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         if conn.isVideoMirroringSupported {
             conn.automaticallyAdjustsVideoMirroring = false
             conn.isVideoMirrored = false
+        }
+        // FRONT ONLY (Lewis 20 Aug, wide+full-fill): "auto" stabilization
+        // silently crops ~10% off the sensor before we ever see it — that's
+        // width we need for the 9:16 window. Off for selfie takes (arm's-
+        // length talking heads don't need it); back camera stays on iOS's
+        // default auto, untouched.
+        if conn.isVideoStabilizationSupported {
+            conn.preferredVideoStabilizationMode = front ? .off : .auto
         }
     }
 
@@ -8648,13 +8684,13 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
             return (p, CGSize(width: abs(r.width), height: abs(r.height)))
         }
         let first = await sig(items[0].url)
-        // canvas (Lewis 20 Aug, the middle ground): ALWAYS a standard 9:16
-        // portrait file. A wide 4:3 selfie recording FITS by width inside it —
-        // full zoom-out kept, slim bars baked top/bottom (TikTok's wide-selfie
-        // look) — while 9:16 back-camera takes match the canvas exactly and
-        // pass through untouched.
-        let canvas = CGSize(width: first.disp.width,
-                            height: max(first.disp.height, (first.disp.width * 16 / 9).rounded()))
+        // canvas (Lewis 20 Aug — wide + FULL-FILL, no bars): ALWAYS the
+        // standard 1080×1920 portrait canvas. Back-camera takes ARE that
+        // shape and pass through byte-identical as ever. Wide front takes
+        // aspect-FILL it — the maximal 9:16 window from the full-sensor
+        // readout, the same trade TikTok/Apple make; the file fills the
+        // editor and TikTok edge-to-edge like any back-camera video.
+        let canvas = CGSize(width: 1080, height: 1920)
         var out: [URL] = []
         for (i, item) in items.enumerated() {
             let s = i == 0 ? first : await sig(item.url)
@@ -8668,7 +8704,10 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
             if !item.front && sameT && sameSize {
                 out.append(item.url)
             } else {
-                out.append(await uprightRender(item.url, target: canvas, mirror: item.front) ?? item.url)
+                // front = FILL the 9:16 (wide full-fill, Lewis 20 Aug);
+                // anything else keeps the old fit behaviour
+                out.append(await uprightRender(item.url, target: canvas,
+                                               mirror: item.front, fill: item.front) ?? item.url)
             }
         }
         return out
@@ -8677,7 +8716,7 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
     /// Re-encode one take upright at the TARGET display size (the first
     /// take's) — aspect-fill, centred — so every take enters the stitcher with
     /// identical geometry.
-    private static func uprightRender(_ url: URL, target: CGSize, mirror: Bool = false) async -> URL? {
+    private static func uprightRender(_ url: URL, target: CGSize, mirror: Bool = false, fill: Bool = false) async -> URL? {
         let asset = AVURLAsset(url: url)
         guard let track = try? await asset.loadTracks(withMediaType: .video).first,
               let nat = try? await track.load(.naturalSize),
@@ -8694,11 +8733,13 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         let inst = AVMutableVideoCompositionInstruction()
         inst.timeRange = CMTimeRange(start: .zero, duration: dur)
         let li = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
-        // own transform → origin, then aspect-FIT into the canvas, centred —
-        // never squashed, never cropped: a wide 4:3 selfie keeps its full
-        // width inside the 9:16 file with slim bars baked in (Lewis 20 Aug);
-        // same-shape takes scale 1:1 exactly as before
-        let s = min(canvas.width / disp.width, canvas.height / disp.height)
+        // own transform → origin, then into the canvas, centred. fill=true
+        // (front takes, Lewis 20 Aug wide+full-fill): aspect-FILL — the
+        // maximal 9:16 window from the wide readout, no bars, sides beyond
+        // 9:16 traded away exactly like TikTok/Apple. fill=false keeps the
+        // old aspect-fit; same-shape takes scale 1:1 exactly as before.
+        let s = fill ? max(canvas.width / disp.width, canvas.height / disp.height)
+                     : min(canvas.width / disp.width, canvas.height / disp.height)
         var t = tf
             .concatenating(CGAffineTransform(translationX: -r.minX, y: -r.minY))
             .concatenating(CGAffineTransform(scaleX: s, y: s))
@@ -8758,9 +8799,9 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
     }
 }
 
-/// Live viewfinder. FRONT = fit-with-bars (Lewis 20 Aug: filling the screen
-/// crops the wide 4:3's sides straight back off in the PREVIEW — TikTok and
-/// Apple letterbox theirs, which is why they LOOK wider while filming).
+/// Live viewfinder. BOTH cameras aspect-fill edge-to-edge (Lewis 20 Aug —
+/// native feel is non-negotiable; the wide readout means the fill now crops
+/// far less than it used to, and the saved 9:16 is always ≥ what's shown).
 struct ChopCameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     var fit: Bool = false
@@ -8802,7 +8843,7 @@ struct ChopCameraView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            if cam.ready { ChopCameraPreview(session: cam.session, fit: cam.front).ignoresSafeArea() }
+            if cam.ready { ChopCameraPreview(session: cam.session).ignoresSafeArea() }
 
             if grid { gridLines }
 
