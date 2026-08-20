@@ -678,6 +678,12 @@ final class ChopAPI: ObservableObject {
     @Published var profileName = ""
     @Published var profileTiktok = ""
     @Published var profileAvatar = ""
+    // Web parity (Lewis 20 Aug): a signed-in user with no chop_profiles row
+    // (or no name) gets routed to profile setup — creating that row is ALSO
+    // what makes the database grant the signup credits (10 for the first 10
+    // accounts, 3 after — the chop_offer trigger). iOS never did either.
+    @Published var needsProfileSetup = false
+    @Published var signupBonus = false
 
     private(set) var accessToken = ""
     private(set) var userId = ""
@@ -1231,7 +1237,7 @@ final class ChopAPI: ObservableObject {
 
     /// Credits live on chop_profiles — the same row the web app reads.
     func loadProfile() async {
-        let path = "\(SB_URL)/rest/v1/chop_profiles?select=name,credits,tiktok,avatar&id=eq.\(userId)"
+        let path = "\(SB_URL)/rest/v1/chop_profiles?select=name,credits,tiktok,avatar,signup_bonus&id=eq.\(userId)"
         guard let url = URL(string: path) else { return }
         var req = URLRequest(url: url)
         req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
@@ -1240,14 +1246,18 @@ final class ChopAPI: ObservableObject {
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return }
         guard let row = rows.first else {
             // No profile row yet (brand-new account): show defaults, never
-            // whatever the previous signed-in user left behind.
+            // whatever the previous signed-in user left behind — and route to
+            // profile setup, exactly like the web's psetup view.
             profileName = ""; profileTiktok = ""; profileAvatar = ""
+            needsProfileSetup = true
             return
         }
         credits = (row["credits"] as? Int) ?? 0
         profileName = (row["name"] as? String) ?? ""
         profileTiktok = (row["tiktok"] as? String) ?? ""
         profileAvatar = (row["avatar"] as? String) ?? ""
+        signupBonus = (row["signup_bonus"] as? Bool) ?? false
+        needsProfileSetup = profileName.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     /// One credit per video, same as the web app.
@@ -1329,7 +1339,15 @@ final class ChopAPI: ObservableObject {
         ])
         guard let (_, resp) = try? await URLSession.shared.data(for: req),
               let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) else { return false }
+        let wasNew = needsProfileSetup
         await loadProfile()
+        // First-ever save = the row was just created = the database has just
+        // granted the signup credits (web-parity welcome, same wording).
+        if wasNew && credits > 0 {
+            ChopToasts.shared.show(signupBonus
+                ? "Welcome to Chop — \(credits) free credits are in your account 🎉"
+                : "Welcome to Chop — \(credits) free credits to get you started")
+        }
         return true
     }
 
@@ -2232,7 +2250,13 @@ struct ChopRootView: View {
                     NavigationStack { ChopPlayerScreen(job: j, api: api) }
                 }
                 .sheet(isPresented: $showOOC) { OutOfCreditsSheet() }
-                .onChange(of: api.credits) { _, c in if c <= 0 && api.signedIn { showOOC = true } }
+                // New account → forced profile setup (web psetup parity):
+                // creating the chop_profiles row is what grants signup credits.
+                .fullScreenCover(isPresented: Binding(
+                    get: { api.signedIn && api.needsProfileSetup },
+                    set: { if !$0 { api.needsProfileSetup = false } }
+                )) { ChopProfileView(api: api, setup: true) }
+                .onChange(of: api.credits) { _, c in if c <= 0 && api.signedIn && !api.needsProfileSetup { showOOC = true } }
                 .onChange(of: api.goToQueue) { _, go in
                     // approved in the editor → land on the Queue tab, next video ready
                     if go { tab = 1; api.goToQueue = false }
@@ -8149,6 +8173,10 @@ func squareJPEG(_ img: UIImage, side: CGFloat = 320) -> Data? {
 
 struct ChopProfileView: View {
     @ObservedObject var api: ChopAPI
+    /// setup = the forced first-run flow (new account, no profile row yet):
+    /// no Cancel, can't swipe away — saving is what creates the row and
+    /// triggers the database's signup-credit grant.
+    var setup: Bool = false
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var tiktok = ""
@@ -8251,7 +8279,7 @@ struct ChopProfileView: View {
                         }
                     } label: {
                         if saving { ProgressView().frame(maxWidth: .infinity) }
-                        else { Text("Save changes").frame(maxWidth: .infinity) }
+                        else { Text(setup ? "Create my profile" : "Save changes").frame(maxWidth: .infinity) }
                     }
                     .buttonStyle(.borderedProminent).tint(Color.chopBlue)
                     .disabled(saving || name.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -8263,10 +8291,11 @@ struct ChopProfileView: View {
                 .padding(16)
             }
             .background(Color.chopBg)
-            .navigationTitle("Your profile")
+            .navigationTitle(setup ? "Create your profile" : "Your profile")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Cancel") { dismiss() } } }
+            .toolbar { if !setup { ToolbarItem(placement: .topBarTrailing) { Button("Cancel") { dismiss() } } } }
         }
+        .interactiveDismissDisabled(setup)
         .preferredColorScheme(.dark)
         .onChange(of: photoItem) { _, item in
             guard let item else { return }
