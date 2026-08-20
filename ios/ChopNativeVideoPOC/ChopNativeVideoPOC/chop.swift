@@ -2800,11 +2800,12 @@ struct ChopRootView: View {
     /// hand-editing a talking-head video takes roughly 3 minutes per minute
     /// of raw footage (scrubbing, cutting silences/fillers, checking retakes,
     /// tightening ends). Chop leaves ~1 minute of review per video. So:
-    ///     time saved = Σ(rawSec × 3) − (videos × 60s review)
+    ///     time saved = Σ max(0, rawSec × 3 − 60s review)
     private var savedSeconds: Double {
-        let manual = api.jobs.reduce(0.0) { $0 + $1.rawSec * 3 }
-        let review = Double(api.jobs.count) * 60
-        return max(0, manual - review)
+        // floored PER VIDEO (Lewis 20 Aug bugfix): a flat 60s review charge
+        // made every sub-20s clip contribute NEGATIVE time — the stat fell as
+        // he edited. A video can save nothing, but never un-save time.
+        api.jobs.reduce(0.0) { $0 + max(0, $1.rawSec * 3 - 60) }
     }
     private var savedLabel: String {
         let m = Int(savedSeconds / 60)
