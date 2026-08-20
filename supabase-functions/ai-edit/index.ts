@@ -232,26 +232,56 @@ function detectAnchorTakes(words: Word[]): Utt[][] {
     .sort((x, y) => y[1].length - x[1].length);
   const used = new Array(words.length).fill(false);
   const groups: Utt[][] = [];
+  /* v21 (Lewis 19 Aug — the mega-group fix): rapid-fire restarts happen within
+     SECONDS. v20 chained every occurrence of a repeated opener across the
+     WHOLE video into one group (six scattered "and then this…" = one 6-take
+     monster spanning minutes). Now a chain only continues while successive
+     anchors are within MAXSPAN of each other; anything further apart splits
+     into separate chains, each still needing 3+ anchors on its own. The final
+     take is also capped at MAXSPAN after its anchor instead of running to the
+     end of the transcript. Genuine pairs that the split leaves behind are the
+     classic ladder's job, exactly as before. */
+  const MAXSPAN = 15; // seconds anchor-to-anchor; also the last take's length cap
   for (const [, idxs0] of cands) {
     const idxs: number[] = []; let lastT = -99;
     for (const i of idxs0) { if (words[i].start - lastT >= 1.0) { idxs.push(i); lastT = words[i].start; } }
     if (idxs.length < 3) continue;
-    if (idxs.some((i) => used[i])) continue;
-    const starts = idxs.map((i) => {
-      let j = i;
-      while (j > 0 && LEAD_IN.has(cwd(words[j - 1])) && words[j].start - words[j - 1].end < 0.6) j--;
-      return j;
-    });
-    const utts: Utt[] = [];
-    for (let n = 0; n < starts.length; n++) {
-      const s = starts[n];
-      const e = n + 1 < starts.length ? starts[n + 1] - 1 : words.length - 1;
-      if (e < s) continue;
-      utts.push({ start: words[s].start, end: words[e].end,
-                  transcript: words.slice(s, e + 1).map((w) => w.punctuated_word || w.word).join(" ") });
-      for (let m = s; m <= e; m++) used[m] = true;
+    // split into time-local chains BEFORE the 3+ rule
+    const chains: number[][] = [];
+    let cur: number[] = [idxs[0]];
+    for (let n = 1; n < idxs.length; n++) {
+      if (words[idxs[n]].start - words[idxs[n - 1]].start <= MAXSPAN) cur.push(idxs[n]);
+      else { chains.push(cur); cur = [idxs[n]]; }
     }
-    if (utts.length >= 3) groups.push(utts);
+    chains.push(cur);
+    for (const chain of chains) {
+      if (chain.length < 3) continue;
+      if (chain.some((i) => used[i])) continue;
+      const starts = chain.map((i) => {
+        let j = i;
+        while (j > 0 && LEAD_IN.has(cwd(words[j - 1])) && words[j].start - words[j - 1].end < 0.6) j--;
+        return j;
+      });
+      const utts: Utt[] = [];
+      for (let n = 0; n < starts.length; n++) {
+        const s = starts[n];
+        let e: number;
+        if (n + 1 < starts.length) {
+          e = starts[n + 1] - 1;
+        } else {
+          // final (keeper) take: run forward but never past MAXSPAN after its
+          // anchor — v20 ran to the end of the video here.
+          const cap = words[chain[chain.length - 1]].start + MAXSPAN;
+          e = s;
+          while (e + 1 < words.length && words[e + 1].end <= cap) e++;
+        }
+        if (e < s) continue;
+        utts.push({ start: words[s].start, end: words[e].end,
+                    transcript: words.slice(s, e + 1).map((w) => w.punctuated_word || w.word).join(" ") });
+        for (let m = s; m <= e; m++) used[m] = true;
+      }
+      if (utts.length >= 3) groups.push(utts);
+    }
   }
   return groups;
 }
