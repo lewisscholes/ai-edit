@@ -8520,17 +8520,25 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         videoDevice = dev
 
         if front {
-            // FRONT FOV (Lewis 20 Aug v2 — 'still not as wide as TikTok'):
-            // consider EVERY 16:9 format at ≥1080p30, not just exactly 1080p,
-            // and take the widest field of view the sensor offers.
+            // FRONT FOV v3 (Lewis 20 Aug — the TikTok build): TikTok records
+            // the selfie sensor's WIDE 4:3 mode and crops it to 9:16, which
+            // keeps far more horizontal view in portrait than any native 16:9
+            // format. So: pick the format with the widest EFFECTIVE PORTRAIT
+            // width — FOV × (short side / long side) — across ALL aspects,
+            // then normalized() crops the recording to 9:16 during the mirror
+            // re-render every front take already gets. Width capped so files
+            // stay sane.
             oneX = 1
+            func portraitWidth(_ f: AVCaptureDevice.Format) -> Double {
+                let d = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
+                return Double(f.videoFieldOfView) * Double(d.height) / Double(d.width)
+            }
             let wide = dev.formats.filter { f in
                 let d = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
-                let ar = Double(d.width) / Double(d.height)
-                return d.height >= 1080 && abs(ar - 16.0 / 9.0) < 0.05 &&
+                return d.height >= 1080 && d.width <= 2688 &&
                        f.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= 30 }
-            }.max(by: { $0.videoFieldOfView < $1.videoFieldOfView })
-            if let f = wide, f.videoFieldOfView > dev.activeFormat.videoFieldOfView + 0.1,
+            }.max(by: { portraitWidth($0) < portraitWidth($1) })
+            if let f = wide, portraitWidth(f) > portraitWidth(dev.activeFormat) + 0.1,
                (try? dev.lockForConfiguration()) != nil {
                 session.sessionPreset = .inputPriority
                 dev.activeFormat = f
@@ -8630,20 +8638,24 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
             return (p, CGSize(width: abs(r.width), height: abs(r.height)))
         }
         let first = await sig(items[0].url)
+        // the OUTPUT canvas is always 9:16 portrait — a wide 4:3 selfie
+        // recording (FOV v3) gets its sides cropped into this, TikTok-style
+        let canvas = CGSize(width: min(first.disp.width, (first.disp.height * 9 / 16).rounded()),
+                            height: first.disp.height)
         var out: [URL] = []
         for (i, item) in items.enumerated() {
             let s = i == 0 ? first : await sig(item.url)
             let sameT = abs(s.t.a - first.t.a) < 0.01 && abs(s.t.b - first.t.b) < 0.01
                      && abs(s.t.c - first.t.c) < 0.01 && abs(s.t.d - first.t.d) < 0.01
-            let sameSize = abs(s.disp.width - first.disp.width) < 2
-                        && abs(s.disp.height - first.disp.height) < 2
+            let sameSize = abs(s.disp.width - canvas.width) < 2
+                        && abs(s.disp.height - canvas.height) < 2
             // FRONT takes ALWAYS re-render (Lewis 20 Aug): the mirror gets
             // baked into the PIXELS so the saved video matches the mirrored
             // viewfinder — with clean plain metadata the editor understands.
             if !item.front && sameT && sameSize {
                 out.append(item.url)
             } else {
-                out.append(await uprightRender(item.url, target: first.disp, mirror: item.front) ?? item.url)
+                out.append(await uprightRender(item.url, target: canvas, mirror: item.front) ?? item.url)
             }
         }
         return out
