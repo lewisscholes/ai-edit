@@ -8495,6 +8495,8 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         ready = true
     }
 
+    @Published var halfX = false   // back camera 0.5× (ultra-wide lens)
+
     private func attachCamera() {
         for inp in session.inputs {
             if let d = inp as? AVCaptureDeviceInput, d.device.hasMediaType(.video) {
@@ -8502,10 +8504,43 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
             }
         }
         let pos: AVCaptureDevice.Position = front ? .front : .back
-        guard let dev = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: pos),
+        // 0.5× (Lewis 20 Aug): the back ultra-wide is its own lens — swap to it
+        let kind: AVCaptureDevice.DeviceType = (!front && halfX) ? .builtInUltraWideCamera
+                                                                 : .builtInWideAngleCamera
+        guard let dev = AVCaptureDevice.default(kind, for: .video, position: pos)
+                     ?? AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: pos),
               let inp = try? AVCaptureDeviceInput(device: dev), session.canAddInput(inp) else { return }
         session.addInput(inp)
+
+        // FRONT FOV (Lewis 20 Aug — 'more zoomed than TikTok'): the default
+        // session preset picks a centre-cropped front format; TikTok asks for
+        // the WIDEST one. Choose the widest-FOV 1080p30 format explicitly.
+        if front {
+            let wide = dev.formats.filter { f in
+                let d = CMVideoFormatDescriptionGetDimensions(f.formatDescription)
+                return d.width == 1920 && d.height == 1080 &&
+                       f.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= 30 }
+            }.max(by: { $0.videoFieldOfView < $1.videoFieldOfView })
+            if let f = wide, f.videoFieldOfView > dev.activeFormat.videoFieldOfView + 0.5,
+               (try? dev.lockForConfiguration()) != nil {
+                session.sessionPreset = .inputPriority
+                dev.activeFormat = f
+                dev.activeVideoMinFrameDuration = CMTime(value: 1, timescale: 30)
+                dev.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: 30)
+                dev.unlockForConfiguration()
+            }
+        } else if session.sessionPreset != .high {
+            session.sessionPreset = .high
+        }
         configureOutputConnection()
+    }
+
+    func toggleHalfX() {
+        guard !front, !recording else { return }
+        session.beginConfiguration()
+        halfX.toggle()
+        attachCamera()
+        session.commitConfiguration()
     }
 
     /// ONE place that pins the recording orientation. Called after every
@@ -8530,7 +8565,7 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         guard !recording else { return }
         session.beginConfiguration()
         front.toggle()
-        if front { setTorch(false) }
+        if front { setTorch(false); halfX = false }
         attachCamera()
         session.commitConfiguration()
     }
@@ -8811,15 +8846,18 @@ struct ChopCameraView: View {
                         Spacer()
                     }
 
-                    // right rail
-                    VStack(spacing: 15) {
+                    // right rail — TikTok style: bare white icons, no circles
+                    VStack(spacing: 22) {
                         railTool("arrow.triangle.2.circlepath.camera", "Flip", on: false) { cam.flip() }
-                        railTool("bolt.fill", "Flash", on: cam.torchOn) { cam.setTorch(!cam.torchOn) }
+                        railTool(cam.torchOn ? "bolt.fill" : "bolt.slash.fill", "Flash", on: cam.torchOn) { cam.setTorch(!cam.torchOn) }
                         railTool("timer", "3s", on: countdownArmed) { countdownArmed.toggle() }
                         railTool("grid", "Grid", on: grid) { grid.toggle() }
+                        if !cam.front {
+                            railText(cam.halfX ? "0.5×" : "1×", on: cam.halfX) { cam.toggleHalfX() }
+                        }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(.trailing, 12).padding(.top, 64)
+                    .padding(.trailing, 16).padding(.top, 64)
                 }
 
                 VStack(spacing: 0) {
@@ -9011,15 +9049,31 @@ struct ChopCameraView: View {
         .buttonStyle(.plain)
     }
 
+    // TikTok-style rail buttons: bare white glyphs with a soft shadow — no
+    // circle backgrounds (Lewis 20 Aug). Active = warm yellow tint.
     private func railTool(_ icon: String, _ label: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
         Button(action: tap) {
-            VStack(spacing: 1) {
-                Image(systemName: icon).font(.system(size: 16, weight: .semibold))
-                Text(label).font(.system(size: 8, weight: .bold))
+            VStack(spacing: 3) {
+                Image(systemName: icon)
+                    .font(.system(size: 24, weight: .regular))
+                Text(label).font(.system(size: 10, weight: .semibold))
             }
-            .foregroundStyle(.white)
-            .frame(width: 44, height: 44)
-            .background(on ? ChopColor.blue.opacity(0.75) : .black.opacity(0.45), in: Circle())
+            .foregroundStyle(on ? Color(red: 1.0, green: 0.85, blue: 0.3) : .white)
+            .shadow(color: .black.opacity(0.55), radius: 4, y: 1)
+            .frame(width: 48)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func railText(_ label: String, on: Bool, _ tap: @escaping () -> Void) -> some View {
+        Button(action: tap) {
+            Text(label)
+                .font(.system(size: 15, weight: .heavy))
+                .foregroundStyle(on ? Color(red: 1.0, green: 0.85, blue: 0.3) : .white)
+                .shadow(color: .black.opacity(0.55), radius: 4, y: 1)
+                .frame(width: 48, height: 30)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
