@@ -8648,9 +8648,13 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
             return (p, CGSize(width: abs(r.width), height: abs(r.height)))
         }
         let first = await sig(items[0].url)
-        // canvas = the FIRST take's true shape (Lewis 20 Aug: the width lives
-        // in the 4:3 frame — cropping it to 9:16 deletes the gain, so DON'T)
-        let canvas = first.disp
+        // canvas (Lewis 20 Aug, the middle ground): ALWAYS a standard 9:16
+        // portrait file. A wide 4:3 selfie recording FITS by width inside it —
+        // full zoom-out kept, slim bars baked top/bottom (TikTok's wide-selfie
+        // look) — while 9:16 back-camera takes match the canvas exactly and
+        // pass through untouched.
+        let canvas = CGSize(width: first.disp.width,
+                            height: max(first.disp.height, (first.disp.width * 16 / 9).rounded()))
         var out: [URL] = []
         for (i, item) in items.enumerated() {
             let s = i == 0 ? first : await sig(item.url)
@@ -8690,9 +8694,11 @@ final class ChopCamera: NSObject, ObservableObject, AVCaptureFileOutputRecording
         let inst = AVMutableVideoCompositionInstruction()
         inst.timeRange = CMTimeRange(start: .zero, duration: dur)
         let li = AVMutableVideoCompositionLayerInstruction(assetTrack: track)
-        // own transform → origin, then aspect-FILL scale into the target,
-        // centred (never squashed — the distortion fix)
-        let s = max(canvas.width / disp.width, canvas.height / disp.height)
+        // own transform → origin, then aspect-FIT into the canvas, centred —
+        // never squashed, never cropped: a wide 4:3 selfie keeps its full
+        // width inside the 9:16 file with slim bars baked in (Lewis 20 Aug);
+        // same-shape takes scale 1:1 exactly as before
+        let s = min(canvas.width / disp.width, canvas.height / disp.height)
         var t = tf
             .concatenating(CGAffineTransform(translationX: -r.minX, y: -r.minY))
             .concatenating(CGAffineTransform(scaleX: s, y: s))
