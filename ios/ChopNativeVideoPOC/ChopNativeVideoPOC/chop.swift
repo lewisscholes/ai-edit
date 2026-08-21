@@ -5706,8 +5706,15 @@ struct ChopTimeline: View {
                     .onChanged { g in
                         var t = Double(g.location.x / pps)
                         if side == 0 {
+                            // minT alone bounds the drag (Aaron's bug, fixed
+                            // 21 Aug): the old max(0,…) clamp pinned the FIRST
+                            // clip's left cap at edit-time 0 — its edge lives
+                            // exactly there, so extending needed t < 0 and the
+                            // clamp swallowed it. Clips 2+ were never affected
+                            // (their minT is already ≥ 0); trimPreview and
+                            // resizeBand both bound negatives themselves.
                             let minT = span.start - p.bandExtendLeft(sel)
-                            t = max(0, min(max(t, minT), span.end - 0.08))
+                            t = min(max(t, minT), span.end - 0.08)
                         } else {
                             let maxT = span.end + p.bandExtendRight(sel)
                             t = min(max(min(t, maxT), span.start + 0.08), p.duration + p.bandExtendRight(sel))
