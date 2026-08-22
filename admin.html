@@ -122,8 +122,16 @@ tr:last-child td{border-bottom:none}
 .rwho{font-size:10px;color:var(--mut);font-weight:700}
 
 .glassnav{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);display:flex;gap:4px;background:rgba(21,24,32,.6);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.12);border-radius:22px;padding:5px;box-shadow:0 14px 40px rgba(0,0,0,.45);z-index:60}
-.gbtn{display:flex;align-items:center;gap:8px;padding:10px 18px;border-radius:17px;font-weight:800;font-size:13px;color:var(--mut)}
-.gbtn.on{background:var(--blue);color:#fff;box-shadow:0 4px 14px rgba(26,109,255,.4)}
+.gbtn{display:flex;flex-direction:column;align-items:center;gap:5px;padding:9px 26px;border-radius:20px;font-weight:700;font-size:12.5px;color:var(--mut)}
+.gbtn .ic{width:20px;height:20px}
+.gbtn.on{background:var(--hovbg);color:var(--blue)}
+.gbtn.on .ic{stroke:var(--blue)}
+.opswrap{position:relative;display:flex}
+.opsmenu{position:absolute;bottom:calc(100% + 14px);left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:6px;min-width:172px;box-shadow:0 18px 44px rgba(0,0,0,.35);display:flex;flex-direction:column;gap:2px;z-index:70}
+.opsit{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:11px;font-weight:700;font-size:13px;color:var(--ink);text-align:left;width:100%}
+.opsit:hover{background:var(--hovbg)}
+.opsit.on{color:var(--blue-dk);background:var(--blue-soft)}
+.opsit .ic{width:16px;height:16px}
 .loading{color:var(--mut);font-size:13px;font-weight:700;padding:30px;text-align:center}
 
 /* ---------- activity heatmap ---------- */
@@ -347,10 +355,15 @@ circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-o
 </div>
 
 <div class="glassnav hidden" id="gnav">
-  <button class="gbtn on" data-t="Overview"><svg class="ic" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="10" rx="2"/><rect x="13.5" y="3.5" width="7" height="6" rx="2"/><rect x="13.5" y="12.5" width="7" height="8" rx="2"/><rect x="3.5" y="16.5" width="7" height="4" rx="2"/></svg>Overview</button>
-  <button class="gbtn" data-t="Users"><svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><path d="M16.5 11.2A2.8 2.8 0 1 0 16 5.7M17 14.6c2.2.4 3.8 2.2 3.8 4.9"/></svg>Users</button>
-  <button class="gbtn" data-t="Activity"><svg class="ic" viewBox="0 0 24 24"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Activity</button>
-  <button class="gbtn" data-t="Roadmap"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19V5M4 6h11l-2.5 3L15 12H4M20 19V9"/></svg>Roadmap</button>
+  <button class="gbtn on" data-t="Overview"><svg class="ic" viewBox="0 0 24 24"><path d="M4 11.2 12 4l8 7.2"/><path d="M6.2 9.8V20h11.6V9.8"/><path d="M10 20v-5.5h4V20"/></svg>Dashboard</button>
+  <div class="opswrap">
+    <button class="gbtn" id="opsBtn"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="2"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="2"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="2"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="2"/></svg>Operations</button>
+    <div class="opsmenu hidden" id="opsMenu">
+      <button class="opsit" data-t="Users"><svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><path d="M16.5 11.2A2.8 2.8 0 1 0 16 5.7M17 14.6c2.2.4 3.8 2.2 3.8 4.9"/></svg>Users</button>
+      <button class="opsit" data-t="Activity"><svg class="ic" viewBox="0 0 24 24"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Activity</button>
+      <button class="opsit" data-t="Roadmap"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19V5M4 6h11l-2.5 3L15 12H4M20 19V9"/></svg>Roadmap</button>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -405,16 +418,22 @@ $('gGo').onclick=async()=>{
 $('gPass').addEventListener('keydown',e=>{ if(e.key==='Enter') $('gGo').click(); });
 $('signOut').onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
 
-/* ---------- tabs ---------- */
-document.querySelectorAll('.gbtn').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('.gbtn').forEach(x=>x.classList.toggle('on',x===b));
-  $('tabOverview').classList.toggle('hidden',b.dataset.t!=='Overview');
-  $('tabUsers').classList.toggle('hidden',b.dataset.t!=='Users');
-  $('tabActivity').classList.toggle('hidden',b.dataset.t!=='Activity');
-  $('tabRoadmap').classList.toggle('hidden',b.dataset.t!=='Roadmap');
-  if(b.dataset.t==='Users') loadUsers();
-  if(b.dataset.t==='Activity') loadActivity();
-});
+/* ---------- tabs: Dashboard + Operations pop-up (Users/Activity/Roadmap) ---------- */
+function goTab(t){
+  $('tabOverview').classList.toggle('hidden',t!=='Overview');
+  $('tabUsers').classList.toggle('hidden',t!=='Users');
+  $('tabActivity').classList.toggle('hidden',t!=='Activity');
+  $('tabRoadmap').classList.toggle('hidden',t!=='Roadmap');
+  document.querySelector('.gbtn[data-t="Overview"]').classList.toggle('on',t==='Overview');
+  $('opsBtn').classList.toggle('on',t!=='Overview');
+  document.querySelectorAll('.opsit').forEach(x=>x.classList.toggle('on',x.dataset.t===t));
+  if(t==='Users') loadUsers();
+  if(t==='Activity') loadActivity();
+}
+document.querySelector('.gbtn[data-t="Overview"]').onclick=()=>{ $('opsMenu').classList.add('hidden'); goTab('Overview'); };
+$('opsBtn').onclick=(e)=>{ e.stopPropagation(); $('opsMenu').classList.toggle('hidden'); };
+document.querySelectorAll('.opsit').forEach(b=>b.onclick=()=>{ $('opsMenu').classList.add('hidden'); goTab(b.dataset.t); });
+document.addEventListener('click',e=>{ if(!e.target.closest('.opswrap')) $('opsMenu').classList.add('hidden'); });
 
 /* ---------- users database ---------- */
 let _users=null;
