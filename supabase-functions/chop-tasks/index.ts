@@ -106,6 +106,44 @@ Deno.serve(async (req) => {
       await db(`chop_roadmap?id=eq.${Number(body.id)}`, { method: "DELETE" });
       return json({ ok: true });
     }
+    /* admin accounts: profiles + team management (owner adds/removes) */
+    if (op === "a_list") {
+      const admins = await db(`chop_admins?select=user_id,role,name,avatar,created_at`);
+      const ur = await fetch(`${SB_URL}/auth/v1/admin/users?per_page=1000`, { headers: { apikey: SRK, Authorization: `Bearer ${SRK}` } });
+      const users = ((await ur.json()).users || []) as any[];
+      const emailById: Record<string, string> = {}; users.forEach((x) => emailById[x.id] = x.email);
+      const rows = admins.map((a: any) => ({ ...a, email: emailById[a.user_id] || null }));
+      const me = rows.find((a: any) => a.user_id === u.id) || null;
+      return json({ admins: rows, me });
+    }
+    if (op === "a_profile") {
+      const patch: Record<string, unknown> = {};
+      if ("name" in body) patch.name = clean(body.name, 60);
+      if ("avatar" in body) patch.avatar = clean(body.avatar, 20);
+      const rows = await db(`chop_admins?user_id=eq.${u.id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      return json({ me: rows[0] });
+    }
+    if (op === "a_add" || op === "a_del") {
+      const meRow = (await db(`chop_admins?user_id=eq.${u.id}&select=role`))[0];
+      if (!meRow || meRow.role !== "owner") return json({ error: "only the owner can manage admins" }, 403);
+      if (op === "a_add") {
+        const email = String(body.email || "").trim().toLowerCase();
+        const ur = await fetch(`${SB_URL}/auth/v1/admin/users?per_page=1000`, { headers: { apikey: SRK, Authorization: `Bearer ${SRK}` } });
+        const users = ((await ur.json()).users || []) as any[];
+        const t = users.find((x) => (x.email || "").toLowerCase() === email);
+        if (!t) return json({ error: "no Chop account with that email — they need to sign up in the app first" }, 404);
+        await db(`chop_admins?on_conflict=user_id`, { method: "POST",
+          headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+          body: JSON.stringify({ user_id: t.id, role: "admin", added_by: u.id }) });
+        return json({ ok: true, email });
+      }
+      const target = String(body.user_id || "");
+      const tRow = (await db(`chop_admins?user_id=eq.${target}&select=role`))[0];
+      if (!tRow) return json({ error: "not an admin" }, 404);
+      if (tRow.role === "owner") return json({ error: "the owner can't be removed" }, 400);
+      await db(`chop_admins?user_id=eq.${target}`, { method: "DELETE" });
+      return json({ ok: true });
+    }
     if (op === "site_stats") {
       const now = Date.now();
       const d7 = new Date(now - 7 * 86400000).toISOString();

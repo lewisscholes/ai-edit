@@ -227,6 +227,20 @@ circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-o
 .tksave{background:var(--blue);color:#fff;border-radius:11px;padding:10px 22px;font-weight:800}
 .tksave:hover{filter:brightness(1.08)}
 @media(max-width:520px){.tkprops{grid-template-columns:1fr}}
+/* settings */
+.stcap{font-size:10px;font-weight:800;letter-spacing:.08em;color:var(--mut);margin:12px 0 8px}
+.stemoji{display:flex;gap:7px;flex-wrap:wrap}
+.stemoji span{width:32px;height:32px;border-radius:50%;background:var(--soft2);border:2px solid transparent;display:grid;place-items:center;font-size:16px;cursor:pointer}
+.stemoji span.on{border-color:var(--blue)}
+.strow{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.strow:first-child{border-top:0}
+.stav{width:32px;height:32px;border-radius:50%;background:var(--blue-soft);display:grid;place-items:center;font-size:15px;font-weight:800;color:var(--blue-dk);flex:none}
+.stnm{font-weight:800;font-size:13px}
+.stem{font-size:11px;color:var(--mut)}
+.strole{font-size:9px;font-weight:800;padding:2px 8px;border-radius:8px;background:var(--blue-soft);color:var(--blue-dk);margin-left:auto}
+.strole.owner{background:var(--amber-soft);color:var(--amber)}
+.strm{width:24px;height:24px;border-radius:7px;border:1px solid var(--line);color:var(--mut);display:grid;place-items:center;font-size:11px}
+.strm:hover{color:#ff7d9d;border-color:#ff7d9d}
 
 /* ---------- website tab ---------- */
 .wsh{font-size:12px;letter-spacing:.06em;color:var(--mut);margin:0 0 10px}
@@ -272,6 +286,7 @@ circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-o
   <div class="logo"><img class="wm wm-d" src="chop-wordmark-white.png" alt="chop" style="height:21px;width:auto"><img class="wm wm-l" src="chop-wordmark-ink.png" alt="chop" style="height:21px;width:auto"> <span class="admchip">ADMIN</span></div>
   <div class="hsp"></div>
   <span class="who" id="who"></span>
+  <button class="out hidden" id="setBtn" title="Settings">⚙ Settings</button>
   <button class="out" id="themeBtn" title="Light / dark">☾</button>
   <button class="out hidden" id="signOut">Sign out</button>
 </div></header>
@@ -493,6 +508,29 @@ circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-o
   </div>
 </div>
 
+<!-- settings: your profile + the team -->
+<div class="tkoverlay hidden" id="stModal">
+  <div class="tkmodal">
+    <div class="tkmhead" style="margin-bottom:6px"><span style="font-size:18px;font-weight:800">Settings</span><span style="flex:1"></span><button class="tkx" id="stClose">✕</button></div>
+    <div class="stcap">YOUR PROFILE</div>
+    <div style="display:flex;gap:10px;margin-bottom:10px">
+      <input id="stName" placeholder="Your name" maxlength="60" style="flex:1;background:var(--soft2);border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-weight:700">
+      <button class="tksave" id="stSaveProf">Save</button>
+    </div>
+    <div class="stemoji" id="stAvRow"></div>
+    <div class="stcap" style="margin-top:18px">TEAM</div>
+    <div id="stTeam"></div>
+    <div id="stAddWrap" class="hidden">
+      <div style="display:flex;gap:10px;margin-top:12px">
+        <input id="stEmail" placeholder="teammate@email.com" style="flex:1;background:var(--soft2);border:1px solid var(--line);border-radius:10px;padding:10px 12px">
+        <button class="tksave" id="stAdd">Add admin</button>
+      </div>
+      <div class="sub" style="margin:8px 0 0;font-size:11.5px">They sign in here with their normal Chop account login.</div>
+    </div>
+    <div id="stMsg" class="sub" style="margin:10px 0 0;min-height:16px;font-size:11.5px"></div>
+  </div>
+</div>
+
 <!-- roadmap item modal -->
 <div class="tkoverlay hidden" id="rmModal">
   <div class="tkmodal">
@@ -554,6 +592,8 @@ async function boot(){
     const p=await adminApi({op:'ping'});
     $('who').textContent=p.email;
     $('signOut').classList.remove('hidden');
+    $('setBtn').classList.remove('hidden');
+    loadAdmins();
     show('app');
     loadStats(); loadRoadmap();
   }catch(e){
@@ -770,6 +810,65 @@ $('asMic').onclick=()=>{
   asRec.onerror=()=>{ asListening=false; $('asMic').classList.remove('rec'); };
   asRec.start();
 };
+
+/* ---------- settings: admin accounts ---------- */
+const ST_EMOJI=['🎬','⚡','🚀','🧠','💸','🔥','🎯','🦁'];
+let adminMe=null, adminList=[], stAv='';
+async function loadAdmins(){
+  try{
+    const r=await tasksApi({op:'a_list'});
+    adminList=r.admins||[]; adminMe=r.me||null;
+    if(adminMe&&adminMe.name) $('who').textContent=adminMe.name;
+    stRender();
+  }catch(e){}
+}
+function stRender(){
+  $('stName').value=(adminMe&&adminMe.name)||'';
+  stAv=(adminMe&&adminMe.avatar)||'';
+  $('stAvRow').innerHTML=ST_EMOJI.map(e=>'<span data-e="'+e+'" class="'+(e===stAv?'on':'')+'">'+e+'</span>').join('');
+  $('stAvRow').querySelectorAll('span').forEach(el=>el.onclick=()=>{ stAv=el.dataset.e; stRender(); });
+  const owner=adminMe&&adminMe.role==='owner';
+  $('stAddWrap').classList.toggle('hidden',!owner);
+  $('stTeam').innerHTML='';
+  adminList.forEach(a=>{
+    const d=document.createElement('div'); d.className='strow';
+    d.innerHTML='<span class="stav">'+(a.avatar||((a.name||a.email||'?')[0]||'?').toUpperCase())+'</span>'
+      +'<span><div class="stnm">'+esc(a.name||(a.email?a.email.split('@')[0]:'admin'))+'</div><div class="stem">'+esc(a.email||'')+'</div></span>'
+      +'<span class="strole '+(a.role==='owner'?'owner':'')+'">'+(a.role==='owner'?'OWNER':'ADMIN')+'</span>'
+      +(owner&&a.role!=='owner'?'<button class="strm" title="Remove admin">✕</button>':'');
+    const rm=d.querySelector('.strm');
+    if(rm) rm.onclick=async()=>{
+      if(!confirm('Remove '+(a.name||a.email)+' from the admin team?')) return;
+      adminList=adminList.filter(x=>x!==a); stRender();
+      try{ await tasksApi({op:'a_del',user_id:a.user_id}); }catch(e){ $('stMsg').textContent=e.message; }
+      loadAdmins();
+    };
+    $('stTeam').appendChild(d);
+  });
+}
+$('setBtn').onclick=()=>{ $('stMsg').textContent=''; stRender(); $('stModal').classList.remove('hidden'); loadAdmins(); };
+$('stClose').onclick=()=>$('stModal').classList.add('hidden');
+$('stModal').addEventListener('click',e=>{ if(e.target===$('stModal')) $('stModal').classList.add('hidden'); });
+$('stSaveProf').onclick=async()=>{
+  const name=$('stName').value.trim();
+  try{
+    const r=await tasksApi({op:'a_profile',name,avatar:stAv});
+    adminMe=Object.assign(adminMe||{},r.me||{});
+    if(name) $('who').textContent=name;
+    $('stMsg').textContent='Profile saved ✓';
+    loadAdmins();
+  }catch(e){ $('stMsg').textContent=e.message; }
+};
+$('stAdd').onclick=async()=>{
+  const email=$('stEmail').value.trim(); if(!email) return;
+  $('stMsg').textContent='Adding…';
+  try{
+    await tasksApi({op:'a_add',email});
+    $('stEmail').value=''; $('stMsg').textContent='✓ '+email+' is now an admin';
+    loadAdmins();
+  }catch(e){ $('stMsg').textContent=e.message; }
+};
+$('stEmail').addEventListener('keydown',e=>{ if(e.key==='Enter') $('stAdd').click(); });
 
 /* ---------- users database ---------- */
 let _users=null;
