@@ -24,7 +24,7 @@ header{border-bottom:1px solid var(--line);background:var(--panel)}
 .hwrap{max-width:1060px;margin:0 auto;padding:12px 20px;display:flex;align-items:center;gap:12px}
 .logo{display:flex;align-items:center;gap:9px;font-weight:800;font-size:16px}
 .logo svg{width:26px;height:26px}
-.admchip{background:var(--rose-soft);color:#ff7d9d;font-weight:800;font-size:11px;padding:4px 11px;border-radius:12px;letter-spacing:.05em}
+.admchip{background:var(--rose-soft);color:#ff7d9d;font-weight:800;font-size:9px;padding:3px 8px;border-radius:9px;letter-spacing:.06em;position:relative;top:1px}
 .hsp{flex:1}
 .who{font-size:12px;color:var(--mut);font-weight:700}
 .out{border:1px solid var(--line);border-radius:10px;padding:7px 13px;font-size:12px;font-weight:700;color:var(--mut)}
@@ -99,8 +99,9 @@ tr:last-child td{border-bottom:none}
 .rmadd input{flex:1;background:var(--soft2);border:1px solid var(--line);border-radius:12px;padding:12px 15px}
 .rmadd select{background:var(--soft2);border:1px solid var(--line);border-radius:12px;padding:0 12px;font-weight:700}
 .rmadd .add{background:var(--blue);color:#fff;border-radius:12px;padding:0 20px;font-weight:800}
-.rcols{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
-@media(max-width:820px){.rcols{grid-template-columns:1fr}}
+.rcols{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+@media(max-width:1000px){.rcols{grid-template-columns:1fr 1fr}}
+@media(max-width:640px){.rcols{grid-template-columns:1fr}}
 .rcol2{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;min-height:200px}
 .rcol2 h3{font-size:12px;letter-spacing:.06em;color:var(--mut);margin:0 0 12px;display:flex;align-items:center;gap:8px}
 .rcol2 h3 .cnt{background:var(--soft2);border-radius:9px;padding:1px 8px;font-size:10.5px}
@@ -183,7 +184,7 @@ circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-o
 <body>
 
 <header><div class="hwrap">
-  <div class="logo"><img src="apple-touch-icon.png" alt="" style="width:26px;height:26px;border-radius:7px"><img class="wm wm-d" src="chop-wordmark-white.png" alt="chop" style="height:16px;width:auto"><img class="wm wm-l" src="chop-wordmark-ink.png" alt="chop" style="height:16px;width:auto"> <span class="admchip">ADMIN</span></div>
+  <div class="logo"><img class="wm wm-d" src="chop-wordmark-white.png" alt="chop" style="height:21px;width:auto"><img class="wm wm-l" src="chop-wordmark-ink.png" alt="chop" style="height:21px;width:auto"> <span class="admchip">ADMIN</span></div>
   <div class="hsp"></div>
   <span class="who" id="who"></span>
   <button class="out" id="themeBtn" title="Light / dark">☾</button>
@@ -338,7 +339,8 @@ circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-o
   <div class="rcols">
     <div class="rcol2" data-st="backlog"><h3>BACKLOG <span class="cnt"></span></h3><div class="rlist"></div></div>
     <div class="rcol2" data-st="doing"><h3>IN PROGRESS <span class="cnt"></span></h3><div class="rlist"></div></div>
-    <div class="rcol2" data-st="done"><h3>SHIPPED <span class="cnt"></span></h3><div class="rlist"></div></div>
+    <div class="rcol2" data-st="staged"><h3>SHIPPED · NOT LIVE <span class="cnt"></span></h3><div class="rlist"></div></div>
+    <div class="rcol2" data-st="done"><h3>LIVE <span class="cnt"></span></h3><div class="rlist"></div></div>
   </div>
 </div>
 
@@ -580,7 +582,7 @@ async function loadStats(){
 }
 
 /* ---------- roadmap ---------- */
-const ORDER=['backlog','doing','done'];
+const ORDER=['backlog','doing','staged','done'];   // staged = shipped but not live (waiting on review/deploy)
 let rmItems=[];
 function rmRender(){
   document.querySelectorAll('.rcol2').forEach(col=>{
@@ -597,7 +599,7 @@ function rmRender(){
         +'<span class="rwho">'+(it.who||'')+'</span><span class="sp"></span>'
         +'<button class="rmv nt" title="'+(it.notes?'Edit note':'Add note')+'">✎</button>'
         +(idx>0?'<button class="rmv bk">‹</button>':'')
-        +(idx<2?'<button class="rmv fw">›</button>':'')
+        +(idx<ORDER.length-1?'<button class="rmv fw">›</button>':'')
         +'<button class="rmv del">✕</button></div>';
       const fw=c.querySelector('.fw'),bk=c.querySelector('.bk'),del=c.querySelector('.del'),nt=c.querySelector('.nt');
       if(fw) fw.onclick=async()=>{ it.status=ORDER[idx+1]; rmRender(); adminApi({op:'rm_move',id:it.id,status:it.status}).catch(()=>{}); };
