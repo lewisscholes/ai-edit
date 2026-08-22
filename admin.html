@@ -99,10 +99,12 @@ tr:last-child td{border-bottom:none}
 .rmadd input{flex:1;background:var(--soft2);border:1px solid var(--line);border-radius:12px;padding:12px 15px}
 .rmadd select{background:var(--soft2);border:1px solid var(--line);border-radius:12px;padding:0 12px;font-weight:700}
 .rmadd .add{background:var(--blue);color:#fff;border-radius:12px;padding:0 20px;font-weight:800}
-.rcols{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
-@media(max-width:1000px){.rcols{grid-template-columns:1fr 1fr}}
-@media(max-width:640px){.rcols{grid-template-columns:1fr}}
-.rcol2{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;min-height:200px}
+/* kanban scrolls sideways — columns keep a real width, nothing gets cut off */
+.rcols{display:flex;gap:16px;overflow-x:auto;padding-bottom:12px;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch}
+.rcols::-webkit-scrollbar{height:8px}
+.rcols::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
+.rcol2{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;min-height:200px;flex:0 0 258px;scroll-snap-align:start}
+@media(max-width:640px){.rcol2{flex-basis:82vw}}
 .rcol2 h3{font-size:12px;letter-spacing:.06em;color:var(--mut);margin:0 0 12px;display:flex;align-items:center;gap:8px}
 .rcol2 h3 .cnt{background:var(--soft2);border-radius:9px;padding:1px 8px;font-size:10.5px}
 .rcard{background:var(--soft2);border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-bottom:10px}
