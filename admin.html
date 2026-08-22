@@ -193,8 +193,10 @@ circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-o
 /* ---------- task board (Dashboard) ---------- */
 .tknew{background:var(--blue);color:#fff;border-radius:12px;padding:11px 20px;font-weight:800;font-size:13px;box-shadow:0 6px 18px rgba(26,109,255,.3);flex:none;margin-top:4px}
 .tknew:hover{filter:brightness(1.08)}
-.bcard{background:var(--soft2);border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-bottom:10px;cursor:pointer;transition:.15s}
+.bcard{background:var(--soft2);border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-bottom:10px;cursor:grab;transition:.15s}
 .bcard:hover{border-color:var(--blue);transform:translateY(-1px)}
+.bcard.dragging{opacity:.45;transform:rotate(1.5deg) scale(.98);cursor:grabbing}
+.tcol.dragover{border-color:var(--blue);background:var(--blue-soft)}
 .bcard b{font-size:13px;display:block;margin-bottom:7px;line-height:1.35}
 .bmeta{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .bwho{min-width:20px;height:20px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:900;color:#fff;padding:0 5px}
@@ -542,10 +544,27 @@ function tkRender(){
         +(it.notes?'<span class="bnotehint">✎ note</span>':'')
         +'</div>';
       c.onclick=()=>openTask(it);
+      // Notion-style drag between columns
+      c.draggable=true;
+      c.ondragstart=e=>{ e.dataTransfer.setData('text/plain',String(it.id)); e.dataTransfer.effectAllowed='move'; c.classList.add('dragging'); };
+      c.ondragend=()=>c.classList.remove('dragging');
       list.appendChild(c);
     });
   });
 }
+/* columns accept drops — status saves the moment the card lands */
+document.querySelectorAll('.tcol').forEach(col=>{
+  col.addEventListener('dragover',e=>{ e.preventDefault(); e.dataTransfer.dropEffect='move'; col.classList.add('dragover'); });
+  col.addEventListener('dragleave',()=>col.classList.remove('dragover'));
+  col.addEventListener('drop',e=>{
+    e.preventDefault(); col.classList.remove('dragover');
+    const id=Number(e.dataTransfer.getData('text/plain'));
+    const it=tkItems.find(x=>x.id===id);
+    if(!it||it.status===col.dataset.st) return;
+    it.status=col.dataset.st; tkRender();
+    tasksApi({op:'t_upd',id,status:it.status}).catch(()=>loadTasks());
+  });
+});
 function openTask(it){
   tkEditing=it||null;
   $('tkTitle').value=it?it.title:'';
