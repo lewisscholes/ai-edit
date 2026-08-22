@@ -673,12 +673,29 @@ $('tkDel').onclick=async()=>{
 
 /* ---------- website ---------- */
 async function loadWebsite(){
+  wsFit();
   try{
     const d=await tasksApi({op:'site_stats'});
     $('wsV7').textContent=d.views7; $('wsVAll').textContent=d.viewsAll;
     $('wsC7').textContent=d.clicks7; $('wsCAll').textContent=d.clicksAll;
     $('wsCTR').textContent=d.views7?Math.round(d.clicks7/d.views7*100)+'%':'—';
   }catch(e){}
+}
+/* size each preview to the REAL page height (same origin, so we can measure)
+   — re-measured after load and again once images/GIFs have settled */
+function wsFit(){
+  document.querySelectorAll('.wsin').forEach(w=>{
+    const f=w.querySelector('iframe'); if(!f) return;
+    const scale=w.classList.contains('wsind')?0.46:0.607;
+    const fit=()=>{ try{
+      const d=f.contentDocument; if(!d||!d.documentElement) return;
+      const h=Math.max(d.body?d.body.scrollHeight:0, d.documentElement.scrollHeight);
+      if(h>200){ f.style.height=h+'px'; w.style.height=Math.ceil(h*scale)+'px'; }
+    }catch(e){} };
+    if(!f._wsFitBound){ f._wsFitBound=true;
+      f.addEventListener('load',()=>{ fit(); setTimeout(fit,1200); setTimeout(fit,3500); }); }
+    fit(); setTimeout(fit,800);
+  });
 }
 
 /* ---------- assistant ---------- */
