@@ -189,6 +189,42 @@ circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-o
 .feed div:first-child{border-top:0}
 .feed .w{color:var(--mut);margin-left:auto;font-size:10.5px;white-space:nowrap}
 .feed .dot{width:6px;height:6px;border-radius:50%;background:#2fbf8f;flex:none;position:relative;top:-1px}
+
+/* ---------- task board (Dashboard) ---------- */
+.tknew{background:var(--blue);color:#fff;border-radius:12px;padding:11px 20px;font-weight:800;font-size:13px;box-shadow:0 6px 18px rgba(26,109,255,.3);flex:none;margin-top:4px}
+.tknew:hover{filter:brightness(1.08)}
+.bcard{background:var(--soft2);border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin-bottom:10px;cursor:pointer;transition:.15s}
+.bcard:hover{border-color:var(--blue);transform:translateY(-1px)}
+.bcard b{font-size:13px;display:block;margin-bottom:7px;line-height:1.35}
+.bmeta{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.bwho{min-width:20px;height:20px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:900;color:#fff;padding:0 5px}
+.bwho.l{background:#1a6dff}.bwho.a{background:#0e9f6e}.bwho.b{background:#7c5cff}.bwho.u{background:#66707f}
+.bpri{font-size:9px;font-weight:800;padding:2px 8px;border-radius:8px;letter-spacing:.04em}
+.bpri.high{background:var(--rose-soft);color:#ff7d9d}
+.bpri.med{background:var(--amber-soft);color:var(--amber)}
+.bpri.low{background:var(--blue-soft);color:var(--blue-dk)}
+.bdue{font-size:10px;font-weight:800;color:var(--mut)}
+.bdue.late{color:#ff7d9d}
+.bnotehint{font-size:10px;color:var(--mut);font-weight:700;margin-left:auto}
+/* modal */
+.tkoverlay{position:fixed;inset:0;background:rgba(8,10,14,.62);backdrop-filter:blur(7px);-webkit-backdrop-filter:blur(7px);z-index:90;display:grid;place-items:center;padding:20px}
+.tkmodal{width:min(560px,100%);background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:22px;box-shadow:0 30px 80px rgba(0,0,0,.5)}
+.tkmhead{display:flex;gap:10px;align-items:center;margin-bottom:16px}
+#tkTitle{flex:1;background:none;border:none;outline:none;font-size:19px;font-weight:800;color:var(--ink);font-family:inherit}
+#tkTitle::placeholder{color:var(--mut);opacity:.6}
+.tkx{width:30px;height:30px;border-radius:9px;border:1px solid var(--line);color:var(--mut);flex:none}
+.tkx:hover{color:var(--ink);border-color:var(--blue)}
+.tkprops{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px;margin-bottom:14px}
+.tkprops label{font-size:10px;font-weight:800;letter-spacing:.07em;color:var(--mut);display:flex;flex-direction:column;gap:6px}
+.tkprops select,.tkprops input{background:var(--soft2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;font-weight:700;font-size:12.5px;color:var(--ink);font-family:inherit}
+#tkNotes{width:100%;background:var(--soft2);border:1px solid var(--line);border-radius:12px;padding:11px 13px;color:var(--ink);font:inherit;font-size:12.5px;resize:vertical;min-height:110px}
+.tkactions{display:flex;align-items:center;gap:12px;margin-top:14px}
+.tkdel{color:#ff7d9d;font-weight:800;font-size:12px;border:1px solid var(--line);border-radius:10px;padding:9px 15px}
+.tkdel:hover{border-color:#ff7d9d}
+.tkmeta{font-size:10.5px;color:var(--mut);font-weight:700}
+.tksave{background:var(--blue);color:#fff;border-radius:11px;padding:10px 22px;font-weight:800}
+.tksave:hover{filter:brightness(1.08)}
+@media(max-width:520px){.tkprops{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -354,8 +390,46 @@ circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-o
   </div>
 </div>
 
+<!-- Dashboard: shared task board -->
+<div class="wrap hidden" id="tabBoard">
+  <div style="display:flex;align-items:flex-start;gap:14px">
+    <div style="flex:1">
+      <h1>Dashboard</h1>
+      <p class="sub">Lewis + Aaron's task board — assign it here, not on WhatsApp.</p>
+    </div>
+    <button class="tknew" id="tkNew">+ New task</button>
+  </div>
+  <div class="rcols">
+    <div class="rcol2 bcol" data-st="todo"><h3>TO DO <span class="cnt"></span></h3><div class="blist"></div></div>
+    <div class="rcol2 bcol" data-st="doing"><h3>IN PROGRESS <span class="cnt"></span></h3><div class="blist"></div></div>
+    <div class="rcol2 bcol" data-st="review"><h3>WAITING / REVIEW <span class="cnt"></span></h3><div class="blist"></div></div>
+    <div class="rcol2 bcol" data-st="done"><h3>DONE <span class="cnt"></span></h3><div class="blist"></div></div>
+  </div>
+</div>
+
+<!-- task modal (Notion-style) -->
+<div class="tkoverlay hidden" id="tkModal">
+  <div class="tkmodal">
+    <div class="tkmhead"><input id="tkTitle" placeholder="Task title" maxlength="200" autocomplete="off"><button class="tkx" id="tkClose">✕</button></div>
+    <div class="tkprops">
+      <label>STATUS<select id="tkStatus"><option value="todo">To do</option><option value="doing">In progress</option><option value="review">Waiting / review</option><option value="done">Done</option></select></label>
+      <label>ASSIGN TO<select id="tkWho"><option value="">Unassigned</option><option>Lewis</option><option>Aaron</option><option>Both</option></select></label>
+      <label>PRIORITY<select id="tkPri"><option value="low">Low</option><option value="med">Medium</option><option value="high">High</option></select></label>
+      <label>DUE<input type="date" id="tkDue" class="fdate"></label>
+    </div>
+    <textarea id="tkNotes" placeholder="Notes — context, links, acceptance criteria… anything the other one of you needs." maxlength="4000"></textarea>
+    <div class="tkactions">
+      <button class="tkdel hidden" id="tkDel">Delete</button>
+      <span style="flex:1"></span>
+      <span class="tkmeta" id="tkMeta"></span>
+      <button class="tksave" id="tkSave">Save task</button>
+    </div>
+  </div>
+</div>
+
 <div class="glassnav hidden" id="gnav">
-  <button class="gbtn on" data-t="Overview"><svg class="ic" viewBox="0 0 24 24"><path d="M4 11.2 12 4l8 7.2"/><path d="M6.2 9.8V20h11.6V9.8"/><path d="M10 20v-5.5h4V20"/></svg>Dashboard</button>
+  <button class="gbtn on" data-t="Board"><svg class="ic" viewBox="0 0 24 24"><path d="M4 11.2 12 4l8 7.2"/><path d="M6.2 9.8V20h11.6V9.8"/><path d="M10 20v-5.5h4V20"/></svg>Dashboard</button>
+  <button class="gbtn" data-t="Overview"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3.2v17.6"/><path d="M16.6 6.6c-1-1.1-2.7-1.8-4.5-1.8-2.5 0-4.5 1.4-4.5 3.3 0 4.3 9 2.3 9 6.6 0 2-2.1 3.5-4.7 3.5-2 0-3.8-.9-4.7-2.1"/></svg>Overview</button>
   <div class="opswrap">
     <button class="gbtn" id="opsBtn"><svg class="ic" viewBox="0 0 24 24"><rect x="4" y="4" width="6.5" height="6.5" rx="2"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="2"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="2"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="2"/></svg>Operations</button>
     <div class="opsmenu hidden" id="opsMenu">
@@ -405,9 +479,8 @@ async function boot(){
 function show(m){
   $('gate').classList.toggle('hidden',m!=='gate');
   $('gnav').classList.toggle('hidden',m!=='app');
-  if(m!=='app'){ $('tabOverview').classList.add('hidden'); $('tabUsers').classList.add('hidden'); $('tabActivity').classList.add('hidden'); $('tabRoadmap').classList.add('hidden'); }
-  else { $('tabOverview').classList.remove('hidden'); $('tabUsers').classList.add('hidden'); $('tabActivity').classList.add('hidden'); $('tabRoadmap').classList.add('hidden');
-    document.querySelectorAll('.gbtn').forEach(x=>x.classList.toggle('on',x.dataset.t==='Overview')); }
+  ['Board','Overview','Users','Activity','Roadmap'].forEach(t=>$('tab'+t).classList.add('hidden'));
+  if(m==='app') goTab('Board');
 }
 $('gGo').onclick=async()=>{
   $('gErr').textContent='';
@@ -418,22 +491,97 @@ $('gGo').onclick=async()=>{
 $('gPass').addEventListener('keydown',e=>{ if(e.key==='Enter') $('gGo').click(); });
 $('signOut').onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
 
-/* ---------- tabs: Dashboard + Operations pop-up (Users/Activity/Roadmap) ---------- */
+/* ---------- tabs: Dashboard (board) · Overview ($) · Operations pop-up ---------- */
+const TABS=['Board','Overview','Users','Activity','Roadmap'];
 function goTab(t){
-  $('tabOverview').classList.toggle('hidden',t!=='Overview');
-  $('tabUsers').classList.toggle('hidden',t!=='Users');
-  $('tabActivity').classList.toggle('hidden',t!=='Activity');
-  $('tabRoadmap').classList.toggle('hidden',t!=='Roadmap');
-  document.querySelector('.gbtn[data-t="Overview"]').classList.toggle('on',t==='Overview');
-  $('opsBtn').classList.toggle('on',t!=='Overview');
+  TABS.forEach(x=>$('tab'+x).classList.toggle('hidden',x!==t));
+  document.querySelectorAll('.gbtn[data-t]').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+  $('opsBtn').classList.toggle('on',t==='Users'||t==='Activity'||t==='Roadmap');
   document.querySelectorAll('.opsit').forEach(x=>x.classList.toggle('on',x.dataset.t===t));
   if(t==='Users') loadUsers();
   if(t==='Activity') loadActivity();
+  if(t==='Board') loadTasks();
 }
-document.querySelector('.gbtn[data-t="Overview"]').onclick=()=>{ $('opsMenu').classList.add('hidden'); goTab('Overview'); };
+document.querySelectorAll('.gbtn[data-t]').forEach(b=>b.onclick=()=>{ $('opsMenu').classList.add('hidden'); goTab(b.dataset.t); });
 $('opsBtn').onclick=(e)=>{ e.stopPropagation(); $('opsMenu').classList.toggle('hidden'); };
 document.querySelectorAll('.opsit').forEach(b=>b.onclick=()=>{ $('opsMenu').classList.add('hidden'); goTab(b.dataset.t); });
 document.addEventListener('click',e=>{ if(!e.target.closest('.opswrap')) $('opsMenu').classList.add('hidden'); });
+
+/* ---------- task board (Dashboard): shared Lewis+Aaron kanban ---------- */
+async function tasksApi(body){
+  const {data:{session:s}}=await sb.auth.getSession();
+  const r=await fetch(SB_URL+'/functions/v1/chop-tasks',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','apikey':ANON_KEY,'Authorization':'Bearer '+(s?s.access_token:ANON_KEY)},
+    body:JSON.stringify(body)
+  });
+  const j=await r.json();
+  if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
+  return j;
+}
+let tkItems=[], tkEditing=null, tkLoaded=false;
+function loadTasks(){ tasksApi({op:'t_list'}).then(r=>{ tkItems=r.items||[]; tkLoaded=true; tkRender(); }).catch(()=>{}); }
+function tkChip(w){
+  const k=(w||'').toLowerCase();
+  const cls=k==='lewis'?'l':k==='aaron'?'a':k==='both'?'b':'u';
+  const init=k==='both'?'L·A':(w?w[0].toUpperCase():'–');
+  return '<span class="bwho '+cls+'" title="'+esc(w||'Unassigned')+'">'+init+'</span>';
+}
+function tkRender(){
+  document.querySelectorAll('.bcol').forEach(col=>{
+    const st=col.dataset.st, list=col.querySelector('.blist'); list.innerHTML='';
+    const its=tkItems.filter(x=>x.status===st);
+    col.querySelector('.cnt').textContent=its.length;
+    if(!its.length){ list.innerHTML='<div class="kempty">'+(tkLoaded?'Nothing here':'Loading…')+'</div>'; return; }
+    its.forEach(it=>{
+      const c=document.createElement('div'); c.className='bcard';
+      const late=it.due && it.status!=='done' && new Date(it.due+'T23:59:59')<new Date();
+      c.innerHTML='<b>'+esc(it.title)+'</b><div class="bmeta">'+tkChip(it.assignee)
+        +'<span class="bpri '+(it.priority||'med')+'">'+(it.priority==='high'?'HIGH':it.priority==='low'?'LOW':'MED')+'</span>'
+        +(it.due?'<span class="bdue'+(late?' late':'')+'">'+(late?'⚠ ':'')+new Date(it.due).toLocaleDateString('en-GB',{day:'numeric',month:'short'})+'</span>':'')
+        +(it.notes?'<span class="bnotehint">✎ note</span>':'')
+        +'</div>';
+      c.onclick=()=>openTask(it);
+      list.appendChild(c);
+    });
+  });
+}
+function openTask(it){
+  tkEditing=it||null;
+  $('tkTitle').value=it?it.title:'';
+  $('tkStatus').value=it?it.status:'todo';
+  $('tkWho').value=(it&&it.assignee)?it.assignee:'';
+  $('tkPri').value=it?(it.priority||'med'):'med';
+  $('tkDue').value=(it&&it.due)?it.due:'';
+  $('tkNotes').value=(it&&it.notes)?it.notes:'';
+  $('tkDel').classList.toggle('hidden',!it);
+  $('tkMeta').textContent=it?('added by '+(it.who||'?')):'';
+  $('tkModal').classList.remove('hidden');
+  setTimeout(()=>$('tkTitle').focus(),50);
+}
+function closeTask(){ $('tkModal').classList.add('hidden'); tkEditing=null; }
+$('tkNew').onclick=()=>openTask(null);
+$('tkClose').onclick=closeTask;
+$('tkModal').addEventListener('click',e=>{ if(e.target===$('tkModal')) closeTask(); });
+$('tkSave').onclick=async()=>{
+  const ed=tkEditing;
+  const f={title:$('tkTitle').value.trim(),status:$('tkStatus').value,assignee:$('tkWho').value||null,
+           priority:$('tkPri').value,due:$('tkDue').value||null,notes:$('tkNotes').value.trim()||null};
+  if(!f.title){ $('tkTitle').focus(); return; }
+  closeTask();
+  try{
+    if(ed){ Object.assign(ed,f); tkRender(); await tasksApi({op:'t_upd',id:ed.id,...f}); }
+    else{ const r=await tasksApi({op:'t_add',...f}); tkItems.unshift(r.item); }
+  }catch(e){}
+  loadTasks();
+};
+$('tkDel').onclick=async()=>{
+  if(!tkEditing) return;
+  const id=tkEditing.id;
+  tkItems=tkItems.filter(x=>x.id!==id);
+  closeTask(); tkRender();
+  tasksApi({op:'t_del',id}).catch(()=>{});
+};
 
 /* ---------- users database ---------- */
 let _users=null;
