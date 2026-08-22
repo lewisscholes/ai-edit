@@ -78,6 +78,34 @@ Deno.serve(async (req) => {
       await db(`chop_tasks?id=eq.${Number(body.id)}`, { method: "DELETE" });
       return json({ ok: true });
     }
+    /* roadmap, board-style (chop_roadmap) — same gate, richer ops than the
+       legacy rm_* handlers in ai-edit (which stay untouched) */
+    if (op === "r_list") {
+      return json({ items: await db(`chop_roadmap?select=*&order=created_at.desc`) });
+    }
+    if (op === "r_add") {
+      const rows = await db(`chop_roadmap`, { method: "POST", body: JSON.stringify({
+        title: String(body.title || "").slice(0, 200),
+        tag: ["feat", "bug", "biz"].includes(body.tag) ? body.tag : "feat",
+        status: ["backlog", "doing", "staged", "done"].includes(body.status) ? body.status : "backlog",
+        notes: clean(body.notes, 1000),
+        who: (u.email || "").split("@")[0],
+      }) });
+      return json({ item: rows[0] });
+    }
+    if (op === "r_upd") {
+      const patch: Record<string, unknown> = {};
+      if ("title" in body) patch.title = String(body.title || "").slice(0, 200);
+      if ("tag" in body && ["feat", "bug", "biz"].includes(body.tag)) patch.tag = body.tag;
+      if ("status" in body && ["backlog", "doing", "staged", "done"].includes(body.status)) patch.status = body.status;
+      if ("notes" in body) patch.notes = clean(body.notes, 1000);
+      const rows = await db(`chop_roadmap?id=eq.${Number(body.id)}`, { method: "PATCH", body: JSON.stringify(patch) });
+      return json({ item: rows[0] });
+    }
+    if (op === "r_del") {
+      await db(`chop_roadmap?id=eq.${Number(body.id)}`, { method: "DELETE" });
+      return json({ ok: true });
+    }
     if (op === "site_stats") {
       const now = Date.now();
       const d7 = new Date(now - 7 * 86400000).toISOString();

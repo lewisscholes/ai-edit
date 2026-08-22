@@ -413,19 +413,18 @@ circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-o
 </div>
 
 <div class="wrap hidden" id="tabRoadmap">
-  <h1>Roadmap</h1>
-  <p class="sub">Shared between all admins — changes save instantly.</p>
-  <div class="rmadd">
-    <input id="rmIn" placeholder="What needs doing? e.g. Stripe checkout for credit packs" maxlength="200">
-    <select id="rmTag"><option value="feat">Feature</option><option value="bug">Fix</option><option value="biz">Business</option></select>
-    <button class="add" id="rmAdd">Add</button>
+  <div style="display:flex;align-items:flex-start;gap:14px">
+    <div style="flex:1">
+      <h1>Roadmap</h1>
+      <p class="sub">Where Chop is heading — shared between all admins.</p>
+    </div>
+    <button class="tknew" id="rmNew">+ New item</button>
   </div>
-  <textarea id="rmNotes" placeholder="Notes (optional) — context, links, anything the other one of you needs to know…" maxlength="1000" style="width:100%;background:var(--soft2);border:1px solid var(--line);border-radius:12px;padding:11px 15px;color:var(--ink);font:inherit;font-size:12.5px;resize:vertical;min-height:44px;margin:-8px 0 18px"></textarea>
   <div class="rcols">
-    <div class="rcol2" data-st="backlog"><h3>BACKLOG <span class="cnt"></span></h3><div class="rlist"></div></div>
-    <div class="rcol2" data-st="doing"><h3>IN PROGRESS <span class="cnt"></span></h3><div class="rlist"></div></div>
-    <div class="rcol2" data-st="staged"><h3>SHIPPED · NOT LIVE <span class="cnt"></span></h3><div class="rlist"></div></div>
-    <div class="rcol2" data-st="done"><h3>LIVE <span class="cnt"></span></h3><div class="rlist"></div></div>
+    <div class="rcol2 rmcol" data-st="backlog"><h3>BACKLOG <span class="cnt"></span></h3><div class="rmlist"></div></div>
+    <div class="rcol2 rmcol" data-st="doing"><h3>IN PROGRESS <span class="cnt"></span></h3><div class="rmlist"></div></div>
+    <div class="rcol2 rmcol" data-st="staged"><h3>SHIPPED · NOT LIVE <span class="cnt"></span></h3><div class="rmlist"></div></div>
+    <div class="rcol2 rmcol" data-st="done"><h3>LIVE <span class="cnt"></span></h3><div class="rmlist"></div></div>
   </div>
 </div>
 
@@ -491,6 +490,24 @@ circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-o
     <input id="asIn" placeholder="Ask, or dictate a task…" autocomplete="off">
     <button class="asmic" id="asMic" title="Voice input"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg></button>
     <button class="assend" id="asSend" title="Send"><svg class="ic" viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6"/></svg></button>
+  </div>
+</div>
+
+<!-- roadmap item modal -->
+<div class="tkoverlay hidden" id="rmModal">
+  <div class="tkmodal">
+    <div class="tkmhead"><input id="rmTitle2" placeholder="What are we building?" maxlength="200" autocomplete="off"><button class="tkx" id="rmClose2">✕</button></div>
+    <div class="tkprops">
+      <label>STATUS<select id="rmStatus2"><option value="backlog">Backlog</option><option value="doing">In progress</option><option value="staged">Shipped · not live</option><option value="done">Live</option></select></label>
+      <label>TYPE<select id="rmTag2"><option value="feat">Feature</option><option value="bug">Fix</option><option value="biz">Business</option></select></label>
+    </div>
+    <textarea id="rmNotes2" placeholder="Notes — context, links, anything the other one of you needs." maxlength="1000"></textarea>
+    <div class="tkactions">
+      <button class="tkdel hidden" id="rmDel2">Delete</button>
+      <span style="flex:1"></span>
+      <span class="tkmeta" id="rmMeta2"></span>
+      <button class="tksave" id="rmSave2">Save item</button>
+    </div>
   </div>
 </div>
 
@@ -921,50 +938,71 @@ async function loadStats(){
   }catch(e){ $('bars').innerHTML='<div class="loading">'+e.message+'</div>'; }
 }
 
-/* ---------- roadmap ---------- */
-const ORDER=['backlog','doing','staged','done'];   // staged = shipped but not live (waiting on review/deploy)
-let rmItems=[];
+/* ---------- roadmap (board-style, matches the Dashboard) ---------- */
+let rmItems=[], rmEditing=null, rmLoaded=false;
+function loadRoadmap(){ tasksApi({op:'r_list'}).then(r=>{ rmItems=r.items||[]; rmLoaded=true; rmRender(); }).catch(()=>{}); }
+function rmTagPill(t){ return '<span class="rtag '+(t||'feat')+'">'+(t==='bug'?'FIX':t==='biz'?'BUSINESS':'FEATURE')+'</span>'; }
 function rmRender(){
-  document.querySelectorAll('.rcol2').forEach(col=>{
-    const st=col.dataset.st, list=col.querySelector('.rlist'); list.innerHTML='';
+  document.querySelectorAll('.rmcol').forEach(col=>{
+    const st=col.dataset.st, list=col.querySelector('.rmlist'); list.innerHTML='';
     const its=rmItems.filter(x=>x.status===st);
     col.querySelector('.cnt').textContent=its.length;
+    if(!its.length){ list.innerHTML='<div class="kempty">'+(rmLoaded?'Nothing here':'Loading…')+'</div>'; return; }
     its.forEach(it=>{
-      const idx=ORDER.indexOf(st);
-      const c=document.createElement('div'); c.className='rcard';
-      c.innerHTML='<b>'+String(it.title).replace(/</g,'&lt;')+'</b>'
-        +(it.notes?'<div class="rnote">'+String(it.notes).replace(/</g,'&lt;')+'</div>':'')
-        +'<div class="rrow">'
-        +'<span class="rtag '+(it.tag||'feat')+'">'+(it.tag==='bug'?'FIX':it.tag==='biz'?'BUSINESS':'FEATURE')+'</span>'
-        +'<span class="rwho">'+(it.who||'')+'</span><span class="sp"></span>'
-        +'<button class="rmv nt" title="'+(it.notes?'Edit note':'Add note')+'">✎</button>'
-        +(idx>0?'<button class="rmv bk">‹</button>':'')
-        +(idx<ORDER.length-1?'<button class="rmv fw">›</button>':'')
-        +'<button class="rmv del">✕</button></div>';
-      const fw=c.querySelector('.fw'),bk=c.querySelector('.bk'),del=c.querySelector('.del'),nt=c.querySelector('.nt');
-      if(fw) fw.onclick=async()=>{ it.status=ORDER[idx+1]; rmRender(); adminApi({op:'rm_move',id:it.id,status:it.status}).catch(()=>{}); };
-      if(bk) bk.onclick=async()=>{ it.status=ORDER[idx-1]; rmRender(); adminApi({op:'rm_move',id:it.id,status:it.status}).catch(()=>{}); };
-      del.onclick=async()=>{ rmItems=rmItems.filter(x=>x!==it); rmRender(); adminApi({op:'rm_del',id:it.id}).catch(()=>{}); };
-      nt.onclick=()=>{
-        if(c.querySelector('.rnote-edit')) return;
-        const ta=document.createElement('textarea'); ta.className='rnote-edit';
-        ta.value=it.notes||''; ta.placeholder='Write a note… (blur to save)'; ta.maxLength=1000;
-        const old=c.querySelector('.rnote'); if(old) old.replaceWith(ta); else c.querySelector('b').after(ta);
-        ta.focus();
-        ta.onblur=async()=>{ it.notes=ta.value.trim()||null; rmRender(); adminApi({op:'rm_note',id:it.id,notes:it.notes||''}).catch(()=>{}); };
-      };
+      const c=document.createElement('div'); c.className='bcard';
+      c.innerHTML='<b>'+esc(it.title)+'</b><div class="bmeta">'+rmTagPill(it.tag)
+        +'<span class="bwho u" title="'+esc(it.who||'')+'">'+esc(((it.who||'?')[0]||'?').toUpperCase())+'</span>'
+        +(it.notes?'<span class="bnotehint">✎ note</span>':'')+'</div>';
+      c.onclick=()=>openRm(it);
+      c.draggable=true;
+      c.ondragstart=e=>{ e.dataTransfer.setData('text/plain','rm:'+it.id); e.dataTransfer.effectAllowed='move'; c.classList.add('dragging'); };
+      c.ondragend=()=>c.classList.remove('dragging');
       list.appendChild(c);
     });
   });
 }
-async function loadRoadmap(){
-  try{ rmItems=(await adminApi({op:'rm_list'})).items||[]; rmRender(); }catch(e){}
+document.querySelectorAll('.rmcol').forEach(col=>{
+  col.addEventListener('dragover',e=>{ e.preventDefault(); col.classList.add('dragover'); });
+  col.addEventListener('dragleave',()=>col.classList.remove('dragover'));
+  col.addEventListener('drop',e=>{
+    e.preventDefault(); col.classList.remove('dragover');
+    const d=e.dataTransfer.getData('text/plain'); if(!d.startsWith('rm:')) return;
+    const it=rmItems.find(x=>x.id===Number(d.slice(3)));
+    if(!it||it.status===col.dataset.st) return;
+    it.status=col.dataset.st; rmRender();
+    tasksApi({op:'r_upd',id:it.id,status:it.status}).catch(()=>loadRoadmap());
+  });
+});
+function openRm(it){
+  rmEditing=it||null;
+  $('rmTitle2').value=it?it.title:'';
+  $('rmStatus2').value=it?it.status:'backlog';
+  $('rmTag2').value=it?(it.tag||'feat'):'feat';
+  $('rmNotes2').value=(it&&it.notes)?it.notes:'';
+  $('rmDel2').classList.toggle('hidden',!it);
+  $('rmMeta2').textContent=it?('added by '+(it.who||'?')):'';
+  $('rmModal').classList.remove('hidden');
+  setTimeout(()=>$('rmTitle2').focus(),50);
 }
-$('rmAdd').onclick=async()=>{
-  const v=$('rmIn').value.trim(); if(!v) return;
-  const notes=$('rmNotes').value.trim();
-  $('rmIn').value=''; $('rmNotes').value='';
-  try{ const r=await adminApi({op:'rm_add',title:v,tag:$('rmTag').value,notes}); rmItems.unshift(r.item); rmRender(); }catch(e){}
+function closeRm(){ $('rmModal').classList.add('hidden'); rmEditing=null; }
+$('rmNew').onclick=()=>openRm(null);
+$('rmClose2').onclick=closeRm;
+$('rmModal').addEventListener('click',e=>{ if(e.target===$('rmModal')) closeRm(); });
+$('rmSave2').onclick=async()=>{
+  const ed=rmEditing;
+  const f={title:$('rmTitle2').value.trim(),status:$('rmStatus2').value,tag:$('rmTag2').value,notes:$('rmNotes2').value.trim()||null};
+  if(!f.title){ $('rmTitle2').focus(); return; }
+  closeRm();
+  try{
+    if(ed){ Object.assign(ed,f); rmRender(); await tasksApi({op:'r_upd',id:ed.id,...f}); }
+    else{ const r=await tasksApi({op:'r_add',...f}); rmItems.unshift(r.item); rmRender(); }
+  }catch(e){}
+  loadRoadmap();
+};
+$('rmDel2').onclick=async()=>{
+  if(!rmEditing) return; const id=rmEditing.id;
+  rmItems=rmItems.filter(x=>x.id!==id); closeRm(); rmRender();
+  tasksApi({op:'r_del',id}).catch(()=>{});
 };
 /* light / dark */
 (function(){
@@ -977,7 +1015,6 @@ $('rmAdd').onclick=async()=>{
   };
   sync();
 })();
-$('rmIn').addEventListener('keydown',e=>{ if(e.key==='Enter') $('rmAdd').click(); });
 
 
 /* ---------- activity heatmap ----------
