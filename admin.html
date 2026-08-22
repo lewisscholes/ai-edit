@@ -227,6 +227,36 @@ circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-o
 .tksave{background:var(--blue);color:#fff;border-radius:11px;padding:10px 22px;font-weight:800}
 .tksave:hover{filter:brightness(1.08)}
 @media(max-width:520px){.tkprops{grid-template-columns:1fr}}
+
+/* ---------- website tab ---------- */
+.wsh{font-size:12px;letter-spacing:.06em;color:var(--mut);margin:0 0 10px}
+.wsprev{display:grid;grid-template-columns:1.55fr 1fr;gap:18px;margin-top:6px}
+@media(max-width:900px){.wsprev{grid-template-columns:1fr}}
+.wsdesk{border:1px solid var(--line);border-radius:14px;overflow:hidden;height:430px;background:#fff}
+.wsdesk iframe{width:1280px;height:2600px;transform:scale(0.465);transform-origin:0 0;border:0;pointer-events:none}
+.wsmob{width:252px;margin:0 auto;border:7px solid #23262b;border-radius:30px;overflow:hidden;height:508px;background:#fff;box-shadow:0 18px 40px rgba(0,0,0,.3)}
+.wsmob iframe{width:390px;height:2400px;transform:scale(0.61);transform-origin:0 0;border:0;pointer-events:none}
+
+/* ---------- assistant ---------- */
+.asfab{position:fixed;right:22px;bottom:22px;width:54px;height:54px;border-radius:50%;background:linear-gradient(135deg,#1a6dff,#4e8dd8);color:#fff;display:grid;place-items:center;box-shadow:0 12px 30px rgba(26,109,255,.45);z-index:65;font-size:21px;transition:.15s}
+.asfab:hover{transform:scale(1.07)}
+.aspanel{position:fixed;right:22px;bottom:88px;width:min(376px,calc(100vw - 32px));height:min(540px,72vh);background:var(--panel);border:1px solid var(--line);border-radius:20px;box-shadow:0 26px 60px rgba(0,0,0,.5);z-index:66;display:flex;flex-direction:column;overflow:hidden}
+.ashead{display:flex;align-items:center;gap:8px;padding:13px 15px;border-bottom:1px solid var(--line);font-size:13.5px}
+.asdot{width:8px;height:8px;border-radius:50%;background:#2fbf8f;animation:lpulse 1.9s ease-in-out infinite}
+.asx{width:28px;height:28px;border-radius:8px;border:1px solid var(--line);color:var(--mut)}
+.asx:hover{color:var(--ink);border-color:var(--blue)}
+.asmsgs{flex:1;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:9px}
+.asm{max-width:88%;padding:9px 13px;border-radius:14px;font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+.asm.a{background:var(--soft2);border:1px solid var(--line);border-bottom-left-radius:5px;align-self:flex-start}
+.asm.u{background:var(--blue);color:#fff;border-bottom-right-radius:5px;align-self:flex-end}
+.asm.act{background:var(--green-soft);color:var(--green);border:1px solid rgba(47,191,143,.3);font-weight:700;align-self:flex-start}
+@keyframes asblink{50%{opacity:.45}}
+.asm.load{animation:asblink 1.2s infinite;color:var(--mut)}
+.asrow{display:flex;gap:7px;padding:11px;border-top:1px solid var(--line)}
+.asrow input{flex:1;background:var(--soft2);border:1px solid var(--line);border-radius:11px;padding:10px 12px;font-size:12.5px;min-width:0}
+.asmic,.assend{width:38px;height:38px;border-radius:11px;border:1px solid var(--line);color:var(--mut);display:grid;place-items:center;flex:none}
+.assend{background:var(--blue);color:#fff;border:none}
+.asmic.rec{background:#e0355f;color:#fff;border-color:#e0355f;animation:lpulse 1.1s infinite}
 </style>
 </head>
 <body>
@@ -269,7 +299,7 @@ circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-o
 
   <div class="impact">
     <div class="icard hero-card"><div class="big" id="cSign">–</div><div class="lbl">Signups</div><div class="sub2" id="cSignSub">in range · <span id="cSignAll">–</span> all time</div></div>
-    <div class="icard"><div class="big" id="cCred">–</div><div class="lbl">Credits bought</div><div class="sub2" id="cCredSub">£0 · Stripe not live yet</div></div>
+    <div class="icard"><div class="big" id="cCred">–</div><div class="lbl">Credits bought</div><div class="sub2" id="cCredSub">£0 · App Store + Stripe</div></div>
     <div class="icard"><div class="big" id="cEdit">–</div><div class="lbl">Videos edited</div><div class="sub2">processed in range · <span id="cEditAll">–</span> all time</div></div>
     <div class="icard"><div class="big" id="cPub">–</div><div class="lbl">Videos published</div><div class="sub2">exported &amp; downloaded in range</div></div>
   </div>
@@ -429,6 +459,34 @@ circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-o
   </div>
 </div>
 
+<!-- Website: live analytics + previews -->
+<div class="wrap hidden" id="tabWebsite">
+  <h1>Website</h1>
+  <p class="sub">chopedit.com — live traffic, App Store clicks, and how the lander looks right now.</p>
+  <div class="impact">
+    <div class="icard"><div class="big" id="wsV7">–</div><div class="lbl">Visitors · 7 days</div><div class="sub2"><span id="wsVAll">–</span> all time</div></div>
+    <div class="icard"><div class="big" id="wsC7">–</div><div class="lbl">App Store clicks · 7 days</div><div class="sub2"><span id="wsCAll">–</span> all time</div></div>
+    <div class="icard"><div class="big" id="wsCTR">–</div><div class="lbl">Click-through rate</div><div class="sub2">clicks ÷ visitors · 7 days</div></div>
+    <div class="icard"><div class="big" style="font-size:17px;padding-top:6px"><a href="https://chopedit.com" target="_blank" style="color:var(--blue);text-decoration:none">chopedit.com ↗</a></div><div class="lbl">Live URL</div><div class="sub2">GitHub Pages · SSL · CNAME</div></div>
+  </div>
+  <div class="wsprev">
+    <div><h3 class="wsh">DESKTOP</h3><div class="wsdesk"><iframe src="https://chopedit.com/?preview=1" loading="lazy" title="Desktop preview"></iframe></div></div>
+    <div><h3 class="wsh">MOBILE</h3><div class="wsmob"><iframe src="https://chopedit.com/?preview=1" loading="lazy" title="Mobile preview"></iframe></div></div>
+  </div>
+</div>
+
+<!-- assistant: bottom-right copilot -->
+<button class="asfab hidden" id="asFab" title="Chop assistant">✦</button>
+<div class="aspanel hidden" id="asPanel">
+  <div class="ashead"><b>Chop Assistant</b><span class="asdot"></span><span style="flex:1"></span><button class="asx" id="asClose">✕</button></div>
+  <div class="asmsgs" id="asMsgs"><div class="asm a">Morning. Ask me anything on the numbers — signups, revenue, users — or tell me to create a task ("task for Aaron due 04/10: post the TikTok piece"). Tap the mic to talk.</div></div>
+  <div class="asrow">
+    <input id="asIn" placeholder="Ask, or dictate a task…" autocomplete="off">
+    <button class="asmic" id="asMic" title="Voice input"><svg class="ic" viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg></button>
+    <button class="assend" id="asSend" title="Send"><svg class="ic" viewBox="0 0 24 24"><path d="M4 12h15M13 6l6 6-6 6"/></svg></button>
+  </div>
+</div>
+
 <div class="glassnav hidden" id="gnav">
   <button class="gbtn on" data-t="Board"><svg class="ic" viewBox="0 0 24 24"><path d="M4 11.2 12 4l8 7.2"/><path d="M6.2 9.8V20h11.6V9.8"/><path d="M10 20v-5.5h4V20"/></svg>Dashboard</button>
   <button class="gbtn" data-t="Overview"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3.2v17.6"/><path d="M16.6 6.6c-1-1.1-2.7-1.8-4.5-1.8-2.5 0-4.5 1.4-4.5 3.3 0 4.3 9 2.3 9 6.6 0 2-2.1 3.5-4.7 3.5-2 0-3.8-.9-4.7-2.1"/></svg>Overview</button>
@@ -438,6 +496,7 @@ circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-o
       <button class="opsit" data-t="Users"><svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19.5c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><path d="M16.5 11.2A2.8 2.8 0 1 0 16 5.7M17 14.6c2.2.4 3.8 2.2 3.8 4.9"/></svg>Users</button>
       <button class="opsit" data-t="Activity"><svg class="ic" viewBox="0 0 24 24"><path d="M12 21s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Activity</button>
       <button class="opsit" data-t="Roadmap"><svg class="ic" viewBox="0 0 24 24"><path d="M4 19V5M4 6h11l-2.5 3L15 12H4M20 19V9"/></svg>Roadmap</button>
+      <button class="opsit" data-t="Website"><svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.6 2.3 3.9 5.2 3.9 8.5s-1.3 6.2-3.9 8.5c-2.6-2.3-3.9-5.2-3.9-8.5s1.3-6.2 3.9-8.5z"/></svg>Website</button>
     </div>
   </div>
 </div>
@@ -481,7 +540,9 @@ async function boot(){
 function show(m){
   $('gate').classList.toggle('hidden',m!=='gate');
   $('gnav').classList.toggle('hidden',m!=='app');
-  ['Board','Overview','Users','Activity','Roadmap'].forEach(t=>$('tab'+t).classList.add('hidden'));
+  TABS.forEach(t=>$('tab'+t).classList.add('hidden'));
+  $('asFab').classList.toggle('hidden',m!=='app');
+  if(m!=='app') $('asPanel').classList.add('hidden');
   if(m==='app') goTab('Board');
 }
 $('gGo').onclick=async()=>{
@@ -494,7 +555,7 @@ $('gPass').addEventListener('keydown',e=>{ if(e.key==='Enter') $('gGo').click();
 $('signOut').onclick=async()=>{ await sb.auth.signOut(); location.reload(); };
 
 /* ---------- tabs: Dashboard (board) · Overview ($) · Operations pop-up ---------- */
-const TABS=['Board','Overview','Users','Activity','Roadmap'];
+const TABS=['Board','Overview','Users','Activity','Roadmap','Website'];
 function goTab(t){
   TABS.forEach(x=>$('tab'+x).classList.toggle('hidden',x!==t));
   document.querySelectorAll('.gbtn[data-t]').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
@@ -503,6 +564,7 @@ function goTab(t){
   if(t==='Users') loadUsers();
   if(t==='Activity') loadActivity();
   if(t==='Board') loadTasks();
+  if(t==='Website') loadWebsite();
 }
 document.querySelectorAll('.gbtn[data-t]').forEach(b=>b.onclick=()=>{ $('opsMenu').classList.add('hidden'); goTab(b.dataset.t); });
 $('opsBtn').onclick=(e)=>{ e.stopPropagation(); $('opsMenu').classList.toggle('hidden'); };
@@ -602,6 +664,72 @@ $('tkDel').onclick=async()=>{
   tasksApi({op:'t_del',id}).catch(()=>{});
 };
 
+/* ---------- website ---------- */
+async function loadWebsite(){
+  try{
+    const d=await tasksApi({op:'site_stats'});
+    $('wsV7').textContent=d.views7; $('wsVAll').textContent=d.viewsAll;
+    $('wsC7').textContent=d.clicks7; $('wsCAll').textContent=d.clicksAll;
+    $('wsCTR').textContent=d.views7?Math.round(d.clicks7/d.views7*100)+'%':'—';
+  }catch(e){}
+}
+
+/* ---------- assistant ---------- */
+let asHist=[];
+async function assistApi(){
+  const {data:{session:s}}=await sb.auth.getSession();
+  const r=await fetch(SB_URL+'/functions/v1/chop-admin-assist',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','apikey':ANON_KEY,'Authorization':'Bearer '+(s?s.access_token:ANON_KEY)},
+    body:JSON.stringify({messages:asHist})
+  });
+  const j=await r.json();
+  if(!r.ok) throw new Error(j.error||('HTTP '+r.status));
+  return j;
+}
+function asAdd(role,text,cls){
+  const d=document.createElement('div');
+  d.className='asm '+(cls||(role==='user'?'u':'a'));
+  d.textContent=text;
+  $('asMsgs').appendChild(d); $('asMsgs').scrollTop=1e9;
+  return d;
+}
+async function asSendMsg(){
+  const v=$('asIn').value.trim(); if(!v) return;
+  $('asIn').value='';
+  asAdd('user',v); asHist.push({role:'user',content:v});
+  const ld=asAdd('assistant','Thinking…','a load');
+  try{
+    const r=await assistApi();
+    ld.remove();
+    asAdd('assistant',r.reply); asHist.push({role:'assistant',content:r.reply});
+    (r.actions||[]).forEach(a=>{
+      if(a.type==='task_created'){ asAdd('assistant','✓ Task added to the board: '+a.title,'act'); loadTasks(); }
+    });
+    asHist=asHist.slice(-16);
+  }catch(e){ ld.classList.remove('load'); ld.textContent='⚠ '+e.message; }
+}
+$('asSend').onclick=asSendMsg;
+$('asIn').addEventListener('keydown',e=>{ if(e.key==='Enter') asSendMsg(); });
+$('asFab').onclick=()=>{
+  $('asPanel').classList.toggle('hidden');
+  if(!$('asPanel').classList.contains('hidden')) $('asIn').focus();
+};
+$('asClose').onclick=()=>$('asPanel').classList.add('hidden');
+/* voice — Web Speech API: tap mic, speak, it sends when you stop */
+let asRec=null, asListening=false;
+$('asMic').onclick=()=>{
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){ asAdd('assistant','Voice input needs Chrome or Safari.','a'); return; }
+  if(asListening){ try{asRec.stop();}catch(e){} return; }
+  asRec=new SR(); asRec.lang='en-GB'; asRec.interimResults=true; asRec.continuous=false;
+  asListening=true; $('asMic').classList.add('rec');
+  asRec.onresult=e=>{ let t=''; for(const res of e.results) t+=res[0].transcript; $('asIn').value=t; };
+  asRec.onend=()=>{ asListening=false; $('asMic').classList.remove('rec'); if($('asIn').value.trim()) asSendMsg(); };
+  asRec.onerror=()=>{ asListening=false; $('asMic').classList.remove('rec'); };
+  asRec.start();
+};
+
 /* ---------- users database ---------- */
 let _users=null;
 function esc(v){ return String(v==null?'':v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -662,7 +790,7 @@ function paintUsers(){
   $('uDry').textContent=_users.filter(u=>(u.credits||0)<=0).length;
   const tc=_users.reduce((a,u)=>a+u.bought,0), tp=_users.reduce((a,u)=>a+u.spent,0);
   $('uBought').textContent=tc;
-  $('uSpend').textContent=tp?('£'+(tp/100).toFixed(2)+' all time'):'all time · Stripe not live yet';
+  $('uSpend').textContent=tp?('£'+(tp/100).toFixed(2)+' all time'):'all time · App Store + Stripe';
   let h='<tr><th>Creator</th><th>TikTok</th><th>Signed up</th><th>Stage</th><th>Credits</th><th>Bought</th><th>Videos</th></tr>';
   if(!rows.length) h+='<tr><td colspan="7" class="loading">No creators match that search.</td></tr>';
   rows.forEach(u=>{
@@ -728,7 +856,7 @@ async function loadStats(){
     $('cSign').textContent=d.signups;
     $('cSignAll').textContent=d.totalUsers;
     $('cCred').textContent=d.credBought;
-    $('cCredSub').textContent='£'+(d.penceBought/100).toFixed(2)+(d.penceBought?'':' · Stripe not live yet');
+    $('cCredSub').textContent='£'+(d.penceBought/100).toFixed(2)+(d.penceBought?'':' · App Store + Stripe');
     $('cEdit').textContent=d.edited;
     $('cEditAll').textContent=d.totalJobs;
     $('cPub').textContent=d.published;

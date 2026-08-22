@@ -1280,6 +1280,25 @@ final class ChopAPI: ObservableObject {
         if let l = row["community_label"] as? String, !l.isEmpty { communityLabel = l }
     }
 
+    /// REAL REVENUE (Lewis 22 Aug): record an App Store purchase in the same
+    /// chop_purchases table Stripe uses, so the admin's revenue is actual
+    /// money. Apple tx id is unique-indexed server-side — retries can't
+    /// double-count. Fire-and-forget: failures never touch the credit grant.
+    func logPurchase(credits n: Int, pence: Int, appleTx: String) async {
+        guard let url = URL(string: "\(SB_URL)/rest/v1/chop_purchases") else { return }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "user_id": userId, "credits": n, "pence": pence,
+            "source": "appstore", "apple_tx": appleTx
+        ])
+        _ = try? await URLSession.shared.data(for: req)
+    }
+
     /// One credit per video, same as the web app.
     func spendCredit() async {
         let next = max(0, credits - 1)
@@ -3651,12 +3670,39 @@ final class ChopPlayer: ObservableObject {
 
     var scrubbing = false
 
+    // SCRUB COALESCING (Lewis 22 Aug — "preview must keep up with a fast
+    // scrub"): the old path fired an unthrottled player.seek on EVERY drag
+    // event (up to 120/s), so AVPlayer queued stale seeks and the picture
+    // trailed the finger, then caught up late. Apple's pattern instead: ONE
+    // seek in flight at a time, always chasing the LATEST finger position —
+    // stale positions are dropped, the decoder paints as many real frames as
+    // it can, and the frame under the finger is the frame you see. Tolerance
+    // tightened 0.25s → 0.08s (the 1080p proxy decodes this comfortably) so
+    // the shown frame is also precise, not keyframe-snapped. seekExact and
+    // the trim-preview throttle are untouched.
+    private var seekInFlight = false
+    private var pendingScrub: Double? = nil
+
     func seek(to seconds: Double) {
-        let t = CMTime(seconds: max(0, min(duration, seconds)), preferredTimescale: 600)
-        time = t.seconds
-        // tolerant seek: the stick stays under the finger, the picture catches up
-        player.seek(to: t, toleranceBefore: CMTime(seconds: 0.25, preferredTimescale: 600),
-                          toleranceAfter:  CMTime(seconds: 0.25, preferredTimescale: 600))
+        let clamped = max(0, min(duration, seconds))
+        time = clamped        // the stick stays under the finger, instantly
+        pendingScrub = clamped
+        pumpScrub()
+    }
+
+    private func pumpScrub() {
+        guard !seekInFlight, let target = pendingScrub else { return }
+        pendingScrub = nil
+        seekInFlight = true
+        let tol = CMTime(seconds: 0.08, preferredTimescale: 600)
+        player.seek(to: CMTime(seconds: target, preferredTimescale: 600),
+                    toleranceBefore: tol, toleranceAfter: tol) { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.seekInFlight = false
+                self.pumpScrub()   // chase the newest position, if one arrived
+            }
+        }
     }
 
     func seekExact(to seconds: Double) {
@@ -6744,6 +6790,11 @@ enum ChopPacks {
     static func credits(in productID: String) -> Int {
         Int(productID.split(separator: ".").last.map(String.init) ?? "") ?? 0
     }
+    /// GBP pence per pack — mirrors the App Store Connect prices above, used
+    /// to log real revenue rows when a purchase completes.
+    static func pence(for credits: Int) -> Int {
+        [5: 499, 50: 4499, 100: 8499, 150: 11999, 200: 14999, 250: 17499][credits] ?? 0
+    }
 }
 
 @MainActor
@@ -6804,6 +6855,12 @@ final class ChopStore: ObservableObject {
         if n > 0, let target = grantAPI {
             await target.addCredits(n)
             lastGranted = n
+            // REAL REVENUE (Lewis 22 Aug): every IAP grant also writes a
+            // chop_purchases row (source=appstore, Apple tx id de-duped by a
+            // unique index) so the admin's revenue/credits-bought stats are
+            // actual money, not just Stripe. Fire-and-forget — a network blip
+            // here must never affect the grant itself.
+            await target.logPurchase(credits: n, pence: ChopPacks.pence(for: n), appleTx: String(t.id))
         }
         await t.finish()
     }

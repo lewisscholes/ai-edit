@@ -78,6 +78,24 @@ Deno.serve(async (req) => {
       await db(`chop_tasks?id=eq.${Number(body.id)}`, { method: "DELETE" });
       return json({ ok: true });
     }
+    if (op === "site_stats") {
+      const now = Date.now();
+      const d7 = new Date(now - 7 * 86400000).toISOString();
+      const d30 = new Date(now - 30 * 86400000).toISOString();
+      const ev = await db(`chop_site_events?select=type,created_at&created_at=gte.${d30}&limit=50000`);
+      const cnt = (t: string, since: string) => ev.filter((e: any) => e.type === t && e.created_at >= since).length;
+      const all = await db(`chop_site_events?select=type&limit=100000`);
+      const perDay: Record<string, { v: number; c: number }> = {};
+      ev.forEach((e: any) => { const k = e.created_at.slice(0, 10);
+        const d = (perDay[k] ||= { v: 0, c: 0 }); if (e.type === "view") d.v++; else d.c++; });
+      return json({
+        views7: cnt("view", d7), clicks7: cnt("store_click", d7),
+        views30: cnt("view", d30), clicks30: cnt("store_click", d30),
+        viewsAll: all.filter((e: any) => e.type === "view").length,
+        clicksAll: all.filter((e: any) => e.type === "store_click").length,
+        perDay,
+      });
+    }
     return json({ error: "unknown op" }, 400);
   } catch (e) {
     return json({ error: String((e as Error)?.message || e) }, 500);

@@ -617,6 +617,24 @@ document.querySelectorAll('.rv').forEach(el=>io.observe(el));
     document.designMode='on';
   };
 })();
+
+/* ---- lightweight analytics: views + App Store clicks (own database, no
+   third parties). Admin previews (?preview=1) are never counted. ---- */
+(function(){
+  if(/preview=1/.test(location.search)) return;
+  var U='https://vcrforlyuhapvkewsogq.supabase.co';
+  var K='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZjcmZvcmx5dWhhcHZrZXdzb2dxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzODk4NzAsImV4cCI6MjA5NTk2NTg3MH0.lcFC5aJFUGYrj4iw8oJ8R1bci4y_-aYKyQg8v9zrMqQ';
+  function ev(t){
+    try{ fetch(U+'/rest/v1/chop_site_events',{method:'POST',keepalive:true,
+      headers:{apikey:K,'Content-Type':'application/json',Prefer:'return=minimal'},
+      body:JSON.stringify({type:t,path:location.pathname,ref:(document.referrer||'').slice(0,200)||null,ua:navigator.userAgent.slice(0,180)})}); }catch(e){}
+  }
+  ev('view');
+  document.addEventListener('click',function(e){
+    var a=e.target && e.target.closest ? e.target.closest('a.appstore') : null;
+    if(a) ev('store_click');
+  },true);
+})();
 </script>
 </body>
 </html>
