@@ -400,10 +400,10 @@ circle.ping{fill:none;stroke:#5fe0b3;stroke-width:1.4;animation:ping 1.6s ease-o
     <button class="tknew" id="tkNew">+ New task</button>
   </div>
   <div class="rcols">
-    <div class="rcol2 bcol" data-st="todo"><h3>TO DO <span class="cnt"></span></h3><div class="blist"></div></div>
-    <div class="rcol2 bcol" data-st="doing"><h3>IN PROGRESS <span class="cnt"></span></h3><div class="blist"></div></div>
-    <div class="rcol2 bcol" data-st="review"><h3>WAITING / REVIEW <span class="cnt"></span></h3><div class="blist"></div></div>
-    <div class="rcol2 bcol" data-st="done"><h3>DONE <span class="cnt"></span></h3><div class="blist"></div></div>
+    <div class="rcol2 tcol" data-st="todo"><h3>TO DO <span class="cnt"></span></h3><div class="blist"></div></div>
+    <div class="rcol2 tcol" data-st="doing"><h3>IN PROGRESS <span class="cnt"></span></h3><div class="blist"></div></div>
+    <div class="rcol2 tcol" data-st="review"><h3>WAITING / REVIEW <span class="cnt"></span></h3><div class="blist"></div></div>
+    <div class="rcol2 tcol" data-st="done"><h3>DONE <span class="cnt"></span></h3><div class="blist"></div></div>
   </div>
 </div>
 
@@ -528,7 +528,7 @@ function tkChip(w){
   return '<span class="bwho '+cls+'" title="'+esc(w||'Unassigned')+'">'+init+'</span>';
 }
 function tkRender(){
-  document.querySelectorAll('.bcol').forEach(col=>{
+  document.querySelectorAll('.tcol').forEach(col=>{
     const st=col.dataset.st, list=col.querySelector('.blist'); list.innerHTML='';
     const its=tkItems.filter(x=>x.status===st);
     col.querySelector('.cnt').textContent=its.length;
@@ -571,7 +571,7 @@ $('tkSave').onclick=async()=>{
   closeTask();
   try{
     if(ed){ Object.assign(ed,f); tkRender(); await tasksApi({op:'t_upd',id:ed.id,...f}); }
-    else{ const r=await tasksApi({op:'t_add',...f}); tkItems.unshift(r.item); }
+    else{ const r=await tasksApi({op:'t_add',...f}); tkItems.unshift(r.item); tkRender(); }
   }catch(e){}
   loadTasks();
 };
