@@ -1258,6 +1258,26 @@ final class ChopAPI: ObservableObject {
         profileAvatar = (row["avatar"] as? String) ?? ""
         signupBonus = (row["signup_bonus"] as? Bool) ?? false
         needsProfileSetup = profileName.trimmingCharacters(in: .whitespaces).isEmpty
+        await loadRemoteConfig()
+    }
+
+    // Server-driven config (Lewis 21 Aug): chop_config row 1. Lets us light up
+    // things like "Join community" (WhatsApp link) from the database with NO
+    // app update or review. URL null/empty = the item simply doesn't render.
+    @Published var communityURL: URL? = nil
+    @Published var communityLabel = "Join the community"
+    func loadRemoteConfig() async {
+        guard let url = URL(string: "\(SB_URL)/rest/v1/chop_config?select=community_url,community_label&id=eq.1") else { return }
+        var req = URLRequest(url: url)
+        req.setValue(SB_ANON, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+        guard let (data, _) = try? await URLSession.shared.data(for: req),
+              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let row = rows.first else { return }
+        if let s = row["community_url"] as? String, !s.isEmpty, let u = URL(string: s) {
+            communityURL = u
+        } else { communityURL = nil }
+        if let l = row["community_label"] as? String, !l.isEmpty { communityLabel = l }
     }
 
     /// One credit per video, same as the web app.
@@ -2717,6 +2737,14 @@ struct ChopRootView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { showTour = true }
             }
             menuItem("creditcard", "Billing") { menuThen { showBilling = true } }
+            // server-driven (Lewis 21 Aug): only exists when chop_config has a
+            // community_url — toggled from the database, no app update needed
+            if let cu = api.communityURL {
+                menuItem("person.2", api.communityLabel) {
+                    showProfileMenu = false
+                    UIApplication.shared.open(cu)
+                }
+            }
             menuItem("rectangle.portrait.and.arrow.right", "Sign out") {
                 showProfileMenu = false
                 api.signOut()
